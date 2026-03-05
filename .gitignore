@@ -1,0 +1,16 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyc
+.pytest_cache/
+
+# Runtime data
+*.sqlite3
+*.db
+grok_data/
+
+# Backups
+*.bak
+
+# Temp
+monitor_repo_tmp/

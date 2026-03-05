@@ -1,0 +1,2605 @@
+[
+  {
+    "category": "Geography",
+    "question": "What is the capital of France?",
+    "choices": [
+      "Paris",
+      "Berlin",
+      "Rome",
+      "Madrid"
+    ],
+    "answer_index": 0
+  },
+  {
+    "category": "Science",
+    "question": "Which planet is known as the Red Planet?",
+    "choices": [
+      "Venus",
+      "Mars",
+      "Jupiter",
+      "Saturn"
+    ],
+    "answer_index": 1
+  },
+  {
+    "category": "Literature",
+    "question": "Who wrote 'Romeo and Juliet'?",
+    "choices": [
+      "Charles Dickens",
+      "William Shakespeare",
+      "Jane Austen",
+      "Mark Twain"
+    ],
+    "answer_index": 1
+  },
+  {
+    "category": "Animals",
+    "question": "What is the largest mammal?",
+    "choices": [
+      "Elephant",
+      "Blue whale",
+      "Giraffe",
+      "Hippopotamus"
+    ],
+    "answer_index": 1
+  },
+  {
+    "category": "History",
+    "question": "What year did the first man land on the Moon?",
+    "answer": "1969"
+  },
+  {
+    "category": "Languages",
+    "question": "Which language has the most native speakers?",
+    "choices": [
+      "English",
+      "Spanish",
+      "Mandarin Chinese",
+      "Hindi"
+    ],
+    "answer_index": 2
+  },
+  {
+    "category": "Geography",
+    "question": "How many continents are there on Earth?",
+    "choices": [
+      "5",
+      "6",
+      "7",
+      "8"
+    ],
+    "answer_index": 2
+  },
+  {
+    "category": "Science",
+    "question": "What is H2O commonly known as?",
+    "answer": "water"
+  },
+  {
+    "category": "Science",
+    "question": "Which element has the chemical symbol 'O'?",
+    "choices": [
+      "Gold",
+      "Oxygen",
+      "Silver",
+      "Iron"
+    ],
+    "answer_index": 1
+  },
+  {
+    "category": "Technology",
+    "question": "In computing, what does 'CPU' stand for?",
+    "answer": "central processing unit"
+  },
+  {
+    "category": "Art",
+    "question": "Who painted the Mona Lisa?",
+    "choices": [
+      "Pablo Picasso",
+      "Vincent van Gogh",
+      "Leonardo da Vinci",
+      "Claude Monet"
+    ],
+    "answer_index": 2
+  },
+  {
+    "category": "Geography",
+    "question": "Which ocean is the largest?",
+    "choices": [
+      "Atlantic",
+      "Pacific",
+      "Indian",
+      "Arctic"
+    ],
+    "answer_index": 1
+  },
+  {
+    "category": "Science",
+    "question": "What is the boiling point of water at sea level in Celsius?",
+    "answer": "100"
+  },
+  {
+    "category": "History",
+    "question": "Which country gifted the Statue of Liberty to the United States?",
+    "answer": "france"
+  },
+  {
+    "category": "Geography",
+    "question": "What currency is used in Japan?",
+    "choices": [
+      "Yen",
+      "Won",
+      "Dollar",
+      "Euro"
+    ],
+    "answer_index": 0
+  },
+  {
+    "category": "Science",
+    "question": "What gas do plants absorb from the atmosphere?",
+    "answer": "carbon dioxide"
+  },
+  {
+    "category": "Sports",
+    "question": "Which sport uses a shuttlecock?",
+    "choices": [
+      "Tennis",
+      "Badminton",
+      "Squash",
+      "Table tennis"
+    ],
+    "answer_index": 1
+  },
+  {
+    "category": "Math",
+    "question": "What is the smallest prime number?",
+    "answer": "2"
+  },
+  {
+    "category": "Sports",
+    "question": "Which city hosted the 2016 Summer Olympics?",
+    "choices": [
+      "Tokyo",
+      "Rio de Janeiro",
+      "London",
+      "Beijing"
+    ],
+    "answer_index": 1
+  },
+  {
+    "category": "Literature",
+    "question": "Who is the author of '1984'?",
+    "answer": "george orwell"
+  },
+  {
+    "category": "Science",
+    "question": "What is the chemical formula for table salt?",
+    "answer": "nacl"
+  },
+  {
+    "category": "Music",
+    "question": "Which instrument has keys, pedals, and strings?",
+    "choices": [
+      "Guitar",
+      "Piano",
+      "Violin",
+      "Flute"
+    ],
+    "answer_index": 1
+  },
+  {
+    "category": "Animals",
+    "question": "Which animal is known as the 'King of the Jungle'?",
+    "answer": "lion"
+  },
+  {
+    "category": "Science",
+    "question": "What is the largest planet in our solar system?",
+    "answer": "jupiter"
+  },
+  {
+    "category": "Culture",
+    "question": "Which country is the origin of the tango dance?",
+    "answer": "argentina"
+  },
+  {
+    "category": "Science",
+    "question": "Which metal is liquid at room temperature?",
+    "answer": "mercury"
+  },
+  {
+    "category": "Geography",
+    "question": "What is the capital city of Canada?",
+    "answer": "ottawa"
+  },
+  {
+    "category": "Movies",
+    "question": "Which movie features the character 'Darth Vader'?",
+    "answer": "star wars"
+  },
+  {
+    "category": "Geography",
+    "question": "What is the main language spoken in Brazil?",
+    "answer": "portuguese"
+  },
+  {
+    "category": "Math",
+    "question": "How many sides does a hexagon have?",
+    "answer": "6"
+  },
+  {
+    "category": "Geography",
+    "question": "What 2 countries border the Dead Sea?",
+    "answer": "israel and jordan"
+  },
+  {
+    "category": "History",
+    "question": "Who sought to create The Great Society?",
+    "answer": "lyndon johnson"
+  },
+  {
+    "category": "TV Film and Stage",
+    "question": "On the roseanne show who was d.j?",
+    "answer": "david jacob"
+  },
+  {
+    "category": "Tools",
+    "question": "Axe with an arched blade at right angle to handle?",
+    "answer": "adze"
+  },
+  {
+    "category": "Geography",
+    "question": "In what Australian state would you find Ballarat?",
+    "answer": "victoria"
+  },
+  {
+    "category": "Word Play",
+    "question": "Unscramble this Word: l e a c p a?",
+    "answer": "palace"
+  },
+  {
+    "category": "Word Play",
+    "question": "Unscramble snioy?",
+    "answer": "noisy"
+  },
+  {
+    "category": "Sport and Leisure",
+    "question": "New Zealands Rugby team is know as the __ ____?",
+    "answer": "all blacks"
+  },
+  {
+    "category": "Animals",
+    "question": "What is the name given to a group of doves?",
+    "answer": "flight"
+  },
+  {
+    "category": "History",
+    "question": "Who was the first President of the United States?",
+    "answer": "george washington"
+  },
+  {
+    "category": "Geography",
+    "question": "Which country has the most islands in the world?",
+    "answer": "sweden"
+  },
+  {
+    "category": "Science",
+    "question": "What is the speed of light?",
+    "answer": "299792458 meters per second"
+  },
+  {
+    "category": "Movies",
+    "question": "Who directed 'Jurassic Park'?",
+    "answer": "steven spielberg"
+  },
+  {
+    "category": "Music",
+    "question": "Which band released the album 'Abbey Road'?",
+    "answer": "the beatles"
+  },
+  {
+    "category": "Sports",
+    "question": "How many players are on a soccer team?",
+    "answer": "11"
+  },
+  {
+    "category": "Food",
+    "question": "What is the main ingredient in guacamole?",
+    "answer": "avocado"
+  },
+  {
+    "category": "History",
+    "question": "In which year did World War II end?",
+    "answer": "1945"
+  },
+  {
+    "category": "Science",
+    "question": "What is the chemical symbol for gold?",
+    "answer": "au"
+  },
+  {
+    "category": "Geography",
+    "question": "What is the longest river in the world?",
+    "answer": "nile"
+  },
+  {
+    "category": "Animals",
+    "question": "What is the fastest land animal?",
+    "answer": "cheetah"
+  },
+  {
+    "category": "Literature",
+    "question": "Who wrote 'Pride and Prejudice'?",
+    "answer": "jane austen"
+  },
+  {
+    "category": "Movies",
+    "question": "What year was the first 'Toy Story' released?",
+    "answer": "1995"
+  },
+  {
+    "category": "Science",
+    "question": "How many bones are in the human body?",
+    "answer": "206"
+  },
+  {
+    "category": "Geography",
+    "question": "What is the smallest country in the world?",
+    "answer": "vatican city"
+  },
+  {
+    "category": "Music",
+    "question": "Who is known as the King of Pop?",
+    "answer": "michael jackson"
+  },
+  {
+    "category": "Sports",
+    "question": "What sport is known as 'the beautiful game'?",
+    "answer": "soccer"
+  },
+  {
+    "category": "History",
+    "question": "Who discovered penicillin?",
+    "answer": "alexander fleming"
+  },
+  {
+    "category": "Technology",
+    "question": "What does 'HTTP' stand for?",
+    "answer": "hypertext transfer protocol"
+  },
+  {
+    "category": "Food",
+    "question": "What type of pasta is shaped like little ears?",
+    "answer": "orecchiette"
+  },
+  {
+    "category": "Animals",
+    "question": "What is a baby kangaroo called?",
+    "answer": "joey"
+  },
+  {
+    "category": "Geography",
+    "question": "Which desert is the largest in the world?",
+    "answer": "sahara"
+  },
+  {
+    "category": "Science",
+    "question": "What gas makes up most of Earth's atmosphere?",
+    "answer": "nitrogen"
+  },
+  {
+    "category": "Literature",
+    "question": "Who wrote 'The Great Gatsby'?",
+    "answer": "f scott fitzgerald"
+  },
+  {
+    "category": "Movies",
+    "question": "Which actor played Iron Man in the Marvel Cinematic Universe?",
+    "answer": "robert downey jr"
+  },
+  {
+    "category": "History",
+    "question": "What year did the Berlin Wall fall?",
+    "answer": "1989"
+  },
+  {
+    "category": "Sports",
+    "question": "How many rings are on the Olympic flag?",
+    "answer": "5"
+  },
+  {
+    "category": "Music",
+    "question": "What is the highest female singing voice?",
+    "answer": "soprano"
+  },
+  {
+    "category": "Geography",
+    "question": "What is the capital of Australia?",
+    "answer": "canberra"
+  },
+  {
+    "category": "Science",
+    "question": "What is the hardest natural substance on Earth?",
+    "answer": "diamond"
+  },
+  {
+    "category": "Food",
+    "question": "What is the most expensive spice by weight?",
+    "answer": "saffron"
+  },
+  {
+    "category": "Animals",
+    "question": "How many hearts does an octopus have?",
+    "answer": "3"
+  },
+  {
+    "category": "History",
+    "question": "Who was the first woman to win a Nobel Prize?",
+    "answer": "marie curie"
+  },
+  {
+    "category": "Technology",
+    "question": "Who founded Microsoft?",
+    "answer": "bill gates"
+  },
+  {
+    "category": "Geography",
+    "question": "Which US state has the most active volcanoes?",
+    "answer": "alaska"
+  },
+  {
+    "category": "Movies",
+    "question": "What is the highest-grossing film of all time?",
+    "answer": "avatar"
+  },
+  {
+    "category": "Science",
+    "question": "What is the closest star to Earth?",
+    "answer": "the sun"
+  },
+  {
+    "category": "Sports",
+    "question": "What is the only sport to have been played on the moon?",
+    "answer": "golf"
+  },
+  {
+    "category": "Music",
+    "question": "Which musical instrument has 88 keys?",
+    "answer": "piano"
+  },
+  {
+    "category": "Food",
+    "question": "What nut is used to make marzipan?",
+    "answer": "almond"
+  },
+  {
+    "category": "Animals",
+    "question": "What is the largest species of penguin?",
+    "answer": "emperor penguin"
+  },
+  {
+    "category": "Literature",
+    "question": "Who wrote 'Harry Potter'?",
+    "answer": "jk rowling"
+  },
+  {
+    "category": "History",
+    "question": "What ancient wonder was located in Alexandria?",
+    "answer": "lighthouse of alexandria"
+  },
+  {
+    "category": "Geography",
+    "question": "Which mountain range separates Europe and Asia?",
+    "answer": "ural mountains"
+  },
+  {
+    "category": "Science",
+    "question": "What is the most abundant element in the universe?",
+    "answer": "hydrogen"
+  },
+  {
+    "category": "Movies",
+    "question": "What is the name of the hobbit played by Elijah Wood?",
+    "answer": "frodo baggins"
+  },
+  {
+    "category": "Technology",
+    "question": "What does 'URL' stand for?",
+    "answer": "uniform resource locator"
+  },
+  {
+    "category": "Sports",
+    "question": "What is the diameter of a basketball hoop in inches?",
+    "answer": "18"
+  },
+  {
+    "category": "Music",
+    "question": "What rock band formed in 1960 and is still performing today?",
+    "answer": "the rolling stones"
+  },
+  {
+    "category": "Food",
+    "question": "What is the main ingredient in hummus?",
+    "answer": "chickpeas"
+  },
+  {
+    "category": "Animals",
+    "question": "What is the only mammal capable of true flight?",
+    "answer": "bat"
+  },
+  {
+    "category": "Geography",
+    "question": "What is the smallest ocean?",
+    "answer": "arctic ocean"
+  },
+  {
+    "category": "History",
+    "question": "Who invented the telephone?",
+    "answer": "alexander graham bell"
+  },
+  {
+    "category": "Science",
+    "question": "What is the study of earthquakes called?",
+    "answer": "seismology"
+  },
+  {
+    "category": "Literature",
+    "question": "Who wrote 'To Kill a Mockingbird'?",
+    "answer": "harper lee"
+  },
+  {
+    "category": "Movies",
+    "question": "What is the name of the ship in 'Pirates of the Caribbean'?",
+    "answer": "black pearl"
+  },
+  {
+    "category": "Sports",
+    "question": "What is the national sport of Japan?",
+    "answer": "sumo wrestling"
+  },
+  {
+    "category": "Music",
+    "question": "What is the best-selling album of all time?",
+    "answer": "thriller"
+  },
+  {
+    "category": "Food",
+    "question": "What is the only fruit with seeds on the outside?",
+    "answer": "strawberry"
+  },
+  {
+    "category": "Technology",
+    "question": "What year was the first iPhone released?",
+    "answer": "2007"
+  },
+  {
+    "category": "Animals",
+    "question": "What bird can fly backwards?",
+    "answer": "hummingbird"
+  },
+  {
+    "category": "Geography",
+    "question": "Which country has the longest coastline?",
+    "answer": "canada"
+  },
+  {
+    "category": "History",
+    "question": "What year did the Titanic sink?",
+    "answer": "1912"
+  },
+  {
+    "category": "Science",
+    "question": "What is the largest organ in the human body?",
+    "answer": "skin"
+  },
+  {
+    "category": "Movies",
+    "question": "Who directed 'The Godfather'?",
+    "answer": "francis ford coppola"
+  },
+  {
+    "category": "Sports",
+    "question": "How long is a marathon in miles?",
+    "answer": "26.2"
+  },
+  {
+    "category": "Literature",
+    "question": "Who wrote 'Moby Dick'?",
+    "answer": "herman melville"
+  },
+  {
+    "category": "Music",
+    "question": "What is the lowest male singing voice?",
+    "answer": "bass"
+  },
+  {
+    "category": "Food",
+    "question": "What is the main ingredient in a traditional Japanese miso soup?",
+    "answer": "miso paste"
+  },
+  {
+    "category": "Animals",
+    "question": "What is the largest species of bear?",
+    "answer": "polar bear"
+  },
+  {
+    "category": "Geography",
+    "question": "What is the capital of Egypt?",
+    "answer": "cairo"
+  },
+  {
+    "category": "History",
+    "question": "Who painted the Sistine Chapel ceiling?",
+    "answer": "michelangelo"
+  },
+  {
+    "category": "Science",
+    "question": "What is the chemical symbol for iron?",
+    "answer": "fe"
+  },
+  {
+    "category": "Technology",
+    "question": "What does 'RAM' stand for?",
+    "answer": "random access memory"
+  },
+  {
+    "category": "Movies",
+    "question": "What is the name of the kingdom in 'Frozen'?",
+    "answer": "arendelle"
+  },
+  {
+    "category": "Sports",
+    "question": "What is the maximum break in snooker?",
+    "answer": "147"
+  },
+  {
+    "category": "Music",
+    "question": "Who wrote the opera 'The Magic Flute'?",
+    "answer": "mozart"
+  },
+  {
+    "category": "Food",
+    "question": "What is the hottest chili pepper in the world?",
+    "answer": "carolina reaper"
+  },
+  {
+    "category": "Animals",
+    "question": "What is a group of lions called?",
+    "answer": "pride"
+  },
+  {
+    "category": "Geography",
+    "question": "Which country is home to the kangaroo?",
+    "answer": "australia"
+  },
+  {
+    "category": "History",
+    "question": "What was the name of the ship that brought the Pilgrims to America?",
+    "answer": "mayflower"
+  },
+  {
+    "category": "Science",
+    "question": "What is the powerhouse of the cell?",
+    "answer": "mitochondria"
+  },
+  {
+    "category": "Literature",
+    "question": "Who wrote 'The Catcher in the Rye'?",
+    "answer": "jd salinger"
+  },
+  {
+    "category": "Movies",
+    "question": "What is the name of the lion in 'The Lion King'?",
+    "answer": "simba"
+  },
+  {
+    "category": "Technology",
+    "question": "Who founded Apple Computer?",
+    "answer": "steve jobs"
+  },
+  {
+    "category": "Sports",
+    "question": "What is the term for three strikes in a row in bowling?",
+    "answer": "turkey"
+  },
+  {
+    "category": "Music",
+    "question": "What year did Elvis Presley die?",
+    "answer": "1977"
+  },
+  {
+    "category": "Food",
+    "question": "What is the most consumed beverage in the world after water?",
+    "answer": "tea"
+  },
+  {
+    "category": "Animals",
+    "question": "What is the tallest animal in the world?",
+    "answer": "giraffe"
+  },
+  {
+    "category": "Geography",
+    "question": "What is the largest island in the world?",
+    "answer": "greenland"
+  },
+  {
+    "category": "History",
+    "question": "Who was the first person to walk on the moon?",
+    "answer": "neil armstrong"
+  },
+  {
+    "category": "Science",
+    "question": "What is the speed of sound in air at sea level?",
+    "answer": "343 meters per second"
+  },
+  {
+    "category": "Movies",
+    "question": "What is the name of the computer in '2001: A Space Odyssey'?",
+    "answer": "hal 9000"
+  },
+  {
+    "category": "Sports",
+    "question": "What is the oldest tennis tournament in the world?",
+    "answer": "wimbledon"
+  },
+  {
+    "category": "Literature",
+    "question": "Who wrote 'The Odyssey'?",
+    "answer": "homer"
+  },
+  {
+    "category": "Music",
+    "question": "What is the national anthem of the United States?",
+    "answer": "the star spangled banner"
+  },
+  {
+    "category": "Food",
+    "question": "What is the main ingredient in traditional Japanese tempura?",
+    "answer": "battered seafood or vegetables"
+  },
+  {
+    "category": "Technology",
+    "question": "What does 'GPS' stand for?",
+    "answer": "global positioning system"
+  },
+  {
+    "category": "Animals",
+    "question": "What is the largest reptile in the world?",
+    "answer": "saltwater crocodile"
+  },
+  {
+    "category": "Geography",
+    "question": "Which country has the most time zones?",
+    "answer": "france"
+  },
+  {
+    "category": "History",
+    "question": "What year did the American Civil War end?",
+    "answer": "1865"
+  },
+  {
+    "category": "Science",
+    "question": "What is the chemical symbol for silver?",
+    "answer": "ag"
+  },
+  {
+    "category": "Movies",
+    "question": "Who played Jack in 'Titanic'?",
+    "answer": "leonardo dicaprio"
+  },
+  {
+    "category": "Sports",
+    "question": "What is the maximum score in a single frame of ten-pin bowling?",
+    "answer": "30"
+  },
+  {
+    "category": "Literature",
+    "question": "Who wrote 'Frankenstein'?",
+    "answer": "mary shelley"
+  },
+  {
+    "category": "Music",
+    "question": "What is the name of the lead singer of Queen?",
+    "answer": "freddie mercury"
+  },
+  {
+    "category": "Food",
+    "question": "What type of pastry is used to make profiteroles?",
+    "answer": "choux pastry"
+  },
+  {
+    "category": "Animals",
+    "question": "What is the only bird that can see the color blue?",
+    "answer": "humans are not birds"
+  },
+  {
+    "category": "Geography",
+    "question": "What is the capital of Italy?",
+    "answer": "rome"
+  },
+  {
+    "category": "History",
+    "question": "Who was the queen of ancient Egypt known for her relationship with Julius Caesar?",
+    "answer": "cleopatra"
+  },
+  {
+    "category": "Science",
+    "question": "What is the formula for calculating force?",
+    "answer": "mass times acceleration"
+  },
+  {
+    "category": "Technology",
+    "question": "What programming language is known for its use in web development and has a coffee-related name?",
+    "answer": "java"
+  },
+  {
+    "category": "Movies",
+    "question": "What 1994 film starring Tom Hanks follows a man with a low IQ?",
+    "answer": "forrest gump"
+  },
+  {
+    "category": "Sports",
+    "question": "What is the duration of each period in an NHL hockey game?",
+    "answer": "20 minutes"
+  },
+  {
+    "category": "Literature",
+    "question": "Who wrote 'Brave New World'?",
+    "answer": "aldous huxley"
+  },
+  {
+    "category": "Music",
+    "question": "What is the term for a group of musicians playing together?",
+    "answer": "ensemble"
+  },
+  {
+    "category": "Food",
+    "question": "What Italian dish consists of thinly sliced raw meat or fish?",
+    "answer": "carpaccio"
+  },
+  {
+    "category": "Animals",
+    "question": "What is the fastest fish in the ocean?",
+    "answer": "sailfish"
+  },
+  {
+    "category": "Geography",
+    "question": "Which African country has the largest population?",
+    "answer": "nigeria"
+  },
+  {
+    "category": "History",
+    "question": "What year did India gain independence from Britain?",
+    "answer": "1947"
+  },
+  {
+    "category": "Science",
+    "question": "What is the name of the largest bone in the human body?",
+    "answer": "femur"
+  },
+  {
+    "category": "Technology",
+    "question": "What does 'USB' stand for?",
+    "answer": "universal serial bus"
+  },
+  {
+    "category": "Movies",
+    "question": "Which film won the first Academy Award for Best Picture?",
+    "answer": "wings"
+  },
+  {
+    "category": "Sports",
+    "question": "What is the name of the trophy awarded to the NHL champion?",
+    "answer": "stanley cup"
+  },
+  {
+    "category": "Literature",
+    "question": "Who wrote 'The Divine Comedy'?",
+    "answer": "dante alighieri"
+  },
+  {
+    "category": "Music",
+    "question": "What is the term for a song sung without instrumental accompaniment?",
+    "answer": "a cappella"
+  },
+  {
+    "category": "Food",
+    "question": "What is the main alcoholic ingredient in a margarita?",
+    "answer": "tequila"
+  },
+  {
+    "category": "Animals",
+    "question": "What is the lifespan of a mayfly?",
+    "answer": "one day"
+  },
+  {
+    "category": "Geography",
+    "question": "What is the highest mountain in Africa?",
+    "answer": "mount kilimanjaro"
+  },
+  {
+    "category": "History",
+    "question": "Who was the first emperor of Rome?",
+    "answer": "augustus"
+  },
+  {
+    "category": "Science",
+    "question": "What is the pH of pure water?",
+    "answer": "7"
+  },
+  {
+    "category": "Technology",
+    "question": "What social media platform uses a bird as its logo?",
+    "answer": "twitter"
+  },
+  {
+    "category": "Movies",
+    "question": "What is the name of the second film in the Matrix trilogy?",
+    "answer": "the matrix reloaded"
+  },
+  {
+    "category": "Sports",
+    "question": "What is the standard distance of a marathon in kilometers?",
+    "answer": "42.195"
+  },
+  {
+    "category": "Literature",
+    "question": "Who wrote 'The Picture of Dorian Gray'?",
+    "answer": "oscar wilde"
+  },
+  {
+    "category": "Music",
+    "question": "What is the name of the famous concert hall in New York City?",
+    "answer": "carnegie hall"
+  },
+  {
+    "category": "Food",
+    "question": "What is the national dish of Spain?",
+    "answer": "paella"
+  },
+  {
+    "category": "Animals",
+    "question": "What is the only continent where giraffes live in the wild?",
+    "answer": "africa"
+  },
+  {
+    "category": "Geography",
+    "question": "What is the deepest point in the ocean?",
+    "answer": "mariana trench"
+  },
+  {
+    "category": "History",
+    "question": "What year did the French Revolution begin?",
+    "answer": "1789"
+  },
+  {
+    "category": "Science",
+    "question": "What is the name of the galaxy that contains our solar system?",
+    "answer": "milky way"
+  },
+  {
+    "category": "Technology",
+    "question": "Who is credited with inventing the World Wide Web?",
+    "answer": "tim berners lee"
+  },
+  {
+    "category": "Movies",
+    "question": "What is the name of the island in 'Jurassic Park'?",
+    "answer": "isla nublar"
+  },
+  {
+    "category": "Sports",
+    "question": "What is the term for scoring three goals in one game in soccer?",
+    "answer": "hat trick"
+  },
+  {
+    "category": "Literature",
+    "question": "Who wrote 'War and Peace'?",
+    "answer": "leo tolstoy"
+  },
+  {
+    "category": "Music",
+    "question": "What instrument did Louis Armstrong play?",
+    "answer": "trumpet"
+  },
+  {
+    "category": "Food",
+    "question": "What type of flour is traditionally used in pasta?",
+    "answer": "semolina"
+  },
+  {
+    "category": "Animals",
+    "question": "What is the collective noun for a group of crows?",
+    "answer": "murder"
+  },
+  {
+    "category": "Science",
+    "question": "What is the chemical symbol for Gold?",
+    "answer": "Au"
+  },
+  {
+    "category": "Geography",
+    "question": "What is the capital of Thailand?",
+    "answer": "Bangkok"
+  },
+  {
+    "category": "History",
+    "question": "In what year did the Titanic sink?",
+    "answer": "1912"
+  },
+  {
+    "category": "Movies",
+    "question": "Who directed the movie 'Jaws'?",
+    "answer": "Steven Spielberg"
+  },
+  {
+    "category": "Sports",
+    "question": "Which boxer was known as 'The Greatest'?",
+    "answer": "Muhammad Ali"
+  },
+  {
+    "category": "Literature",
+    "question": "Who wrote 'The Hobbit'?",
+    "answer": "J.R.R. Tolkien"
+  },
+  {
+    "category": "Music",
+    "question": "Which band released 'Bohemian Rhapsody'?",
+    "answer": "Queen"
+  },
+  {
+    "category": "Technology",
+    "question": "What does CPU stand for?",
+    "answer": "Central Processing Unit"
+  },
+  {
+    "category": "Animals",
+    "question": "What is the fastest land animal?",
+    "answer": "Cheetah"
+  },
+  {
+    "category": "Food",
+    "question": "What is the primary ingredient in hummus?",
+    "answer": "Chickpeas"
+  },
+  {
+    "category": "Science",
+    "question": "What planet is known as the Red Planet?",
+    "answer": "Mars"
+  },
+  {
+    "category": "History",
+    "question": "Who was the first person to step on the Moon?",
+    "answer": "Neil Armstrong"
+  },
+  {
+    "category": "Geography",
+    "question": "Which river flows through London?",
+    "answer": "Thames"
+  },
+  {
+    "category": "Movies",
+    "question": "Which movie won the first Oscar for Best Animated Feature?",
+    "answer": "Shrek"
+  },
+  {
+    "category": "Sports",
+    "question": "How many players are on a baseball team?",
+    "answer": "9"
+  },
+  {
+    "category": "Literature",
+    "question": "Who wrote 'Romeo and Juliet'?",
+    "answer": "William Shakespeare"
+  },
+  {
+    "category": "Music",
+    "question": "Who is the 'King of Pop'?",
+    "answer": "Michael Jackson"
+  },
+  {
+    "category": "Technology",
+    "question": "What does RAM stand for?",
+    "answer": "Random Access Memory"
+  },
+  {
+    "category": "Animals",
+    "question": "Which bird is the symbol of peace?",
+    "answer": "Dove"
+  },
+  {
+    "category": "Food",
+    "question": "Which country invented pizza?",
+    "answer": "Italy"
+  },
+  {
+    "category": "Science",
+    "question": "What represents the letter 'O' in the periodic table?",
+    "answer": "Oxygen"
+  },
+  {
+    "category": "History",
+    "question": "Who was the first President of the United States?",
+    "answer": "George Washington"
+  },
+  {
+    "category": "Geography",
+    "question": "What is the largest continent?",
+    "answer": "Asia"
+  },
+  {
+    "category": "Movies",
+    "question": "Who played Jack in 'Titanic'?",
+    "answer": "Leonardo DiCaprio"
+  },
+  {
+    "category": "Sports",
+    "question": "In which sport represents the Davis Cup?",
+    "answer": "Tennis"
+  },
+  {
+    "category": "Literature",
+    "question": "Who wrote '1984'?",
+    "answer": "George Orwell"
+  },
+  {
+    "category": "Music",
+    "question": "Which singer is known as 'The Boss'?",
+    "answer": "Bruce Springsteen"
+  },
+  {
+    "category": "Technology",
+    "question": "Who co-founded Microsoft?",
+    "answer": "Bill Gates"
+  },
+  {
+    "category": "Animals",
+    "question": "What is the largest mammal in the world?",
+    "answer": "Blue Whale"
+  },
+  {
+    "category": "Food",
+    "question": "What is the main ingredient in guacamole?",
+    "answer": "Avocado"
+  },
+  {
+    "category": "Science",
+    "question": "What represents 'H2O'?",
+    "answer": "Water"
+  },
+  {
+    "category": "History",
+    "question": "In which country did the Industrial Revolution begin?",
+    "answer": "Great Britain"
+  },
+  {
+    "category": "Geography",
+    "question": "What is the capital of Japan?",
+    "answer": "Tokyo"
+  },
+  {
+    "category": "Movies",
+    "question": "Which movie features the song 'My Heart Will Go On'?",
+    "answer": "Titanic"
+  },
+  {
+    "category": "Sports",
+    "question": "Which country won the 2018 FIFA World Cup?",
+    "answer": "France"
+  },
+  {
+    "category": "Literature",
+    "question": "Who wrote 'To Kill a Mockingbird'?",
+    "answer": "Harper Lee"
+  },
+  {
+    "category": "Music",
+    "question": "Which band released 'Yellow Submarine'?",
+    "answer": "The Beatles"
+  },
+  {
+    "category": "Technology",
+    "question": "What does HTTP stand for?",
+    "answer": "HyperText Transfer Protocol"
+  },
+  {
+    "category": "Animals",
+    "question": "What is a group of lions called?",
+    "answer": "Pride"
+  },
+  {
+    "category": "Food",
+    "question": "What is the main ingredient in tofu?",
+    "answer": "Soybeans"
+  },
+  {
+    "category": "Science",
+    "question": "What is the center of an atom called?",
+    "answer": "Nucleus"
+  },
+  {
+    "category": "History",
+    "question": "Who painted the Mona Lisa?",
+    "answer": "Leonardo da Vinci"
+  },
+  {
+    "category": "Geography",
+    "question": "What is the longest river in the world?",
+    "answer": "Nile"
+  },
+  {
+    "category": "Movies",
+    "question": "Who played the Joker in 'The Dark Knight'?",
+    "answer": "Heath Ledger"
+  },
+  {
+    "category": "Sports",
+    "question": "How many rings are in the Olympic symbol?",
+    "answer": "5"
+  },
+  {
+    "category": "Literature",
+    "question": "Who wrote 'Harry Potter'?",
+    "answer": "J.K. Rowling"
+  },
+  {
+    "category": "Music",
+    "question": "Who is known as the 'Queen of Soul'?",
+    "answer": "Aretha Franklin"
+  },
+  {
+    "category": "Technology",
+    "question": "What does URL stand for?",
+    "answer": "Uniform Resource Locator"
+  },
+  {
+    "category": "Animals",
+    "question": "What is the only mammal that can fly?",
+    "answer": "Bat"
+  },
+  {
+    "category": "Food",
+    "question": "What is the spicy green paste served with sushi?",
+    "answer": "Wasabi"
+  },
+  {
+    "category": "Science",
+    "question": "What force leads objects towards the ground?",
+    "answer": "Gravity"
+  },
+  {
+    "category": "History",
+    "question": "Who discovered America in 1492?",
+    "answer": "Christopher Columbus"
+  },
+  {
+    "category": "Geography",
+    "question": "What is the capital of France?",
+    "answer": "Paris"
+  },
+  {
+    "category": "Movies",
+    "question": "Which movie features a character named Luke Skywalker?",
+    "answer": "Star Wars"
+  },
+  {
+    "category": "Sports",
+    "question": "In golf, what is one stroke under par called?",
+    "answer": "Birdie"
+  },
+  {
+    "category": "Literature",
+    "question": "Who wrote 'The Great Gatsby'?",
+    "answer": "F. Scott Fitzgerald"
+  },
+  {
+    "category": "Music",
+    "question": "Which instrument has 88 keys?",
+    "answer": "Piano"
+  },
+  {
+    "category": "Technology",
+    "question": "What represents the 'S' in 'HTTPS'?",
+    "answer": "Secure"
+  },
+  {
+    "category": "Animals",
+    "question": "How many legs does a spider have?",
+    "answer": "8"
+  },
+  {
+    "category": "Food",
+    "question": "What is the main ingredient in chocolate?",
+    "answer": "Cocoa"
+  },
+  {
+    "category": "Science",
+    "question": "What planet is closest to the Sun?",
+    "answer": "Mercury"
+  },
+  {
+    "category": "History",
+    "question": "Who was the first man in space?",
+    "answer": "Yuri Gagarin"
+  },
+  {
+    "category": "Geography",
+    "question": "Which ocean is the largest?",
+    "answer": "Pacific Ocean"
+  },
+  {
+    "category": "Movies",
+    "question": "Which movie features the quote 'Here's looking at you, kid'?",
+    "answer": "Casablanca"
+  },
+  {
+    "category": "Sports",
+    "question": "How long is a marathon?",
+    "answer": "26.2 miles"
+  },
+  {
+    "category": "Literature",
+    "question": "Who wrote 'Moby Dick'?",
+    "answer": "Herman Melville"
+  },
+  {
+    "category": "Music",
+    "question": "Who sang 'Like a Rolling Stone'?",
+    "answer": "Bob Dylan"
+  },
+  {
+    "category": "Technology",
+    "question": "What does Wi-Fi stand for?",
+    "answer": "Wireless Fidelity"
+  },
+  {
+    "category": "Animals",
+    "question": "What is the largest species of shark?",
+    "answer": "Whale Shark"
+  },
+  {
+    "category": "Food",
+    "question": "What is the most consumed drink in the world after water?",
+    "answer": "Tea"
+  },
+  {
+    "category": "Science",
+    "question": "What is the hardest natural substance?",
+    "answer": "Diamond"
+  },
+  {
+    "category": "History",
+    "question": "Who was the British Prime Minister during WWII?",
+    "answer": "Winston Churchill"
+  },
+  {
+    "category": "Geography",
+    "question": "What is the capital of Italy?",
+    "answer": "Rome"
+  },
+  {
+    "category": "Movies",
+    "question": "Which movie features a character named Forrest Gump?",
+    "answer": "Forrest Gump"
+  },
+  {
+    "category": "Sports",
+    "question": "Which sport uses a shuttlecock?",
+    "answer": "Badminton"
+  },
+  {
+    "category": "Literature",
+    "question": "Who wrote 'Pride and Prejudice'?",
+    "answer": "Jane Austen"
+  },
+  {
+    "category": "Music",
+    "question": "Which band released 'Dark Side of the Moon'?",
+    "answer": "Pink Floyd"
+  },
+  {
+    "category": "Technology",
+    "question": "What does USB stand for?",
+    "answer": "Universal Serial Bus"
+  },
+  {
+    "category": "Animals",
+    "question": "What animal is known as the 'Ship of the Desert'?",
+    "answer": "Camel"
+  },
+  {
+    "category": "Food",
+    "question": "What type of pasta translates to 'little worms'?",
+    "answer": "Vermicelli"
+  },
+  {
+    "category": "Science",
+    "question": "What gas do plants absorb from the atmosphere?",
+    "answer": "Carbon Dioxide"
+  },
+  {
+    "category": "History",
+    "question": "Who invented the lightbulb?",
+    "answer": "Thomas Edison"
+  },
+  {
+    "category": "Geography",
+    "question": "What is the capital of Spain?",
+    "answer": "Madrid"
+  },
+  {
+    "category": "Movies",
+    "question": "Which movie features the character 'The Godfather'?",
+    "answer": "The Godfather"
+  },
+  {
+    "category": "Sports",
+    "question": "Which country hosts the Wimbledon tennis tournament?",
+    "answer": "United Kingdom"
+  },
+  {
+    "category": "Literature",
+    "question": "Who wrote 'War and Peace'?",
+    "answer": "Leo Tolstoy"
+  },
+  {
+    "category": "Music",
+    "question": "Who is known as the 'King of Rock and Roll'?",
+    "answer": "Elvis Presley"
+  },
+  {
+    "category": "Technology",
+    "question": "What does GPS stand for?",
+    "answer": "Global Positioning System"
+  },
+  {
+    "category": "Animals",
+    "question": "Which animal has the longest neck?",
+    "answer": "Giraffe"
+  },
+  {
+    "category": "Food",
+    "question": "What is the main ingredient in pesto?",
+    "answer": "Basil"
+  },
+  {
+    "category": "Science",
+    "question": "What part of the cell contains DNA?",
+    "answer": "Nucleus"
+  },
+  {
+    "category": "History",
+    "question": "Who was the first female Prime Minister of the UK?",
+    "answer": "Margaret Thatcher"
+  },
+  {
+    "category": "Geography",
+    "question": "What is the capital of Germany?",
+    "answer": "Berlin"
+  },
+  {
+    "category": "Movies",
+    "question": "Which movie features the character 'Darth Vader'?",
+    "answer": "Star Wars"
+  },
+  {
+    "category": "Sports",
+    "question": "Which sport is played in a velodrome?",
+    "answer": "Cycling"
+  },
+  {
+    "category": "Literature",
+    "question": "Who wrote 'The Catcher in the Rye'?",
+    "answer": "J.D. Salinger"
+  },
+  {
+    "category": "Music",
+    "question": "Which artist released the album 'Thriller'?",
+    "answer": "Michael Jackson"
+  },
+  {
+    "category": "Technology",
+    "question": "What does PDF stand for?",
+    "answer": "Portable Document Format"
+  },
+  {
+    "category": "Animals",
+    "question": "What is the fastest bird in a dive?",
+    "answer": "Peregrine Falcon"
+  },
+  {
+    "category": "Food",
+    "question": "What is the main ingredient in sushi?",
+    "answer": "Rice"
+  },
+  {
+    "category": "Science",
+    "question": "What is the speed of light?",
+    "answer": "299,792,458 m/s"
+  },
+  {
+    "category": "History",
+    "question": "Who discovered penicillin?",
+    "answer": "Alexander Fleming"
+  },
+  {
+    "category": "Geography",
+    "question": "What is the capital of Canada?",
+    "answer": "Ottawa"
+  },
+  {
+    "category": "Movies",
+    "question": "Which movie features the character 'Indiana Jones'?",
+    "answer": "Raiders of the Lost Ark"
+  },
+  {
+    "category": "Sports",
+    "question": "Which country won the first World Cup?",
+    "answer": "Uruguay"
+  },
+  {
+    "category": "Literature",
+    "question": "Who wrote 'The Odyssey'?",
+    "answer": "Homer"
+  },
+  {
+    "category": "Music",
+    "question": "Which band represents 'The Fab Four'?",
+    "answer": "The Beatles"
+  },
+  {
+    "category": "Technology",
+    "question": "What does HTML stand for?",
+    "answer": "HyperText Markup Language"
+  },
+  {
+    "category": "Animals",
+    "question": "How many hearts does an octopus have?",
+    "answer": "3"
+  },
+  {
+    "category": "Food",
+    "question": "What is the main ingredient in traditional paella?",
+    "answer": "Rice"
+  },
+  {
+    "category": "Science",
+    "question": "What is the largest organ in the human body?",
+    "answer": "Skin"
+  },
+  {
+    "category": "History",
+    "question": "Who was the first woman to win a Nobel Prize?",
+    "answer": "Marie Curie"
+  },
+  {
+    "category": "Geography",
+    "question": "What is the capital of Australia?",
+    "answer": "Canberra"
+  },
+  {
+    "category": "Movies",
+    "question": "Who directed 'Pulp Fiction'?",
+    "answer": "Quentin Tarantino"
+  },
+  {
+    "category": "Sports",
+    "question": "How many periods are in an ice hockey game?",
+    "answer": "3"
+  },
+  {
+    "category": "Literature",
+    "question": "Who wrote 'Don Quixote'?",
+    "answer": "Miguel de Cervantes"
+  },
+  {
+    "category": "Music",
+    "question": "Which singer is known as 'The Rocket Man'?",
+    "answer": "Elton John"
+  },
+  {
+    "category": "Technology",
+    "question": "What does LAN stand for?",
+    "answer": "Local Area Network"
+  },
+  {
+    "category": "Animals",
+    "question": "Which mammal lays eggs?",
+    "answer": "Platypus"
+  },
+  {
+    "category": "Food",
+    "question": "What is the main ingredient in bread?",
+    "answer": "Flour"
+  },
+  {
+    "category": "Science",
+    "question": "What is the chemical symbol for Iron?",
+    "answer": "Fe"
+  },
+  {
+    "category": "History",
+    "question": "Who was the leader of the Soviet Union during WWII?",
+    "answer": "Joseph Stalin"
+  },
+  {
+    "category": "Geography",
+    "question": "What is the capital of Russia?",
+    "answer": "Moscow"
+  },
+  {
+    "category": "Movies",
+    "question": "Who played the character 'Wolverine'?",
+    "answer": "Hugh Jackman"
+  },
+  {
+    "category": "Sports",
+    "question": "What is the national sport of Japan?",
+    "answer": "Sumo Wrestling"
+  },
+  {
+    "category": "Literature",
+    "question": "Who wrote 'The Lord of the Rings'?",
+    "answer": "J.R.R. Tolkien"
+  },
+  {
+    "category": "Music",
+    "question": "Which band released 'Hotel California'?",
+    "answer": "Eagles"
+  },
+  {
+    "category": "Technology",
+    "question": "What does VPN stand for?",
+    "answer": "Virtual Private Network"
+  },
+  {
+    "category": "Animals",
+    "question": "What is the largest reptile?",
+    "answer": "Saltwater Crocodile"
+  },
+  {
+    "category": "Food",
+    "question": "What is the main ingredient in falafel?",
+    "answer": "Chickpeas"
+  },
+  {
+    "category": "Science",
+    "question": "What element makes up most of the air we breathe?",
+    "answer": "Nitrogen"
+  },
+  {
+    "category": "History",
+    "question": "Who invented the telephone?",
+    "answer": "Alexander Graham Bell"
+  },
+  {
+    "category": "Geography",
+    "question": "What is the capital of China?",
+    "answer": "Beijing"
+  },
+  {
+    "category": "Movies",
+    "question": "Which movie features the character 'Harry Potter'?",
+    "answer": "Harry Potter and the Sorcerer's Stone"
+  },
+  {
+    "category": "Sports",
+    "question": "Which NBA player is known as 'King James'?",
+    "answer": "LeBron James"
+  },
+  {
+    "category": "Literature",
+    "question": "Who wrote 'Frankenstein'?",
+    "answer": "Mary Shelley"
+  },
+  {
+    "category": "Music",
+    "question": "Which singer released 'Rolling in the Deep'?",
+    "answer": "Adele"
+  },
+  {
+    "category": "Technology",
+    "question": "What does OS stand for?",
+    "answer": "Operating System"
+  },
+  {
+    "category": "Animals",
+    "question": "Which animal represents the symbol of the WWF?",
+    "answer": "Panda"
+  },
+  {
+    "category": "Food",
+    "question": "What is the main ingredient in risotto?",
+    "answer": "Rice"
+  },
+  {
+    "category": "Science",
+    "question": "What is the smallest unit of matter?",
+    "answer": "Atom"
+  },
+  {
+    "category": "History",
+    "question": "Who was the first emperor of Rome?",
+    "answer": "Augustus"
+  },
+  {
+    "category": "Geography",
+    "question": "What is the capital of India?",
+    "answer": "New Delhi"
+  },
+  {
+    "category": "Movies",
+    "question": "Who directed 'Inception'?",
+    "answer": "Christopher Nolan"
+  },
+  {
+    "category": "Sports",
+    "question": "Which country dominates in Table Tennis?",
+    "answer": "China"
+  },
+  {
+    "category": "Literature",
+    "question": "Who wrote 'The Chronicles of Narnia'?",
+    "answer": "C.S. Lewis"
+  },
+  {
+    "category": "Music",
+    "question": "Which band released 'Smells Like Teen Spirit'?",
+    "answer": "Nirvana"
+  },
+  {
+    "category": "Technology",
+    "question": "What does IoT stand for?",
+    "answer": "Internet of Things"
+  },
+  {
+    "category": "Animals",
+    "question": "What is the tallest animal in the world?",
+    "answer": "Giraffe"
+  },
+  {
+    "category": "Food",
+    "question": "What is the main ingredient in ketchup?",
+    "answer": "Tomatoes"
+  },
+  {
+    "category": "Science",
+    "question": "What is the study of plants called?",
+    "answer": "Botany"
+  },
+  {
+    "category": "History",
+    "question": "Who was the 16th President of the US?",
+    "answer": "Abraham Lincoln"
+  },
+  {
+    "category": "Geography",
+    "question": "What is the capital of Brazil?",
+    "answer": "Brasilia"
+  },
+  {
+    "category": "Movies",
+    "question": "Which movie features the character 'Neo'?",
+    "answer": "The Matrix"
+  },
+  {
+    "category": "Sports",
+    "question": "Which golfer has the most major wins?",
+    "answer": "Jack Nicklaus"
+  },
+  {
+    "category": "Literature",
+    "question": "Who wrote 'Dracula'?",
+    "answer": "Bram Stoker"
+  },
+  {
+    "category": "Music",
+    "question": "Which singer is known as the 'Material Girl'?",
+    "answer": "Madonna"
+  },
+  {
+    "category": "Technology",
+    "question": "What does AI stand for?",
+    "answer": "Artificial Intelligence"
+  },
+  {
+    "category": "Animals",
+    "question": "What is the largest bird in the world?",
+    "answer": "Ostrich"
+  },
+  {
+    "category": "Food",
+    "question": "What is the main ingredient in mayonnaise?",
+    "answer": "Eggs"
+  },
+  {
+    "category": "Science",
+    "question": "What is the body's largest organ?",
+    "answer": "Skin"
+  },
+  {
+    "category": "History",
+    "question": "Who was the main author of the Declaration of Independence?",
+    "answer": "Thomas Jefferson"
+  },
+  {
+    "category": "Geography",
+    "question": "What is the capital of Egypt?",
+    "answer": "Cairo"
+  },
+  {
+    "category": "Movies",
+    "question": "Who directed 'Avatar'?",
+    "answer": "James Cameron"
+  },
+  {
+    "category": "Sports",
+    "question": "Which city hosted the 2008 Summer Olympics?",
+    "answer": "Beijing"
+  },
+  {
+    "category": "Literature",
+    "question": "Who wrote 'Les Mis\u00e9rables'?",
+    "answer": "Victor Hugo"
+  },
+  {
+    "category": "Music",
+    "question": "Which band released 'Highway to Hell'?",
+    "answer": "AC/DC"
+  },
+  {
+    "category": "Technology",
+    "question": "What does VR stand for?",
+    "answer": "Virtual Reality"
+  },
+  {
+    "category": "Animals",
+    "question": "What animal is known as the 'King of the Jungle'?",
+    "answer": "Lion"
+  },
+  {
+    "category": "Food",
+    "question": "What is the main ingredient in sauerkraut?",
+    "answer": "Cabbage"
+  },
+  {
+    "category": "Science",
+    "question": "What represents the letter 'C' in the periodic table?",
+    "answer": "Carbon"
+  },
+  {
+    "category": "History",
+    "question": "Who was the leader of Nazi Germany?",
+    "answer": "Adolf Hitler"
+  },
+  {
+    "category": "Geography",
+    "question": "What is the capital of Argentina?",
+    "answer": "Buenos Aires"
+  },
+  {
+    "category": "Movies",
+    "question": "Who played 'The Terminator'?",
+    "answer": "Arnold Schwarzenegger"
+  },
+  {
+    "category": "Sports",
+    "question": "Which country won the 2014 FIFA World Cup?",
+    "answer": "Germany"
+  },
+  {
+    "category": "Literature",
+    "question": "Who wrote 'The Divine Comedy'?",
+    "answer": "Dante Alighieri"
+  },
+  {
+    "category": "Music",
+    "question": "Which singer released 'Purple Rain'?",
+    "answer": "Prince"
+  },
+  {
+    "category": "Technology",
+    "question": "What does ISP stand for?",
+    "answer": "Internet Service Provider"
+  },
+  {
+    "category": "Animals",
+    "question": "What is the heaviest land animal?",
+    "answer": "African Elephant"
+  },
+  {
+    "category": "Food",
+    "question": "What is the main ingredient in a tortilla?",
+    "answer": "Corn or Wheat"
+  },
+  {
+    "category": "Science",
+    "question": "What planet has rings?",
+    "answer": "Saturn"
+  },
+  {
+    "category": "History",
+    "question": "Who was the first woman in space?",
+    "answer": "Valentina Tereshkova"
+  },
+  {
+    "category": "Geography",
+    "question": "What is the capital of South Korea?",
+    "answer": "Seoul"
+  },
+  {
+    "category": "Movies",
+    "question": "Which movie features the character 'Gandalf'?",
+    "answer": "The Lord of the Rings"
+  },
+  {
+    "category": "Sports",
+    "question": "Who holds the record for most Olympic gold medals?",
+    "answer": "Michael Phelps"
+  },
+  {
+    "category": "Literature",
+    "question": "Who wrote 'The Iliad'?",
+    "answer": "Homer"
+  },
+  {
+    "category": "Music",
+    "question": "Which band released 'Stairway to Heaven'?",
+    "answer": "Led Zeppelin"
+  },
+  {
+    "category": "Technology",
+    "question": "What does SSD stand for?",
+    "answer": "Solid State Drive"
+  },
+  {
+    "category": "Animals",
+    "question": "What type of animal is a Komodo dragon?",
+    "answer": "Lizard"
+  },
+  {
+    "category": "Food",
+    "question": "What is the main ingredient in cheese?",
+    "answer": "Milk"
+  },
+  {
+    "category": "Science",
+    "question": "What is the chemical symbol for Silver?",
+    "answer": "Ag"
+  },
+  {
+    "category": "History",
+    "question": "Who was the 35th President of the US?",
+    "answer": "John F. Kennedy"
+  },
+  {
+    "category": "Geography",
+    "question": "What is the capital of Mexico?",
+    "answer": "Mexico City"
+  },
+  {
+    "category": "Movies",
+    "question": "Who directed 'The Shawshank Redemption'?",
+    "answer": "Frank Darabont"
+  },
+  {
+    "category": "Sports",
+    "question": "How many players are on a basketball team?",
+    "answer": "5"
+  },
+  {
+    "category": "Literature",
+    "question": "Who wrote 'Jane Eyre'?",
+    "answer": "Charlotte Bront\u00eb"
+  },
+  {
+    "category": "Music",
+    "question": "Which singer is known as 'The Godfather of Soul'?",
+    "answer": "James Brown"
+  },
+  {
+    "category": "Technology",
+    "question": "What does IP stand for?",
+    "answer": "Internet Protocol"
+  },
+  {
+    "category": "Animals",
+    "question": "What is a female horse called?",
+    "answer": "Mare"
+  },
+  {
+    "category": "Food",
+    "question": "What is the main ingredient in yogurt?",
+    "answer": "Milk"
+  },
+  {
+    "category": "Science",
+    "question": "What is the hardest mineral?",
+    "answer": "Diamond"
+  },
+  {
+    "category": "History",
+    "question": "Who was the first person to reach the South Pole?",
+    "answer": "Roald Amundsen"
+  },
+  {
+    "category": "Geography",
+    "question": "What is the capital of Turkey?",
+    "answer": "Ankara"
+  },
+  {
+    "category": "Movies",
+    "question": "Which movie features the character 'Rocky Balboa'?",
+    "answer": "Rocky"
+  },
+  {
+    "category": "Sports",
+    "question": "Which country won the Rugby World Cup in 2019?",
+    "answer": "South Africa"
+  },
+  {
+    "category": "Literature",
+    "question": "Who wrote 'The Adventures of Huckleberry Finn'?",
+    "answer": "Mark Twain"
+  },
+  {
+    "category": "Music",
+    "question": "Which band released 'Imagine'?",
+    "answer": "John Lennon (solo)"
+  },
+  {
+    "category": "Technology",
+    "question": "What does LED stand for?",
+    "answer": "Light Emitting Diode"
+  },
+  {
+    "category": "Animals",
+    "question": "What is a baby goat called?",
+    "answer": "Kid"
+  },
+  {
+    "category": "Food",
+    "question": "What is the main ingredient in kimchi?",
+    "answer": "Cabbage"
+  },
+  {
+    "category": "Science",
+    "question": "What is the closest planet to Earth?",
+    "answer": "Venus"
+  },
+  {
+    "category": "History",
+    "question": "Who painted 'The Last Supper'?",
+    "answer": "Leonardo da Vinci"
+  },
+  {
+    "category": "Geography",
+    "question": "What is the capital of Saudi Arabia?",
+    "answer": "Riyadh"
+  },
+  {
+    "category": "Movies",
+    "question": "Who played 'Spider-Man' in 2002?",
+    "answer": "Tobey Maguire"
+  },
+  {
+    "category": "Sports",
+    "question": "What is the maximum score in a game of bowling?",
+    "answer": "300"
+  },
+  {
+    "category": "Literature",
+    "question": "Who wrote 'Wuthering Heights'?",
+    "answer": "Emily Bront\u00eb"
+  },
+  {
+    "category": "Music",
+    "question": "Which singer represents 'Ziggy Stardust'?",
+    "answer": "David Bowie"
+  },
+  {
+    "category": "Technology",
+    "question": "What does GUI stand for?",
+    "answer": "Graphical User Interface"
+  },
+  {
+    "category": "Animals",
+    "question": "What is the fastest marine animal?",
+    "answer": "Sailfish"
+  },
+  {
+    "category": "Food",
+    "question": "What is the main ingredient in peanut butter?",
+    "answer": "Peanuts"
+  },
+  {
+    "category": "Science",
+    "question": "What is the pH of pure water?",
+    "answer": "7"
+  },
+  {
+    "category": "History",
+    "question": "Who was the second President of the US?",
+    "answer": "John Adams"
+  },
+  {
+    "category": "Geography",
+    "question": "What is the capital of South Africa?",
+    "answer": "Pretoria (executive), Cape Town (legislative), Bloemfontein (judicial)"
+  },
+  {
+    "category": "Movies",
+    "question": "Who directed 'E.T. the Extra-Terrestrial'?",
+    "answer": "Steven Spielberg"
+  },
+  {
+    "category": "Sports",
+    "question": "Which country has won the most World Cups?",
+    "answer": "Brazil"
+  },
+  {
+    "category": "Literature",
+    "question": "Who wrote 'The Grapes of Wrath'?",
+    "answer": "John Steinbeck"
+  },
+  {
+    "category": "Music",
+    "question": "Which band released 'Wonderwall'?",
+    "answer": "Oasis"
+  },
+  {
+    "category": "Technology",
+    "question": "What does LTE stand for?",
+    "answer": "Long Term Evolution"
+  },
+  {
+    "category": "Animals",
+    "question": "What is a group of crows called?",
+    "answer": "Murder"
+  },
+  {
+    "category": "Food",
+    "question": "What is the main ingredient in marshmallows?",
+    "answer": "Sugar"
+  },
+  {
+    "category": "Science",
+    "question": "What is the study of fossils called?",
+    "answer": "Paleontology"
+  },
+  {
+    "category": "History",
+    "question": "Who discovered gravity?",
+    "answer": "Isaac Newton"
+  },
+  {
+    "category": "Geography",
+    "question": "What is the capital of Sweden?",
+    "answer": "Stockholm"
+  },
+  {
+    "category": "Movies",
+    "question": "Which movie features the character 'James Bond'?",
+    "answer": "Dr. No (first one)"
+  },
+  {
+    "category": "Sports",
+    "question": "How many holes are in a standard golf course?",
+    "answer": "18"
+  },
+  {
+    "category": "Literature",
+    "question": "Who wrote 'The Scarlet Letter'?",
+    "answer": "Nathaniel Hawthorne"
+  },
+  {
+    "category": "Music",
+    "question": "Which singer represents 'The Prince of Darkness'?",
+    "answer": "Ozzy Osbourne"
+  },
+  {
+    "category": "Technology",
+    "question": "What does DSL stand for?",
+    "answer": "Digital Subscriber Line"
+  },
+  {
+    "category": "Animals",
+    "question": "What is the largest land carnivore?",
+    "answer": "Polar Bear"
+  },
+  {
+    "category": "Food",
+    "question": "What is the main ingredient in meringue?",
+    "answer": "Egg Whites"
+  },
+  {
+    "category": "Science",
+    "question": "What is the most abundant gas in the Earth's atmosphere?",
+    "answer": "Nitrogen"
+  },
+  {
+    "category": "History",
+    "question": "Who was the first female aviator to fly solo across the Atlantic?",
+    "answer": "Amelia Earhart"
+  },
+  {
+    "category": "Geography",
+    "question": "What is the capital of Switzerland?",
+    "answer": "Bern"
+  },
+  {
+    "category": "Movies",
+    "question": "Who directed 'Blade Runner'?",
+    "answer": "Ridley Scott"
+  },
+  {
+    "category": "Sports",
+    "question": "Which country won the first modern Olympics?",
+    "answer": "Greece"
+  },
+  {
+    "category": "Literature",
+    "question": "Who wrote 'Anna Karenina'?",
+    "answer": "Leo Tolstoy"
+  },
+  {
+    "category": "Music",
+    "question": "Which band released 'Sweet Child O' Mine'?",
+    "answer": "Guns N' Roses"
+  },
+  {
+    "category": "Technology",
+    "question": "What does DNS stand for?",
+    "answer": "Domain Name System"
+  },
+  {
+    "category": "Animals",
+    "question": "What is a baby rabbit called?",
+    "answer": "Kitten or Kit"
+  },
+  {
+    "category": "Food",
+    "question": "What is the main ingredient in fudge?",
+    "answer": "Sugar"
+  },
+  {
+    "category": "Science",
+    "question": "What is the chemical symbol for Lead?",
+    "answer": "Pb"
+  },
+  {
+    "category": "History",
+    "question": "Who was the 40th President of the US?",
+    "answer": "Ronald Reagan"
+  },
+  {
+    "category": "Geography",
+    "question": "What is the capital of Portugal?",
+    "answer": "Lisbon"
+  },
+  {
+    "category": "Movies",
+    "question": "Who played 'Batman' in 2008?",
+    "answer": "Christian Bale"
+  },
+  {
+    "category": "Sports",
+    "question": "Which tennis player has the most Grand Slam titles?",
+    "answer": "Margaret Court / Novak Djokovic"
+  },
+  {
+    "category": "Literature",
+    "question": "Who wrote 'Crime and Punishment'?",
+    "answer": "Fyodor Dostoevsky"
+  },
+  {
+    "category": "Music",
+    "question": "Which singer represents 'The Voice'?",
+    "answer": "Whitney Houston / Frank Sinatra"
+  },
+  {
+    "category": "Technology",
+    "question": "What does NFT stand for?",
+    "answer": "Non-Fungible Token"
+  },
+  {
+    "category": "Animals",
+    "question": "What is a male bee called?",
+    "answer": "Drone"
+  },
+  {
+    "category": "Food",
+    "question": "What is the main ingredient in caramel?",
+    "answer": "Sugar"
+  },
+  {
+    "category": "Science",
+    "question": "What is the study of stars called?",
+    "answer": "Astronomy"
+  },
+  {
+    "category": "History",
+    "question": "Who founded the Mongol Empire?",
+    "answer": "Genghis Khan"
+  },
+  {
+    "category": "Geography",
+    "question": "What is the capital of New Zealand?",
+    "answer": "Wellington"
+  },
+  {
+    "category": "Movies",
+    "question": "Who directed 'Psycho'?",
+    "answer": "Alfred Hitchcock"
+  },
+  {
+    "category": "Sports",
+    "question": "Which country has won the most Cricket World Cups?",
+    "answer": "Australia"
+  },
+  {
+    "category": "Literature",
+    "question": "Who wrote 'Great Expectations'?",
+    "answer": "Charles Dickens"
+  },
+  {
+    "category": "Music",
+    "question": "Which band released 'Californication'?",
+    "answer": "Red Hot Chili Peppers"
+  },
+  {
+    "category": "Technology",
+    "question": "What does QR code stand for?",
+    "answer": "Quick Response Code"
+  },
+  {
+    "category": "Animals",
+    "question": "What is the fastest swimming bird?",
+    "answer": "Gentoo Penguin"
+  },
+  {
+    "category": "Food",
+    "question": "What is the main ingredient in marzipan?",
+    "answer": "Almonds"
+  },
+  {
+    "category": "Science",
+    "question": "What is the chemical symbol for Potassium?",
+    "answer": "K"
+  },
+  {
+    "category": "History",
+    "question": "Who was the first person to orbit the Earth?",
+    "answer": "Yuri Gagarin"
+  },
+  {
+    "category": "Geography",
+    "question": "What is the capital of Norway?",
+    "answer": "Oslo"
+  },
+  {
+    "category": "Movies",
+    "question": "Which movie features the character 'Han Solo'?",
+    "answer": "Star Wars"
+  },
+  {
+    "category": "Sports",
+    "question": "Which country hosted the 2016 Summer Olympics?",
+    "answer": "Brazil"
+  },
+  {
+    "category": "Literature",
+    "question": "Who wrote 'The Alchemist'?",
+    "answer": "Paulo Coelho"
+  },
+  {
+    "category": "Music",
+    "question": "Which singer represents 'Slim Shady'?",
+    "answer": "Eminem"
+  },
+  {
+    "category": "Technology",
+    "question": "What does SEO stand for?",
+    "answer": "Search Engine Optimization"
+  },
+  {
+    "category": "Animals",
+    "question": "What is a group of dolphins called?",
+    "answer": "Pod"
+  },
+  {
+    "category": "Food",
+    "question": "What is the main ingredient in cheesecake?",
+    "answer": "Cheese (Cream Cheese)"
+  },
+  {
+    "category": "Science",
+    "question": "What is the hardest bone in the human body?",
+    "answer": "Jawbone (Mandible)"
+  },
+  {
+    "category": "History",
+    "question": "Who was the 44th President of the US?",
+    "answer": "Barack Obama"
+  },
+  {
+    "category": "Geography",
+    "question": "What is the capital of Egypt?",
+    "answer": "Cairo"
+  },
+  {
+    "category": "Movies",
+    "question": "Who directed 'Fight Club'?",
+    "answer": "David Fincher"
+  },
+  {
+    "category": "Sports",
+    "question": "Which team won the first Super Bowl?",
+    "answer": "Green Bay Packers"
+  },
+  {
+    "category": "Literature",
+    "question": "Who wrote 'Of Mice and Men'?",
+    "answer": "John Steinbeck"
+  },
+  {
+    "category": "Music",
+    "question": "Which band released 'Paint It Black'?",
+    "answer": "The Rolling Stones"
+  },
+  {
+    "category": "Technology",
+    "question": "What does SQL stand for?",
+    "answer": "Structured Query Language"
+  },
+  {
+    "category": "Animals",
+    "question": "What is the largest wild cat?",
+    "answer": "Tiger"
+  },
+  {
+    "category": "Food",
+    "question": "What is the main ingredient in shortbread?",
+    "answer": "Butter"
+  },
+  {
+    "category": "Science",
+    "question": "What is the name of our galaxy?",
+    "answer": "Milky Way"
+  },
+  {
+    "category": "History",
+    "question": "Who was the first woman to win a Nobel Prize?",
+    "answer": "Marie Curie"
+  },
+  {
+    "category": "Geography",
+    "question": "What is the capital of Greece?",
+    "answer": "Athens"
+  },
+  {
+    "category": "Movies",
+    "question": "Who played 'Joker' in 2019?",
+    "answer": "Joaquin Phoenix"
+  },
+  {
+    "category": "Sports",
+    "question": "Which country won the 2010 FIFA World Cup?",
+    "answer": "Spain"
+  },
+  {
+    "category": "Literature",
+    "question": "Who wrote 'The Little Prince'?",
+    "answer": "Antoine de Saint-Exup\u00e9ry"
+  },
+  {
+    "category": "Music",
+    "question": "Which singer represents 'The Piano Man'?",
+    "answer": "Billy Joel"
+  },
+  {
+    "category": "Technology",
+    "question": "What does API stand for?",
+    "answer": "Application Programming Interface"
+  },
+  {
+    "category": "Animals",
+    "question": "What is the national bird of the US?",
+    "answer": "Bald Eagle"
+  },
+  {
+    "category": "Food",
+    "question": "What is the main ingredient in tzatziki?",
+    "answer": "Yogurt"
+  },
+  {
+    "category": "Science",
+    "question": "What represents the letter 'N' in the periodic table?",
+    "answer": "Nitrogen"
+  },
+  {
+    "category": "History",
+    "question": "Who was the first settler of Iceland?",
+    "answer": "Ing\u00f3lfur Arnarson"
+  },
+  {
+    "category": "Geography",
+    "question": "What is the capital of Finland?",
+    "answer": "Helsinki"
+  },
+  {
+    "category": "Movies",
+    "question": "Who directed 'Schindler's List'?",
+    "answer": "Steven Spielberg"
+  },
+  {
+    "category": "Sports",
+    "question": "Which athlete has the most Olympic medals?",
+    "answer": "Michael Phelps"
+  },
+  {
+    "category": "Literature",
+    "question": "Who wrote 'Alice in Wonderland'?",
+    "answer": "Lewis Carroll"
+  },
+  {
+    "category": "Music",
+    "question": "Which band released 'Back in Black'?",
+    "answer": "AC/DC"
+  },
+  {
+    "category": "Technology",
+    "question": "What does LCD stand for?",
+    "answer": "Liquid Crystal Display"
+  },
+  {
+    "category": "Animals",
+    "question": "What is the loudest animal on Earth?",
+    "answer": "Sperm Whale"
+  },
+  {
+    "category": "Food",
+    "question": "What is the main ingredient in custard?",
+    "answer": "Milk and Eggs"
+  },
+  {
+    "category": "Science",
+    "question": "What is the study of weather called?",
+    "answer": "Meteorology"
+  },
+  {
+    "category": "History",
+    "question": "Who signed the Magna Carta?",
+    "answer": "King John"
+  },
+  {
+    "category": "Geography",
+    "question": "What is the capital of Denmark?",
+    "answer": "Copenhagen"
+  },
+  {
+    "category": "Movies",
+    "question": "Which movie features the character 'Vito Corleone'?",
+    "answer": "The Godfather"
+  },
+  {
+    "category": "Sports",
+    "question": "Which country won the 1998 FIFA World Cup?",
+    "answer": "France"
+  },
+  {
+    "category": "Literature",
+    "question": "Who wrote 'Ulysses'?",
+    "answer": "James Joyce"
+  },
+  {
+    "category": "Music",
+    "question": "Which singer represents 'The King of Pop'?",
+    "answer": "Michael Jackson"
+  },
+  {
+    "category": "Technology",
+    "question": "What does SaaS stand for?",
+    "answer": "Software as a Service"
+  }
+]
