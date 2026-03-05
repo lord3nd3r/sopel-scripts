@@ -35,11 +35,12 @@ An AI chatbot powered by the **xAI Grok API**. The bot responds when mentioned b
 ### Features
 - Responds conversationally when addressed by nick
 - Reacts to `/me` actions (pets, hugs, pokes, etc.) with fun emote replies
-- Web search mode for news, scores, current events
+- **Automatic web search** for news, scores, current events, and time-sensitive queries
 - Per-user conversation history stored in SQLite
-- Review mode — summarize what's been discussed in channel
-- Time/date awareness with per-user timezone preferences
+- **Review mode** — summarize what's been discussed in channel
+- **Time/date awareness** with per-user timezone and format preferences
 - Admin commands via PM
+- Heuristic intent detection to avoid responding to incidental mentions
 
 ### Commands
 
@@ -52,13 +53,123 @@ An AI chatbot powered by the **xAI Grok API**. The bot responds when mentioned b
 | `!grokreset channel` | Reset all channel history (admin/op) | `!grokreset all` |
 | `!testemote` | Verify emote plugin is loaded | `!testemote` |
 
+### 🔍 Web Search (Automatic)
+
+The bot **automatically** uses live web search when it detects that your question is about something time-sensitive or factual. There is no special command — just ask naturally and the bot decides whether to search.
+
+**Trigger keywords** (any of these in your message activates search):
+
+| Category | Keywords |
+|----------|----------|
+| News & Events | `news`, `latest`, `recent`, `today`, `yesterday`, `tonight`, `this week`, `this month`, `current events`, `headlines`, `breaking`, `update` |
+| Sports | `score`, `results`, `standings`, `who won`, `who is winning` |
+| Finance | `stock price` |
+| Weather | `weather`, `forecast` |
+| People & Events | `who died`, `is ___ dead`, `did ___ happen`, `election`, `poll` |
+| General | `search`, `whats happening` |
+
+**Examples:**
+```
+Grok: what's the latest news today?
+Grok: who won the NBA game last night?
+Grok: what's the stock price of AAPL?
+Grok: search for the election results
+Grok: what's the weather forecast for tomorrow?
+```
+
+> **Note:** If the web search API fails, the bot automatically falls back to answering from its training data.
+
+### 🕐 Time & Date Queries
+
+Ask the bot about the current time or date and it responds instantly. Time queries **bypass rate-limiting** so you can always get a fresh answer.
+
+**Trigger phrases:**
+- `what time is it`, `what's the time`, `current time`
+- `what's the date`, `what day is it`, `today's date`
+
+**Examples:**
+```
+Grok: what time is it?
+Grok: what's today's date?
+Grok: what day is it?
+```
+
+#### Setting Your Timezone
+
+Tell the bot your timezone and it will remember it for all future time queries:
+
+| Method | Example |
+|--------|---------|
+| Tell the bot | `Grok: I'm in EST` |
+| Explicit set | `Grok: set my timezone to CST` |
+| Natural phrasing | `Grok: I live in Pacific` |
+
+**Supported timezone abbreviations:**
+`EST` / `EDT` / `ET` / `Eastern`, `CST` / `CDT` / `CT` / `Central`, `MST` / `MDT` / `MT` / `Mountain`, `PST` / `PDT` / `PT` / `Pacific`, `UTC` / `GMT`
+
+#### Setting Your Time Format
+
+Prefer 12-hour or 24-hour time? Tell the bot:
+
+```
+Grok: I prefer 12hr
+Grok: use 24 hour
+```
+
+Preferences are saved in the database and persist across restarts.
+
+### 💬 Review Mode
+
+Ask the bot to summarize or give its opinion on what's been discussed in the channel. Review mode collects recent messages from **all users** in the channel and generates a brief, opinionated summary.
+
+**Trigger phrases:**
+- `thoughts`, `opinion`, `what do you think`
+- `summarize`, `give me your take`, `opine`
+- `what's being discussed`, `what's happening`, `what's going on`
+- `catch me up`, `fill me in`, `what did I miss`
+- `recap`, `tldr`, `tl;dr`, `what happened`
+- `^^` (shorthand)
+
+**Examples:**
+```
+Grok: what do you think?
+Grok: give me your opinion on what's being discussed
+Grok: catch me up, what did I miss?
+Grok: tldr
+```
+
+> **Cooldown:** Review mode has a 30-second cooldown per channel to prevent spam.
+
+### 🤗 Emote Interactions
+
+The bot reacts to `/me` actions and emote-style messages directed at it. Responses vary and avoid repetition.
+
+| Action | Example Reply |
+|--------|---------------|
+| pet / pat | *nuzzles lovingly 🥰* |
+| hug / cuddle / snuggle | *wraps you in a cozy hug 🤗* |
+| poke / boop | *boops playfully 👋* |
+| kiss | *sends a sweet smooch 😘* |
+| nuzzle | *nuzzles warmly 🫶* |
+| bonk | *bonks gently with a plush hammer 🫠* |
+| slap / smack | *gives a surprised gasp and a tut 😳* |
+| highfive | *gives a triumphant high five ✋* |
+| wave / wink / dance / twirl | Various fun reactions |
+
+**Trigger formats:**
+```
+/me pets Grok
+/me hugs Grok
+* End3r pets Grok
+```
+
 ### Admin PM Commands
 
 | Command | Description | Example |
 |---------|-------------|---------|
 | `$join #channel [key]` | Make bot join a channel | `$join #mychannel` |
 | `$part #channel` | Make bot leave a channel | `$part #mychannel` |
-| `$ignore <nick>` | Ignore a user | `$ignore spammer` |
+| `$ignore <nick>` | Ignore a user (persisted to DB) | `$ignore spammer` |
 | `$unignore <nick>` | Unignore a user | `$unignore spammer` |
 
 ### Configuration (`default.cfg`)
