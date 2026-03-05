@@ -243,7 +243,7 @@ Share lighthearted party messages with themed countdowns, gifts, and action mess
 | `!bong [nick]` | — | Bong rip session with water/ice countdown 🫧 |
 | `!joint [nick]` | — | Roll up and spark a joint 📜 |
 | `!keef [nick]` | `!kief` | Sprinkle some keef ✨ |
-| `!dmt [nick]` | — | DMT breakthrough experience 👽🌀 |
+| `!trip [nick]` | — | DMT breakthrough experience 👽🌀 |
 | `!shrooms [nick]` | `!mushrooms` | Mushroom trip 🍄 |
 | `!acid [nick]` | `!lsd` | Acid trip with fractal visuals 🌈 |
 | `!peyote [nick]` | `!mescaline` | Peyote desert vision quest 🌵 |
@@ -253,17 +253,17 @@ Share lighthearted party messages with themed countdowns, gifts, and action mess
   ```
   * Bot hands m0n a fat bong rip 🌊
   ```
-- **Without a target:** Performs a themed countdown, then posts a colorful final message
+- **Without a target:** Performs a themed 3-step countdown (6s between each), then posts a random colorful final message
   ```
   🫧 3... Filling the water...
   🧊 2... Adding ice...
   🔥 1... Lighting the bowl...
-  💨 INHALE... The percolator screams!
+  Bong rip incoming — lean back and ride the clouds 🌊💨
   ```
 
 ### Cooldowns
-- **Channel cooldown:** 20 minutes between sessions
-- **Per-user cooldown:** 30 seconds between commands
+- **Channel cooldown:** 20 minutes between countdown sessions (does not apply to gift actions)
+- **Per-user cooldown:** 30 seconds between gift commands (does not apply to countdowns)
 
 ---
 
