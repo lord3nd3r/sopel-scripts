@@ -1360,20 +1360,30 @@ def handle(bot, trigger):
         r"what(?:'s| is) the topic|recap|tldr|tl;dr|what happened)\b",
         re.IGNORECASE,
     )
-    # Contextual triggers: only review when NOT followed by on/about/of/regarding
+    # Contextual triggers: only review when NOT followed by a specific topic
     _review_contextual_re = re.compile(
         r"\b(thoughts?|opinion|what do you think)\b",
         re.IGNORECASE,
     )
+    # Matches when a preposition follows — indicates a directed question
     _review_contextual_specific_re = re.compile(
-        r"\b(thoughts?|opinion|what do you think)\b\s*(on|about|of|regarding|that|re)\b",
+        r"\b(thoughts?|opinion|what do you think)\b\s*(on|about|of|regarding|re)\b",
+        re.IGNORECASE,
+    )
+    # But vague/deictic references still mean "review the channel", not a specific topic
+    _review_contextual_vague_re = re.compile(
+        r"\b(thoughts?|opinion|what do you think)\b\s*"
+        r"(on|about)?\s*(that|this|the above|above|it|everything|all of (that|this)|all that|all this)\b",
         re.IGNORECASE,
     )
     review_mode = (
         bool(_review_always_re.search(user_message))
         or (
             bool(_review_contextual_re.search(user_message))
-            and not bool(_review_contextual_specific_re.search(user_message))
+            and (
+                not bool(_review_contextual_specific_re.search(user_message))
+                or bool(_review_contextual_vague_re.search(user_message))
+            )
         )
         or (user_message.strip() == '^^')
     )
