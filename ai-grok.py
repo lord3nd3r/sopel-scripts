@@ -28,6 +28,10 @@ MAX_HISTORY_ENTRIES = 50
 REVIEW_CHAR_BUDGET = 2000
 REVIEW_MAX_ENTRIES = 200
 MAX_REPLY_LENGTH = 1400
+
+# Channel log DB limits
+CHANNEL_LOG_MAX_PER_CHANNEL = 500
+CHANNEL_LOG_MAX_AGE_HOURS = 48
 TRUNCATED_REPLY_LENGTH = 1390
 
 # Bounded queue and worker threads to process API requests without unbounded threads
@@ -360,6 +364,18 @@ def _init_db(bot):
             time_fmt TEXT
         )
     ''')
+
+    c.execute('''
+        CREATE TABLE IF NOT EXISTS grok_channel_log (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            channel TEXT NOT NULL,
+            nick TEXT NOT NULL,
+            text TEXT NOT NULL,
+            ts TEXT NOT NULL
+        )
+    ''')
+    # Index for fast channel lookups and pruning
+    c.execute('CREATE INDEX IF NOT EXISTS idx_chanlog_channel_ts ON grok_channel_log (channel, ts)')
     conn.commit()
     conn.close()
 
@@ -792,6 +808,75 @@ def _db_get_user_pref(bot, nick):
         return {}
     except Exception:
         return {}
+
+
+def _db_log_channel_msg(bot, channel, nick, text):
+    """Append a channel message to the persistent channel log."""
+    try:
+        conn = _db_conn(bot)
+        c = conn.cursor()
+        c.execute(
+            'INSERT INTO grok_channel_log (channel, nick, text, ts) VALUES (?, ?, ?, ?)',
+            (channel.lower(), nick, text, datetime.datetime.utcnow().isoformat()),
+        )
+        conn.commit()
+        conn.close()
+    except Exception:
+        _log(bot).exception('Failed to log channel message')
+
+
+def _db_get_channel_log(bot, channel, limit=200):
+    """Return the most recent channel log entries as [(nick, text), ...] oldest-first."""
+    try:
+        conn = _db_conn(bot)
+        c = conn.cursor()
+        c.execute(
+            'SELECT nick, text FROM grok_channel_log WHERE channel = ? ORDER BY id DESC LIMIT ?',
+            (channel.lower(), limit),
+        )
+        rows = c.fetchall()
+        conn.close()
+        return list(reversed([(r[0], r[1]) for r in rows]))
+    except Exception:
+        _log(bot).exception('Failed to read channel log')
+        return []
+
+
+def _db_prune_channel_log(bot, channel=None):
+    """Prune old channel log entries to keep the DB lean.
+
+    - Removes entries older than CHANNEL_LOG_MAX_AGE_HOURS
+    - Keeps at most CHANNEL_LOG_MAX_PER_CHANNEL entries per channel
+    """
+    try:
+        conn = _db_conn(bot)
+        c = conn.cursor()
+        # Age-based pruning
+        cutoff = (datetime.datetime.utcnow() - datetime.timedelta(hours=CHANNEL_LOG_MAX_AGE_HOURS)).isoformat()
+        if channel:
+            c.execute('DELETE FROM grok_channel_log WHERE channel = ? AND ts < ?', (channel.lower(), cutoff))
+        else:
+            c.execute('DELETE FROM grok_channel_log WHERE ts < ?', (cutoff,))
+        # Count-based pruning per channel
+        if channel:
+            channels = [channel.lower()]
+        else:
+            c.execute('SELECT DISTINCT channel FROM grok_channel_log')
+            channels = [r[0] for r in c.fetchall()]
+        for ch in channels:
+            c.execute('SELECT COUNT(*) FROM grok_channel_log WHERE channel = ?', (ch,))
+            count = c.fetchone()[0]
+            if count > CHANNEL_LOG_MAX_PER_CHANNEL:
+                excess = count - CHANNEL_LOG_MAX_PER_CHANNEL
+                c.execute(
+                    'DELETE FROM grok_channel_log WHERE id IN ('
+                    '  SELECT id FROM grok_channel_log WHERE channel = ? ORDER BY id ASC LIMIT ?'
+                    ')', (ch, excess),
+                )
+        conn.commit()
+        conn.close()
+    except Exception:
+        _log(bot).exception('Failed to prune channel log')
 
 
 def _db_set_user_pref(bot, nick, tz=None, fmt=None):
@@ -1308,6 +1393,15 @@ def handle(bot, trigger):
                     history.append(new)
                 else:
                     history.append(f"{trigger.nick}: {text_for_history}")
+                # Persist to channel log DB (survives restarts)
+                if not is_pm:
+                    try:
+                        _db_log_channel_msg(bot, trigger.sender, trigger.nick, text_for_history)
+                        # Prune occasionally (~1% of writes) to avoid doing it every message
+                        if random.random() < 0.01:
+                            _db_prune_channel_log(bot, trigger.sender)
+                    except Exception:
+                        pass
 
     # If they didn't mention the bot, don't wake it up — just keep the context
     if not mentioned:
@@ -1507,6 +1601,14 @@ def handle(bot, trigger):
                                 channel_entries.append((nick, text))
                     except Exception:
                         continue
+            # Fallback: if in-memory history is empty/sparse, load from DB
+            if len(channel_entries) < 5:
+                try:
+                    db_entries = _db_get_channel_log(bot, trigger.sender, limit=REVIEW_MAX_ENTRIES)
+                    if len(db_entries) > len(channel_entries):
+                        channel_entries = db_entries
+                except Exception:
+                    pass
 
         # Filter and keep most recent entries (already chronological by collection order)
         # Apply same noise filters as when storing: skip URLs / tiny tokens / punctuation
@@ -1559,6 +1661,14 @@ def handle(bot, trigger):
                                         continue
                         except Exception:
                             continue
+                # Fallback: if in-memory bg is empty/sparse, load from DB
+                if len(channel_bg) < 5:
+                    try:
+                        db_bg = _db_get_channel_log(bot, trigger.sender, limit=50)
+                        if len(db_bg) > len(channel_bg):
+                            channel_bg = db_bg
+                    except Exception:
+                        pass
 
                 # Deduplicate while preserving order (multiple per-user deques overlap)
                 seen_bg = set()
