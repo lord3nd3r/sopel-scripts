@@ -1,0 +1,12 @@
+__pycache__/
+*.pyc
+*.pyo
+*.py.bak
+*.bak
+*.db
+*.sqlite3
+grok_data/
+monitor_repo_tmp/
+trivia_stats.db
+test_trivia.db
+grok_channel_prompts.json
