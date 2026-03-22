@@ -2180,8 +2180,8 @@ def mughelp(bot, trigger):
         "  • $mugcleardb confirm — WIPE DB (deletes all player records)",
         "  • $mugmerge <nick> [--dry] — merge duplicate records for normalized nick (admin only; use --dry to preview)",
         "  • $mugdup <nick> — list stored records that normalize to the same nick (admin only)",
-        "  • $mugclearbounty <nick> — remove a bounty and refund to pool (admin only)
-  • $mugstats — PM economy overview: user count, top 5, total coins (admin only)",
+        "  • $mugclearbounty <nick> — remove a bounty and refund to pool (admin only)",
+        "  • $mugstats — PM economy overview: user count, top 5, total coins (admin only)",
         "  • $godmode [on|off] [nick] — toggle 99% luck for yourself or a player (PM, admin only)",
         "  • $mugtoggle [on|off] — enable/disable the mug game in the current channel (in-channel or PM)",
         "    - In PM: $mugtoggle #channel [on|off] — target a specific channel",
