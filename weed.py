@@ -403,8 +403,13 @@ def weed_commands(bot, trigger):
     # Shared cooldown key for all commands
     key = (channel, user_id)
 
-    # If a target user is specified, give them a random item immediately (no countdown)
-    if trigger.group(2):
+    # If a target user is specified AND they are actually in the channel, give them a random item
+    target_arg = trigger.group(2).strip() if trigger.group(2) else None
+    chan_obj = bot.channels.get(str(channel))
+    channel_users = [u.lower() for u in chan_obj.users.keys()] if chan_obj else []
+    is_valid_target = target_arg and target_arg.lower() in channel_users
+
+    if is_valid_target:
         # Per-user cooldown check (only for give action)
         with LOCK:
             last_user = PER_USER_LAST.get(key)
@@ -440,5 +445,34 @@ def weed_commands(bot, trigger):
         LAST_USED[channel] = now
 
     # Start countdown+final message in a background thread to avoid blocking the bot
+    t = threading.Thread(target=_countdown_and_final, args=(bot, channel, countdown_msgs, final_msgs), daemon=True)
+    t.start()
+
+
+# Trigger when $command appears anywhere mid-sentence (not at the start, which @module.commands already handles)
+_INLINE_PATTERN = r'.+\$(?P<incmd>weed|bong|joint|keef|kief|trip|shrooms|mushrooms|acid|lsd|peyote|mescaline)\b'
+
+@module.rule(_INLINE_PATTERN)
+def weed_inline(bot, trigger):
+    """Fire the weed countdown when $command appears mid-sentence."""
+    if not trigger.sender.startswith('#'):
+        return
+
+    cmd = trigger.match.group('incmd').lower()
+    channel = trigger.sender
+    now = time.time()
+
+    gifts, action_msgs, final_msgs, countdown_msgs = DATA.get(cmd, DATA['weed'])
+
+    with LOCK:
+        last_chan = LAST_USED.get(channel)
+        if last_chan and (now - last_chan) < COOLDOWN:
+            remaining = COOLDOWN - (now - last_chan)
+            bot.notice(f"The {cmd} countdown is on cooldown for {_format_remaining(remaining)} in {channel}.", trigger.nick)
+            return
+
+    with LOCK:
+        LAST_USED[channel] = now
+
     t = threading.Thread(target=_countdown_and_final, args=(bot, channel, countdown_msgs, final_msgs), daemon=True)
     t.start()

@@ -10,9 +10,12 @@ import time
 from contextlib import contextmanager
 import unicodedata
 import re
+import logging
 
 from sopel import module
 from sopel.config.types import StaticSection, ValidatedAttribute
+
+LOG = logging.getLogger(__name__)
 
 
 # ============================================================
@@ -33,6 +36,10 @@ class MugGameSection(StaticSection):
 def setup(bot):
     """Called by Sopel when the plugin is loaded."""
     bot.config.define_section('mug_game', MugGameSection)
+    # Seed the bot's own wallet if it doesn't have one, and start proactive thread
+    if BOT_PLAYER_ENABLED:
+        _seed_bot_wallet(bot)
+        _start_bot_proactive_thread(bot)
 
 
 def configure(config):
@@ -44,12 +51,20 @@ def configure(config):
     )
 
 
+def shutdown(bot):
+    """Called by Sopel when the plugin is unloaded/reloaded."""
+    _bot_proactive_stop.set()
+
+
 # ============================================================
 # ===============  CONFIG & TUNING (EDIT ME)  ================
 # ============================================================
 
 PLUGIN_NAME = 'mug_game'
 OLD_DATA_FILENAME = 'mug_game_coins.json'  # optional legacy import (in Sopel homedir)
+
+# Primary channel where the mug game is played (used in disabled messages)
+MUG_HOME_CHANNEL = '#mug'
 
 # PM-admin allowlist (lowercase nicks)
 # Add whoever should be able to use $mugadd/$mugset/$mugtake/$mugreset in PM.
@@ -62,6 +77,22 @@ MUG_EXTRA_FAIL_CD = 2 * 60
 JAIL_TIME = 10 * 60
 BET_COOLDOWN = 60
 BOUNTY_COOLDOWN = 60  # prevents spam-bounty
+TOP_CD = 10 * 60          # per-user cooldown for $top5/$top10
+
+# ---- Bot Player (Glitchy joins the game!) ----
+BOT_PLAYER_ENABLED = True          # Master switch for bot participation
+BOT_SEED_MONEY = 500_000           # Starting balance if bot has no record
+BOT_RETALIATE = True               # Counter-mug when someone mugs the bot
+BOT_RETALIATE_CHANCE = 60          # % chance bot retaliates after being mugged
+BOT_RETALIATE_DELAY = (5, 15)      # Random delay range in seconds before counter-mug
+BOT_PROACTIVE = True               # Periodically mug top players
+BOT_PROACTIVE_INTERVAL = (30, 90)  # Random interval in minutes between proactive mugs
+BOT_PROACTIVE_TARGETS = 5          # Pick from top N players
+BOT_SUCCESS_CHANCE = 50            # Bot's mug success chance (slightly below player default)
+BOT_STEAL_MIN = 5                  # Bot steal % range (lower than players — it's a bot)
+BOT_STEAL_MAX = 15
+BOT_FAIL_LOSS_MIN = 10             # Bot loss % range on fail
+BOT_FAIL_LOSS_MAX = 25
 
 # $coins base + scaling
 COINS_MIN_GAIN = 15
@@ -324,6 +355,37 @@ BOUNTY_CLAIM_MESSAGES = [
     "🚨 WANTED DEAD OR POOR: {att} claims {bounty} coins from {vic}'s bounty! 😈",
 ]
 
+# ---- Bot player messages ----
+BOT_RETALIATE_MESSAGES = [
+    "🤖 {bot} didn't appreciate that. Time for payback on {vic}!",
+    "🤖 {bot} cracks its knuckles. Nobody mugs a bot and walks away.",
+    "🤖 {bot} reboots in REVENGE MODE and targets {vic}.",
+    "🤖 {bot} says: 'You mugged the wrong bot, {vic}.' 😤",
+    "🤖 {bot} initiates Protocol: GET-EVEN against {vic}.",
+]
+
+BOT_PROACTIVE_MESSAGES = [
+    "🤖 {bot} has been watching {vic}'s fat wallet all day. Time to strike!",
+    "🤖 {bot} emerges from the shadows and eyes {vic}'s coins…",
+    "🤖 {bot} runs a wealth scan and locks onto {vic}. Target acquired.",
+    "🤖 {bot} is feeling chaotic and {vic} is looking too rich.",
+    "🤖 {bot} rolls up on {vic}. Nothing personal. Just code.",
+]
+
+BOT_MUG_SUCCESS_MESSAGES = [
+    "🤖 {bot} snatches {steal} coins from {vic}! Beep boop, pay up. 💰",
+    "🤖 {bot} runs {vic}'s pockets for {steal} coins. Cold. Calculated. 🧊",
+    "🤖 {bot} yoinks {steal} coins from {vic}. Machine precision. 🎯",
+    "🤖 {bot} hacks {vic}'s wallet and extracts {steal} coins. 💾",
+]
+
+BOT_MUG_FAIL_MESSAGES = [
+    "🤖 {bot} glitches mid-heist and drops {loss} coins. Error 404: stealth not found. 😂",
+    "🤖 {bot} trips over its own cables and loses {loss} coins to {vic}. 🔌",
+    "🤖 {bot} blue-screens during the robbery! {vic} picks up {loss} coins. 💙💀",
+    "🤖 {bot} fumbles the mug. {vic} catches {loss} coins mid-air. 🫳",
+]
+
 # ============================================================
 # ===================== INTERNAL (DON'T EDIT) =================
 # ============================================================
@@ -331,6 +393,9 @@ BOUNTY_CLAIM_MESSAGES = [
 # Per-channel runtime enable/disable toggles (persisted in bot.db)
 # {channel_lower: bool}  — missing key = enabled (default)
 _channel_toggles: dict[str, bool] | None = None  # None = not loaded yet
+_top_cd_cache: dict[tuple, float] = {}  # per-user cooldown for $top5/$top10
+_bot_proactive_thread: threading.Thread | None = None  # background mugger thread
+_bot_proactive_stop = threading.Event()  # signal to stop the proactive thread
 
 # Re-entrant lock: safe if helpers call helpers while locked
 _data_lock = threading.RLock()
@@ -769,6 +834,8 @@ def _anticheat_gate(bot, trigger, cmd_name: str = "") -> bool:
     if REQUIRE_IDENTIFIED and not _check_identified(bot, trigger):
         bot.reply("🔐 You must be identified with NickServ to play. Type: /msg NickServ IDENTIFY <password>")
         return True
+    if _is_admin(bot, trigger.nick):
+        return False  # admins bypass all rate limiting
     if not _check_global_cooldown(trigger.nick):
         return True  # silently drop rapid-fire commands
     return False
@@ -800,8 +867,8 @@ def _plugin_enabled(bot, channel: str | None = None) -> bool:
         return True
 
     toggles = _load_channel_toggles(bot)
-    # Missing key = enabled by default
-    return toggles.get(channel.lower(), True)
+    # Missing key = disabled by default (must be explicitly enabled per channel)
+    return toggles.get(channel.lower(), False)
 
 
 def _set_channel_enabled(bot, channel: str, enabled: bool):
@@ -815,9 +882,9 @@ def _disabled_msg(bot, trigger):
     """Send a short 'plugin is disabled' notice."""
     chan = str(trigger.sender) if str(trigger.sender).startswith('#') else ''
     if chan:
-        bot.reply(f"🔒 The mug game is disabled in {chan}.")
+        bot.reply(f"🔒 The mug game is disabled in {chan}. Join {MUG_HOME_CHANNEL} to play!")
     else:
-        bot.reply("🔒 The mug game is currently disabled.")
+        bot.reply(f"🔒 The mug game is currently disabled. Join {MUG_HOME_CHANNEL} to play!")
 
 
 def _pm(bot, nick, text):
@@ -879,6 +946,140 @@ def _is_in_channel(bot, channel_name: str, nick: str) -> bool:
 
 
 # ============================================================
+# =================== BOT PLAYER LOGIC ======================
+# ============================================================
+
+def _seed_bot_wallet(bot):
+    """Ensure the bot has a player record with seed money if new."""
+    with locked_data(bot):
+        rec = get_user_record(bot, bot.nick)
+        if rec.get("money", 0) <= 0:
+            rec["money"] = BOT_SEED_MONEY
+
+
+def _bot_mug(bot, channel, target_nick, intro_messages):
+    """Execute a bot-initiated mug against target_nick in channel.
+
+    This is a simplified mug that doesn't require a trigger object.
+    The bot is never jailed and ignores cooldowns.
+    """
+    bot_nick = bot.nick
+    now = time.time()
+
+    with locked_data(bot) as data:
+        bot_rec = get_user_record(bot, bot_nick)
+        users = data.get("users", {})
+        victim_key = normalize_key(target_nick)
+        if victim_key not in users:
+            return  # target not a known player
+
+        victim = get_user_record(bot, target_nick)
+        vic_money = int(victim.get("money", 0))
+
+        # Announce the attempt
+        intro = _rand(intro_messages).format(bot=bot_nick, vic=target_nick)
+        bot.say(intro, channel)
+
+        roll = random.randint(1, 100)
+
+        if roll <= BOT_SUCCESS_CHANCE:
+            # Success
+            if vic_money <= 0:
+                bot.say(f"🤖 {bot_nick} tried to mug {target_nick}, but they're broke! Nothing to take. 🤷", channel)
+                return
+
+            pct = random.randint(BOT_STEAL_MIN, BOT_STEAL_MAX) / 100.0
+            steal = max(1, int(vic_money * pct))
+            # Apply whale cap
+            if vic_money > RICH_VICTIM_THRESHOLD:
+                cap = max(1, int(vic_money * (RICH_VICTIM_MAX_STEAL_PCT / 100.0)))
+                steal = min(steal, cap)
+
+            victim["money"] = max(0, vic_money - steal)
+            bot_rec["money"] = int(bot_rec.get("money", 0)) + steal
+
+            msg = _rand(BOT_MUG_SUCCESS_MESSAGES).format(bot=bot_nick, vic=target_nick, steal=fmt_coins(steal))
+            bot.say(f"{msg} | {bot_nick}: {fmt_coins(bot_rec['money'])} | {target_nick}: {fmt_coins(victim['money'])}", channel)
+        else:
+            # Fail — bot loses coins to the target
+            bot_money = int(bot_rec.get("money", 0))
+            if bot_money <= 0:
+                bot.say(f"🤖 {bot_nick} fumbles the heist but has no coins to drop. Awkward. 🫠", channel)
+                return
+
+            pct = random.randint(BOT_FAIL_LOSS_MIN, BOT_FAIL_LOSS_MAX) / 100.0
+            loss = max(1, int(bot_money * pct))
+            loss = min(loss, bot_money, MAX_FAIL_LOSS)
+
+            bot_rec["money"] = max(0, bot_money - loss)
+            victim["money"] = int(victim.get("money", 0)) + loss
+
+            msg = _rand(BOT_MUG_FAIL_MESSAGES).format(bot=bot_nick, vic=target_nick, loss=fmt_coins(loss))
+            bot.say(f"{msg} | {bot_nick}: {fmt_coins(bot_rec['money'])} | {target_nick}: {fmt_coins(victim['money'])}", channel)
+
+
+def _bot_retaliate(bot, channel, attacker_nick):
+    """Delayed retaliation: bot mugs back the player who mugged it."""
+    if not BOT_RETALIATE or not BOT_PLAYER_ENABLED:
+        return
+    if random.randint(1, 100) > BOT_RETALIATE_CHANCE:
+        return  # didn't trigger this time
+
+    delay = random.randint(BOT_RETALIATE_DELAY[0], BOT_RETALIATE_DELAY[1])
+
+    def _do_retaliate():
+        time.sleep(delay)
+        if not _plugin_enabled(bot, channel):
+            return
+        _bot_mug(bot, channel, attacker_nick, BOT_RETALIATE_MESSAGES)
+
+    t = threading.Thread(target=_do_retaliate, daemon=True)
+    t.start()
+
+
+def _start_bot_proactive_thread(bot):
+    """Launch the background thread that periodically mugs top players."""
+    global _bot_proactive_thread
+    _bot_proactive_stop.clear()
+
+    if not BOT_PROACTIVE or not BOT_PLAYER_ENABLED:
+        return
+
+    def _proactive_loop():
+        # Initial delay so the bot has time to join channels
+        _bot_proactive_stop.wait(60)
+
+        while not _bot_proactive_stop.is_set():
+            interval = random.randint(BOT_PROACTIVE_INTERVAL[0], BOT_PROACTIVE_INTERVAL[1]) * 60
+            if _bot_proactive_stop.wait(interval):
+                break  # stop signal received
+
+            try:
+                # Find the game channel (must be enabled)
+                channel = MUG_HOME_CHANNEL
+                if not _plugin_enabled(bot, channel):
+                    continue
+
+                # Pick a target from top N (exclude the bot itself)
+                top = _get_leaderboard(bot, BOT_PROACTIVE_TARGETS)
+                candidates = [u for u in top if normalize_key(u.get("nick", "")) != normalize_key(bot.nick)]
+                if not candidates:
+                    continue
+
+                target = random.choice(candidates)
+                target_nick = target.get("nick", "")
+                if not target_nick:
+                    continue
+
+                _bot_mug(bot, channel, target_nick, BOT_PROACTIVE_MESSAGES)
+            except Exception:
+                LOG.exception("Bot proactive mug error")
+
+    _bot_proactive_thread = threading.Thread(target=_proactive_loop, daemon=True)
+    _bot_proactive_thread.start()
+
+
+# ============================================================
 # ======================= CORE COMMANDS ======================
 # ============================================================
 
@@ -901,7 +1102,7 @@ def coins(bot, trigger):
         user = get_user_record(bot, nick)
 
         rem = coins_cd_remaining(user, now)
-        if rem > 0:
+        if rem > 0 and not _is_admin(bot, trigger.nick):
             bot.reply(_rand(COINS_COOLDOWN_MESSAGES).format(time=fmt_time_remaining(rem)))
             return
 
@@ -964,7 +1165,7 @@ def give(bot, trigger):
 
     target_nick = args[0]
     try:
-        amt = int(args[1])
+        amt = int(args[1].replace(",", ""))
     except ValueError:
         bot.reply("🔢 Amount must be a whole number.")
         return
@@ -987,7 +1188,7 @@ def give(bot, trigger):
         # $give cooldown
         now = time.time()
         rem = give_cd_remaining(giver, now)
-        if rem > 0:
+        if rem > 0 and not _is_admin(bot, trigger.nick):
             bot.reply(f"⏳ You can give again in {fmt_time_remaining(rem)}.")
             return
 
@@ -1051,7 +1252,7 @@ def bounty(bot, trigger):
 
     with locked_data(bot) as data:
         rem = bounty_cd_remaining(data, trigger.nick, now)
-        if rem > 0:
+        if rem > 0 and not _is_admin(bot, trigger.nick):
             bot.reply(f"⏳ Slow down, bounty goblin. Try again in {fmt_time_remaining(rem)}.")
             return
 
@@ -1075,7 +1276,7 @@ def bounty(bot, trigger):
             return
 
         try:
-            amt = int(args[1])
+            amt = int(args[1].replace(",", ""))
         except ValueError:
             bot.reply("🔢 Amount must be a whole number.")
             return
@@ -1179,6 +1380,10 @@ def mug(bot, trigger):
         bot.say(_rand(SELF_MUG_MESSAGES))
         return
 
+    # Track if the target is the bot (for retaliation after the lock releases)
+    _target_is_bot = (normalize_key(target_nick) == normalize_key(bot.nick))
+    _mug_happened = False
+
     now = time.time()
     prefix = _rand(MUG_VIBE_PREFIXES)
 
@@ -1200,7 +1405,7 @@ def mug(bot, trigger):
         vic_display = tag(target_nick, int(victim.get("money", 0)))
 
         allowed, msg = _check_mug_allowed(attacker)
-        if not allowed:
+        if not allowed and not _is_admin(bot, trigger.nick):
             bot.reply(msg)
             return
 
@@ -1249,10 +1454,12 @@ def mug(bot, trigger):
         # Ultra-rare oops-jail (happens even before the roll) — godmode users are immune
         if not _has_godmode(attacker_nick) and random.randint(1, 100) <= MUG_OOPS_JAIL_CHANCE_PCT:
             do_crit_fail(reason_text="🤡 ULTRA-RARE OOPS: you looked suspicious and got arrested instantly.")
-            return
+            _mug_happened = True
+            # fall through to retaliation check below
 
         # Charge the mug fee now (don't charge if instant-oops jailed)
-        attacker["money"] = max(0, int(attacker.get("money", 0)) - MUG_FEE)
+        if not _mug_happened:
+            attacker["money"] = max(0, int(attacker.get("money", 0)) - MUG_FEE)
 
         # Mug chance mods
         bonus_success = get_item_bonus(attacker, "mug_success_bonus")
@@ -1266,89 +1473,93 @@ def mug(bot, trigger):
         success_max = success_chance
         normal_fail_max = success_max + NORMAL_FAIL_CHANCE
 
+        if _mug_happened:
+            pass  # oops-jail already resolved above
         # SUCCESS PATH
-        if roll <= success_max:
+        elif roll <= success_max:
             # Banana trap check (victim)
             slip = _banana_slip_chance(victim)
             if not _has_godmode(attacker_nick) and slip > 0 and random.randint(1, 100) <= slip and BANANA_SLIP_TRIGGERS_CRIT_FAIL:
                 do_crit_fail(reason_text=f"🍌 Banana trap! {target_nick} had {slip}% slip chance.")
-                return
+                _mug_happened = True
 
             # Cloak dodge check (victim) - cap at 50% max to prevent 100% immunity
             immune = min(50, get_item_bonus(victim, "mug_immune_chance"))
-            if immune > 0 and random.randint(1, 100) <= immune:
+            if not _mug_happened and immune > 0 and random.randint(1, 100) <= immune:
                 attacker["last_mug"] = now
                 bot.say(
                     f"{prefix} 🕶️ {att_display} tries to mug {vic_display}, but {target_nick} vanishes into the shadows. No coins stolen! 👻 | {attacker_nick}: {fmt_coins(attacker['money'])} | {target_nick}: {fmt_coins(victim.get('money', 0))}"
                 )
-                return
+                _mug_happened = True
 
-            vic_money = int(victim.get("money", 0))
-            if vic_money <= 0:
+            if not _mug_happened:
+                vic_money = int(victim.get("money", 0))
+            if not _mug_happened and vic_money <= 0:
                 attacker["last_mug"] = now
                 bot.say(
                     f"{prefix} 🪫 {att_display} tried to mug {vic_display}, but {target_nick} is broke as a joke. Nothing to steal! 🤷 | {attacker_nick}: {fmt_coins(attacker['money'])} | {target_nick}: {fmt_coins(victim.get('money', 0))}"
                 )
-                return
+                _mug_happened = True
 
-            pct_base = random.randint(SUCCESS_STEAL_MIN, SUCCESS_STEAL_MAX)
-            pct_bonus = min(30, get_item_bonus(attacker, "mug_steal_bonus_pct"))  # cap bonus at +30%
+            if not _mug_happened:
+                pct_base = random.randint(SUCCESS_STEAL_MIN, SUCCESS_STEAL_MAX)
+                pct_bonus = min(30, get_item_bonus(attacker, "mug_steal_bonus_pct"))  # cap bonus at +30%
 
-            mega = (random.randint(1, 100) <= MUG_MEGA_STEAL_CHANCE_PCT)
-            if mega:
-                steal_pct = max(0, pct_base + pct_bonus + MUG_MEGA_STEAL_BONUS_PCT)
-            else:
-                steal_pct = max(0, pct_base + pct_bonus)
+                mega = (random.randint(1, 100) <= MUG_MEGA_STEAL_CHANCE_PCT)
+                if mega:
+                    steal_pct = max(0, pct_base + pct_bonus + MUG_MEGA_STEAL_BONUS_PCT)
+                else:
+                    steal_pct = max(0, pct_base + pct_bonus)
 
-            # Whale protection: cap max steal
-            rich_cap = None
-            if vic_money > RICH_VICTIM_THRESHOLD:
-                rich_cap = max(1, int(vic_money * (RICH_VICTIM_MAX_STEAL_PCT / 100.0)))
+                # Whale protection: cap max steal
+                rich_cap = None
+                if vic_money > RICH_VICTIM_THRESHOLD:
+                    rich_cap = max(1, int(vic_money * (RICH_VICTIM_MAX_STEAL_PCT / 100.0)))
 
-            steal_raw = max(1, int(vic_money * (steal_pct / 100.0)))
-            if rich_cap is not None:
-                steal_raw = min(steal_raw, rich_cap)
+                steal_raw = max(1, int(vic_money * (steal_pct / 100.0)))
+                if rich_cap is not None:
+                    steal_raw = min(steal_raw, rich_cap)
 
-            # Vest reduces stolen amount - cap at 60% max reduction
-            reduction = min(60, get_item_bonus(victim, "steal_reduction_pct"))
-            if reduction > 0:
-                steal = max(1, int(steal_raw * max(0, (100 - reduction)) / 100.0))
-            else:
-                steal = steal_raw
+                # Vest reduces stolen amount - cap at 60% max reduction
+                reduction = min(60, get_item_bonus(victim, "steal_reduction_pct"))
+                if reduction > 0:
+                    steal = max(1, int(steal_raw * max(0, (100 - reduction)) / 100.0))
+                else:
+                    steal = steal_raw
 
-            victim["money"] = max(0, vic_money - steal)
-            attacker["money"] = int(attacker.get("money", 0)) + steal
+                victim["money"] = max(0, vic_money - steal)
+                attacker["money"] = int(attacker.get("money", 0)) + steal
 
-            # Bounty claim (explicit mutation)
-            bounty_key = normalize_key(target_nick)
-            bounty_pool = int(data["bounties"].get(bounty_key, 0))
-            bounty_claim = 0
-            if bounty_pool > 0:
-                bounty_claim = bounty_pool
-                data["bounties"].pop(bounty_key, None)
-                attacker["money"] += bounty_claim
+                # Bounty claim (explicit mutation)
+                bounty_key = normalize_key(target_nick)
+                bounty_pool = int(data["bounties"].get(bounty_key, 0))
+                bounty_claim = 0
+                if bounty_pool > 0:
+                    bounty_claim = bounty_pool
+                    data["bounties"].pop(bounty_key, None)
+                    attacker["money"] += bounty_claim
 
-            attacker["last_mug"] = now
+                attacker["last_mug"] = now
 
-            if mega:
-                msg = _rand(MUG_MEGA_SUCCESS_MESSAGES).format(att=att_display, vic=vic_display, steal=fmt_coins(steal))
-            else:
-                msg = _rand(MUG_SUCCESS_MESSAGES).format(att=att_display, vic=vic_display, steal=fmt_coins(steal))
+                if mega:
+                    msg = _rand(MUG_MEGA_SUCCESS_MESSAGES).format(att=att_display, vic=vic_display, steal=fmt_coins(steal))
+                else:
+                    msg = _rand(MUG_SUCCESS_MESSAGES).format(att=att_display, vic=vic_display, steal=fmt_coins(steal))
 
-            whale_note = " 🐋(whale-protected)" if rich_cap is not None else ""
-            bounty_note = ""
-            if bounty_claim:
-                bounty_note = " " + _rand(BOUNTY_CLAIM_MESSAGES).format(
-                    att=attacker_nick, vic=target_nick, bounty=fmt_coins(bounty_claim)
+                whale_note = " 🐋(whale-protected)" if rich_cap is not None else ""
+                bounty_note = ""
+                if bounty_claim:
+                    bounty_note = " " + _rand(BOUNTY_CLAIM_MESSAGES).format(
+                        att=attacker_nick, vic=target_nick, bounty=fmt_coins(bounty_claim)
+                    )
+
+                bot.say(
+                    f"{prefix} {msg}{whale_note}{bounty_note} | {attacker_nick}: {fmt_coins(attacker['money'])} | {target_nick}: {fmt_coins(victim['money'])} 💼"
                 )
-
-            bot.say(
-                f"{prefix} {msg}{whale_note}{bounty_note} | {attacker_nick}: {fmt_coins(attacker['money'])} | {target_nick}: {fmt_coins(victim['money'])} 💼"
-            )
-            return
+                _mug_happened = True
 
         # NORMAL FAIL PATH
-        if roll <= normal_fail_max:
+        elif roll <= normal_fail_max:
             att_money = int(attacker.get("money", 0))
             pct = random.randint(FAIL_LOSS_MIN, FAIL_LOSS_MAX) / 100.0
             loss = max(1, int(att_money * pct))
@@ -1364,10 +1575,16 @@ def mug(bot, trigger):
             bot.say(
                 f"{prefix} {msg} | {attacker_nick}: {fmt_coins(attacker['money'])} | {target_nick}: {fmt_coins(victim['money'])} 🤡"
             )
-            return
+            _mug_happened = True
 
         # CRITICAL FAIL PATH
-        do_crit_fail()
+        else:
+            do_crit_fail()
+            _mug_happened = True
+
+    # Bot retaliation (fired outside the lock to avoid deadlock)
+    if _target_is_bot and BOT_PLAYER_ENABLED:
+        _bot_retaliate(bot, str(trigger.sender), attacker_nick)
 
 
 # ============================================================
@@ -1396,7 +1613,7 @@ def bet(bot, trigger):
         return
 
     try:
-        amount = int(arg.split()[0])
+        amount = int(arg.split()[0].replace(",", ""))
     except ValueError:
         bot.reply("🔢 Bet amount must be a whole number.")
         return
@@ -1412,7 +1629,7 @@ def bet(bot, trigger):
     with locked_data(bot):
         user = get_user_record(bot, trigger.nick)
 
-        rem = bet_cd_remaining(user, now)
+        rem = 0 if _is_admin(bot, trigger.nick) else bet_cd_remaining(user, now)
         if rem > 0:
             bot.reply(_rand(BET_COOLDOWN_MESSAGES).format(time=fmt_time_remaining(rem)))
             return
@@ -1630,6 +1847,15 @@ def top5(bot, trigger):
     if not _plugin_enabled(bot, trigger.sender):
         _disabled_msg(bot, trigger)
         return
+    if not _is_admin(bot, trigger.nick):
+        now = time.time()
+        key = ('top_cd', normalize_key(trigger.nick))
+        last = _top_cd_cache.get(key, 0)
+        if now - last < TOP_CD:
+            remaining = int(TOP_CD - (now - last))
+            bot.notice(f"⏳ Slow down! You can use $top5/$top10 again in {fmt_time_remaining(remaining)}.", trigger.nick)
+            return
+        _top_cd_cache[key] = now
     top = _get_leaderboard(bot, 5)
     if not top:
         bot.say("📉 No coin data yet. Go earn some with $coins! 💰")
@@ -1642,6 +1868,15 @@ def top10(bot, trigger):
     if not _plugin_enabled(bot, trigger.sender):
         _disabled_msg(bot, trigger)
         return
+    if not _is_admin(bot, trigger.nick):
+        now = time.time()
+        key = ('top_cd', normalize_key(trigger.nick))
+        last = _top_cd_cache.get(key, 0)
+        if now - last < TOP_CD:
+            remaining = int(TOP_CD - (now - last))
+            bot.notice(f"⏳ Slow down! You can use $top5/$top10 again in {fmt_time_remaining(remaining)}.", trigger.nick)
+            return
+        _top_cd_cache[key] = now
     top = _get_leaderboard(bot, 10)
     if not top:
         bot.say("📉 No coin data yet. Go earn some with $coins! 💰")
@@ -1672,7 +1907,7 @@ def mugadd(bot, trigger):
 
     target = args[0]
     try:
-        amt = int(args[1])
+        amt = int(args[1].replace(",", ""))
     except ValueError:
         _pm(bot, trigger.nick, "🔢 Amount must be a whole number.")
         return
@@ -1704,7 +1939,7 @@ def mugset(bot, trigger):
 
     target = args[0]
     try:
-        amt = int(args[1])
+        amt = int(args[1].replace(",", ""))
     except ValueError:
         _pm(bot, trigger.nick, "🔢 Amount must be a whole number.")
         return
@@ -1736,7 +1971,7 @@ def mugtake(bot, trigger):
 
     target = args[0]
     try:
-        amt = int(args[1])
+        amt = int(args[1].replace(",", ""))
     except ValueError:
         _pm(bot, trigger.nick, "🔢 Amount must be a whole number.")
         return
@@ -2132,6 +2367,7 @@ def mughelp(bot, trigger):
         "  • $coins — Get coins (cooldown). Richer players gain more (5–15% bonus, capped).",
         "  • $bal / $balance [nick] — Check coin balance.",
         "  • $give <nick> <amount> — Give coins to someone in the channel.",
+        "  • Amounts accept commas: $bet 1,000,000 works.",
         "",
         "🎯 Bounties:",
         "  • $bounty <nick> <amount> — Put coins on someone’s head (costs you coins).",
@@ -2169,8 +2405,20 @@ def mughelp(bot, trigger):
         "  • bail — Bail Bondsman: costs 5000, instantly frees you when used or bought while jailed. 🪓🎉",
         "",
         "🏆 Leaderboards:",
-        "  • $top5 — Top 5 richest (auto-splits if needed)",
-        "  • $top10 — Top 10 richest (split into two lines + auto-split safety)",
+        "  • $top5 — Top 5 richest (10-min per-user cooldown, admins exempt)",
+        "  • $top10 — Top 10 richest (10-min per-user cooldown, admins exempt)",
+        "",
+        "🤖 Bot Player (glitchy):",
+        "  • The bot is a mug game participant with its own wallet (seeded at 500k).",
+        "  • Retaliation: 60% chance to counter-mug you 5–15s after you mug it.",
+        "  • Proactive: randomly mugs top 5 richest players every 30–90 min in #mug.",
+        "  • Bot uses normal odds (50% success, 5–15% steal, 10–25% fail loss).",
+        "  • Bot does NOT have god mode — it can lose too!",
+        "",
+        "📢 Channel Rules:",
+        "  • The mug game is disabled by default. An admin must $mugtoggle on.",
+        "  • Home channel: #mug — disabled messages direct players there.",
+        "  • Admins are exempt from all cooldown timers.",
         "",
         "🛠️ PM Admin (if you're allowed):",
         "  • $mugadd <nick> <amount> — add coins",

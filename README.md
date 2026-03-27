@@ -256,7 +256,7 @@ Share lighthearted party messages with themed countdowns, gifts, and action mess
 | `$peyote [nick]` | `$mescaline` | Peyote desert vision quest 🌵 |
 
 ### Behavior
-- **With a target:** Sends an action message gifting the target a random item
+- **With a target:** Sends an action message gifting the target a random item (target must be in the channel)
   ```
   * Bot hands m0n a fat bong rip 🌊
   ```
@@ -267,10 +267,16 @@ Share lighthearted party messages with themed countdowns, gifts, and action mess
   🔥 1... Lighting the bowl...
   Bong rip incoming — lean back and ride the clouds 🌊💨
   ```
+- **Mid-sentence triggers:** Commands work anywhere in a message, not just at the start
+  ```
+  I feel the need for $weed
+  someone pass me a $bong please
+  ```
 
 ### Cooldowns
 - **Channel cooldown:** 20 minutes between countdown sessions (does not apply to gift actions)
 - **Per-user cooldown:** 30 seconds between gift commands (does not apply to countdowns)
+- Mid-sentence triggers respect the same cooldowns and show a notice if on cooldown
 
 ---
 
@@ -287,6 +293,8 @@ A full IRC economy game with coins, mugging, betting, bounties, a shop, and an i
 | `$coins` | Collect your coins (scaled by wealth) | `$coins` |
 | `$balance [nick]` | Check your (or someone's) balance | `$balance m0n` |
 | `$give <nick> <amount>` | Give coins to another user | `$give m0n 500` |
+
+> **Tip:** Amounts accept commas — `$bet 1,000,000` works everywhere.
 
 ### Combat & Crime
 
@@ -317,8 +325,8 @@ A full IRC economy game with coins, mugging, betting, bounties, a shop, and an i
 
 | Command | Description |
 |---------|-------------|
-| `$top5` | Top 5 richest users |
-| `$top10` | Top 10 richest users |
+| `$top5` | Top 5 richest users (10-min per-user cooldown, admins exempt) |
+| `$top10` | Top 10 richest users (10-min per-user cooldown, admins exempt) |
 
 ### Help & Admin
 
@@ -334,7 +342,19 @@ A full IRC economy game with coins, mugging, betting, bounties, a shop, and an i
 | `$mugdup <nick>` | List duplicate records (admin, PM) |
 | `$mugclearbounty <nick>` | Clear all bounties on a nick (admin, PM) |
 | `$mugtoggle [on\|off]` | Enable/disable per-channel (admin) |
-| `$godmode <nick>` | Toggle near-guaranteed luck for a nick (owner only) |
+| `$mugstats` | Economy overview: user count, top 5, total coins (admin, PM) |
+| `$godmode [on\|off] [nick]` | Toggle 99% luck for yourself or a player (admin, PM) |
+
+### Bot Player (glitchy)
+- The bot participates in the mug game with its own wallet (seeded at 500k coins)
+- **Retaliation:** 60% chance to counter-mug you 5–15 seconds after you mug it
+- **Proactive:** Randomly mugs top 5 richest players every 30–90 minutes in `#mug`
+- Normal odds (50% success, 5–15% steal, 10–25% fail loss) — no god mode
+
+### Channel Rules
+- Mug game is **disabled by default** per channel — an admin must `$mugtoggle on`
+- Home channel: `#mug` — disabled messages direct players there
+- **Admins are exempt from all cooldown timers**
 
 ### Features
 - Wealth-scaled coin collection
@@ -343,6 +363,8 @@ A full IRC economy game with coins, mugging, betting, bounties, a shop, and an i
 - Active item effects (attack bonuses, defense)
 - Anti-cheat: NickServ verification, daily give caps, command throttling
 - Titles based on wealth level
+- Bot player with retaliation and proactive mugging AI
+- Comma support in all amount inputs
 
 ---
 
