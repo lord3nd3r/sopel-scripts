@@ -310,7 +310,7 @@ A full IRC economy game with coins, mugging, betting, bounties, a shop, and an i
 
 | Command | Description | Example |
 |---------|-------------|---------|
-| `$bet <amount>` | Gamble your coins (chance-based) | `$bet 500` |
+| `$bet <amount>` | Gamble your coins (max 1B per bet) | `$bet 500` |
 
 ### Shop & Items
 
@@ -365,6 +365,13 @@ A full IRC economy game with coins, mugging, betting, bounties, a shop, and an i
 - Titles based on wealth level
 - Bot player with retaliation and proactive mugging AI
 - Comma support in all amount inputs
+
+### Economy Balancing
+- **Minimum balance to mug:** Attacker must have ≥ 1% of the victim's wallet (skip for tiny wallets ≤ 100 coins)
+- **Scaled mug fee:** 0.1% of attacker balance (min 2 coins) — whales pay more to mug
+- **Scaled fail/crit loss caps:** Normal fail cap = max(100k, 5% of your money); Crit fail cap = max(250k, 10% of your money)
+- **Bet cap:** Max bet is 1,000,000,000 (1B) to prevent hyperinflation
+- **Whale protection:** If victim has > 10k coins, max steal is 25% per mug
 
 ---
 

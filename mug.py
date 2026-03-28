@@ -102,7 +102,10 @@ COINS_SCALE_MAX_PCT = 15
 COINS_SCALE_MAX_EXTRA = 1500   # cap the scaling gain so whales don't instantly go supernova
 
 # Mugging economy
-MUG_FEE = 2
+MUG_FEE_MIN = 2                # floor for mug fee
+MUG_FEE_PCT = 0.1              # mug fee = 0.1% of attacker balance (min MUG_FEE_MIN)
+MUG_MIN_BALANCE_PCT = 1        # attacker must have >= 1% of victim's money to mug them
+MUG_MIN_BALANCE_FLOOR = 100    # …but always allow if victim has <= this many coins
 
 # Mugging percent ranges
 SUCCESS_STEAL_MIN = 10
@@ -112,10 +115,12 @@ FAIL_LOSS_MAX = 15
 CRIT_LOSS_MIN = 20
 CRIT_LOSS_MAX = 40
 
-# Safeguards: cap how much a failed mug (or critical fail) can cost
-# This prevents catastrophic multi-million losses on a single bad roll.
-MAX_FAIL_LOSS = 100_000
-MAX_CRIT_LOSS = 250_000
+# Safeguards: scale the loss cap to the attacker's wealth so it hurts proportionally.
+# Cap = max(floor, pct% of attacker money)
+MAX_FAIL_LOSS_FLOOR = 100_000  # minimum cap
+MAX_FAIL_LOSS_PCT = 5          # 5% of attacker money
+MAX_CRIT_LOSS_FLOOR = 250_000  # minimum cap
+MAX_CRIT_LOSS_PCT = 10         # 10% of attacker money
 
 # Mugging chances (1–100 roll)
 SUCCESS_CHANCE = 60
@@ -124,6 +129,7 @@ NORMAL_FAIL_CHANCE = 25
 
 # Gambling
 GAMBLE_MIN_BET = 1
+GAMBLE_MAX_BET = 1_000_000_000  # 1B max bet to slow hyperinflation
 BET_BASE_WIN_CHANCE = 40
 
 # Anti-bullying / whale protection
@@ -1009,7 +1015,8 @@ def _bot_mug(bot, channel, target_nick, intro_messages):
 
             pct = random.randint(BOT_FAIL_LOSS_MIN, BOT_FAIL_LOSS_MAX) / 100.0
             loss = max(1, int(bot_money * pct))
-            loss = min(loss, bot_money, MAX_FAIL_LOSS)
+            fail_cap = max(MAX_FAIL_LOSS_FLOOR, int(bot_money * (MAX_FAIL_LOSS_PCT / 100.0)))
+            loss = min(loss, bot_money, fail_cap)
 
             bot_rec["money"] = max(0, bot_money - loss)
             victim["money"] = int(victim.get("money", 0)) + loss
@@ -1341,7 +1348,7 @@ def _check_mug_allowed(attacker):
     if rem > 0:
         return False, _rand(MUG_COOLDOWN_MESSAGES).format(time=fmt_time_remaining(rem))
 
-    if attacker.get("money", 0) < MUG_FEE:
+    if attacker.get("money", 0) < MUG_FEE_MIN:
         return False, _rand(BROKE_MESSAGES)
 
     return True, None
@@ -1409,12 +1416,25 @@ def mug(bot, trigger):
             bot.reply(msg)
             return
 
+        # Anti-exploit: attacker must have >= MUG_MIN_BALANCE_PCT% of victim's money
+        # (skip check for tiny wallets, admins, and godmode users)
+        vic_money_check = int(victim.get("money", 0))
+        att_money_check = int(attacker.get("money", 0))
+        if (vic_money_check > MUG_MIN_BALANCE_FLOOR
+                and not _is_admin(bot, trigger.nick)
+                and not _has_godmode(attacker_nick)):
+            required = max(1, int(vic_money_check * (MUG_MIN_BALANCE_PCT / 100.0)))
+            if att_money_check < required:
+                bot.reply(f"💸 You need at least {fmt_coins(required)} ({MUG_MIN_BALANCE_PCT}% of their wallet) to attempt this mug. You have {fmt_coins(att_money_check)}.")
+                return
+
         def do_crit_fail(reason_text=None):
             att_money = int(attacker.get("money", 0))
             pct = random.randint(CRIT_LOSS_MIN, CRIT_LOSS_MAX) / 100.0
             loss = max(1, int(att_money * pct)) if att_money > 0 else 0
-            # Cap critical-fail loss to avoid catastrophic single-roll losses
-            loss = min(loss, att_money, MAX_CRIT_LOSS)
+            # Scale cap to attacker wealth so rich players feel the sting
+            crit_cap = max(MAX_CRIT_LOSS_FLOOR, int(att_money * (MAX_CRIT_LOSS_PCT / 100.0)))
+            loss = min(loss, att_money, crit_cap)
 
             attacker["money"] = att_money - loss
             victim["money"] = int(victim.get("money", 0)) + loss
@@ -1457,9 +1477,11 @@ def mug(bot, trigger):
             _mug_happened = True
             # fall through to retaliation check below
 
-        # Charge the mug fee now (don't charge if instant-oops jailed)
+        # Charge the mug fee now (scaled to attacker wealth; don't charge if instant-oops jailed)
         if not _mug_happened:
-            attacker["money"] = max(0, int(attacker.get("money", 0)) - MUG_FEE)
+            _att_bal = int(attacker.get("money", 0))
+            _fee = max(MUG_FEE_MIN, int(_att_bal * (MUG_FEE_PCT / 100.0)))
+            attacker["money"] = max(0, _att_bal - _fee)
 
         # Mug chance mods
         bonus_success = get_item_bonus(attacker, "mug_success_bonus")
@@ -1563,8 +1585,9 @@ def mug(bot, trigger):
             att_money = int(attacker.get("money", 0))
             pct = random.randint(FAIL_LOSS_MIN, FAIL_LOSS_MAX) / 100.0
             loss = max(1, int(att_money * pct))
-            # Cap normal fail loss so a single failed mug can't bankrupt someone for millions
-            loss = min(loss, att_money, MAX_FAIL_LOSS)
+            # Scale cap to attacker wealth so rich players feel the sting
+            fail_cap = max(MAX_FAIL_LOSS_FLOOR, int(att_money * (MAX_FAIL_LOSS_PCT / 100.0)))
+            loss = min(loss, att_money, fail_cap)
 
             attacker["money"] = max(0, att_money - loss)
             victim["money"] = int(victim.get("money", 0)) + loss
@@ -1622,7 +1645,9 @@ def bet(bot, trigger):
         bot.reply(f"💁 Minimum bet is {fmt_coins(GAMBLE_MIN_BET)}.")
         return
 
-
+    if amount > GAMBLE_MAX_BET:
+        bot.reply(f"🚫 Max bet is {fmt_coins(GAMBLE_MAX_BET)}. Easy there, whale.")
+        return
 
     now = time.time()
 
