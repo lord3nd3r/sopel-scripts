@@ -67,9 +67,9 @@ def _pm_reply(bot, trigger, msg):
 # ------------------------------------------------------------------
 # $rehash — restart the bot process (clean restart)
 # ------------------------------------------------------------------
-@module.commands('rehash')
-def rehash(bot, trigger):
-    """$rehash — Restart the bot (owner only)."""
+@module.commands('restart')
+def restart(bot, trigger):
+    """$restart — Restart the bot (owner only)."""
     if not _is_owner(bot, trigger):
         _deny(bot, trigger)
         return
@@ -320,7 +320,7 @@ def bothelp(bot, trigger):
         return
     lines = [
         '🛠️ Bot Admin Commands:',
-        '  $rehash — Restart the bot (owner)',
+        '  $restart — Restart the bot (owner)',
         '  $reload <module|all> — Reload a plugin or all (owner)',
         '  $botquit [msg] — Shut down the bot (owner)',
         '  $say <target> <msg> — Say something (admin)',
