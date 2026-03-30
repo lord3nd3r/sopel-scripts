@@ -93,7 +93,38 @@ def reload_plugin(bot, trigger):
         return
     arg = (trigger.group(2) or '').strip()
     if not arg:
-        _pm_reply(bot, trigger, '❓ Usage: $reload <module_name>')
+        _pm_reply(bot, trigger, '❓ Usage: $reload <module_name|all>')
+        return
+    if arg.lower() == 'all':
+        # Reload every loaded plugin
+        if hasattr(bot, 'reload_plugins'):
+            try:
+                bot.reload_plugins()
+                _pm_reply(bot, trigger, '✅ All plugins reloaded.')
+            except Exception as e:
+                _pm_reply(bot, trigger, f'❌ Failed to reload all: {e}')
+                LOG.exception('Failed to reload all plugins')
+        elif hasattr(bot, 'reload_plugin'):
+            loaded = list(getattr(bot, '_plugins', {}).keys()) or []
+            if not loaded:
+                try:
+                    loaded = list(bot.backend._modules.keys())
+                except Exception:
+                    loaded = []
+            if not loaded:
+                _pm_reply(bot, trigger, '⚠️ Cannot enumerate plugins. Use $rehash instead.')
+                return
+            ok, fail = 0, 0
+            for name in loaded:
+                try:
+                    bot.reload_plugin(name)
+                    ok += 1
+                except Exception:
+                    fail += 1
+                    LOG.exception('Failed to reload plugin %s', name)
+            _pm_reply(bot, trigger, f'✅ Reloaded {ok} plugins. {f"❌ {fail} failed." if fail else ""}')
+        else:
+            _pm_reply(bot, trigger, '⚠️ This Sopel version does not support live reload. Use $rehash instead.')
         return
     try:
         # Sopel 8 reload API
@@ -274,7 +305,7 @@ def bothelp(bot, trigger):
     lines = [
         '🛠️ Bot Admin Commands:',
         '  $rehash — Restart the bot (owner)',
-        '  $reload <module> — Reload a plugin (owner)',
+        '  $reload <module|all> — Reload a plugin or all (owner)',
         '  $botquit [msg] — Shut down the bot (owner)',
         '  $say <target> <msg> — Say something (admin)',
         '  $act <target> <action> — /me action (admin)',
