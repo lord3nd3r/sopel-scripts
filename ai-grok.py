@@ -857,6 +857,10 @@ def handle(bot, trigger):
         if m_addr:
             candidate = (m_addr.group(1) or '').lstrip()
         if candidate and candidate.startswith(command_prefixes):
+            # In PM, ALWAYS ignore command-prefixed messages so admin
+            # commands like $godmode never leak to the AI.
+            if is_pm:
+                return
             cmd = (candidate[1:].split(None, 1)[0] if len(candidate) > 1 else '').strip().lower()
             if (not _is_admin(bot, trigger)) and (cmd not in allowlisted_commands):
                 return
