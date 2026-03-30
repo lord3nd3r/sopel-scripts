@@ -1708,6 +1708,181 @@ def bet(bot, trigger):
 
 
 # ============================================================
+# ===================== DICE CASINO 🎲 =======================
+# ============================================================
+# $roll <amount> [type]
+#   Types: high (default), lucky7, snake, field, hardway, yolo
+#
+# No separate cooldown — shares BET_COOLDOWN with $bet so players
+# can choose one or the other while waiting.
+
+DICE_GAMES = {
+    'high':    {'desc': 'Roll 2d6 — 7+ wins',        'payout': '2x'},
+    'lucky7':  {'desc': 'Roll exactly 7',              'payout': '4x'},
+    'snake':   {'desc': 'Roll snake eyes (1+1)',       'payout': '30x'},
+    'field':   {'desc': 'Roll 2,3,4,9,10,11,12 wins', 'payout': '2x (3x on 2 or 12)'},
+    'hardway': {'desc': 'Roll doubles (not snake)',    'payout': '8x'},
+    'yolo':    {'desc': 'Roll 2 or 12 — huge payout',  'payout': '15x'},
+}
+
+DICE_COOLDOWN_MESSAGES = [
+    "🎲 The dice are still bouncing. Calm down — {time}.",
+    "🎰 The table is being swept. Wait {time}.",
+    "🎲 The pit boss says slow your roll — {time}.",
+    "🎲 Dice are locked in the cage. {time} until they're free.",
+    "🎲 Your wrist is cramping from the last throw. Rest {time}.",
+    "🕹️ The dice gods demand patience. {time}.",
+    "🎲 Security is reviewing the footage… try again in {time}.",
+    "🎲 A casino cat stole the dice. Retrieval ETA: {time}.",
+]
+
+
+def _roll_2d6():
+    """Roll two six-sided dice. Returns (die1, die2, total)."""
+    d1 = random.randint(1, 6)
+    d2 = random.randint(1, 6)
+    return d1, d2, d1 + d2
+
+
+def _dice_face(n):
+    """Return a die-face emoji for 1–6."""
+    faces = {1: '⚀', 2: '⚁', 3: '⚂', 4: '⚃', 5: '⚄', 6: '⚅'}
+    return faces.get(n, '🎲')
+
+
+def _eval_dice_bet(game_type, d1, d2, total, amount):
+    """Evaluate a dice bet. Returns (won: bool, payout: int, flavor: str)."""
+    if game_type == 'high':
+        if total >= 7:
+            return True, amount * 2, f"Total {total} — that's a winner! 🎉"
+        return False, 0, f"Total {total} — under 7, house takes it. 💀"
+
+    if game_type == 'lucky7':
+        if total == 7:
+            return True, amount * 4, "Lucky 7! 🍀🎰"
+        return False, 0, f"Total {total} — needed a 7. 😤"
+
+    if game_type == 'snake':
+        if d1 == 1 and d2 == 1:
+            return True, amount * 30, "🐍 SNAKE EYES! Legendary roll! 🐍💰"
+        return False, 0, f"Rolled {d1}+{d2} — no snakes here. 🐍❌"
+
+    if game_type == 'field':
+        field_nums = {2, 3, 4, 9, 10, 11, 12}
+        if total in field_nums:
+            mult = 3 if total in (2, 12) else 2
+            return True, amount * mult, f"Field {total}! {'Triple pay! 🔥' if mult == 3 else 'Double! 💵'}"
+        return False, 0, f"Total {total} — not in the field. 😬"
+
+    if game_type == 'hardway':
+        if d1 == d2 and not (d1 == 1 and d2 == 1):
+            return True, amount * 8, f"Hard {total}! Doubles pay fat! 🎯💰"
+        return False, 0, f"Rolled {d1}+{d2} — no doubles. 🫠"
+
+    if game_type == 'yolo':
+        if total in (2, 12):
+            return True, amount * 15, f"{'Boxcars' if total == 12 else 'Snake eyes'}! YOLO PAYS! 🚀💎🔥"
+        return False, 0, f"Total {total} — YOLO didn't pay this time. 🪦"
+
+    # Fallback to high
+    if total >= 7:
+        return True, amount * 2, f"Total {total} — winner! 🎉"
+    return False, 0, f"Total {total} — nope. 💀"
+
+
+@module.commands('roll', 'dice')
+def roll_dice(bot, trigger):
+    """$roll <amount> [type] — Roll the dice! Types: high, lucky7, snake, field, hardway, yolo"""
+    if not _plugin_enabled(bot, trigger.sender):
+        _disabled_msg(bot, trigger)
+        return
+    if not trigger.sender.startswith('#'):
+        bot.reply("🏠 Use this in a channel.")
+        return
+    if _anticheat_gate(bot, trigger, 'roll'):
+        return
+
+    args = (trigger.group(2) or "").strip().split()
+    if not args:
+        # Show help
+        lines = ["🎲 $roll <amount> [type] — Casino dice! Types:"]
+        for k, v in DICE_GAMES.items():
+            lines.append(f"  {k}: {v['desc']} → {v['payout']}")
+        bot.say(" | ".join(lines))
+        return
+
+    try:
+        amount = int(args[0].replace(",", ""))
+    except ValueError:
+        bot.reply("🔢 Bet amount must be a whole number.")
+        return
+
+    if amount < 1 or amount < GAMBLE_MIN_BET:
+        bot.reply(f"💁 Minimum bet is {fmt_coins(GAMBLE_MIN_BET)}.")
+        return
+
+    if amount > GAMBLE_MAX_BET:
+        bot.reply(f"🚫 Max bet is {fmt_coins(GAMBLE_MAX_BET)}. Easy there, high roller.")
+        return
+
+    game_type = (args[1].lower() if len(args) > 1 else 'high')
+    if game_type not in DICE_GAMES:
+        bot.reply(f"❓ Unknown type. Pick one: {', '.join(DICE_GAMES.keys())}")
+        return
+
+    now = time.time()
+
+    with locked_data(bot):
+        user = get_user_record(bot, trigger.nick)
+
+        rem = 0 if _is_admin(bot, trigger.nick) else bet_cd_remaining(user, now)
+        if rem > 0:
+            bot.reply(_rand(DICE_COOLDOWN_MESSAGES).format(time=fmt_time_remaining(rem)))
+            return
+
+        if int(user.get("money", 0)) < amount:
+            bot.reply(_rand(BROKE_MESSAGES))
+            return
+
+        user["money"] = int(user.get("money", 0)) - amount
+        user["last_bet"] = now  # shares cooldown with $bet
+
+        # God mode: rig the dice
+        if _has_godmode(trigger.nick):
+            if game_type == 'snake':
+                d1, d2, total = 1, 1, 2
+            elif game_type == 'lucky7':
+                d1, d2, total = 3, 4, 7
+            elif game_type == 'hardway':
+                d1, d2, total = 3, 3, 6
+            elif game_type == 'yolo':
+                d1, d2, total = 6, 6, 12
+            elif game_type == 'field':
+                d1, d2, total = 6, 6, 12
+            else:
+                d1, d2, total = random.choice([(4, 3, 7), (5, 3, 8), (6, 2, 8), (5, 4, 9), (6, 5, 11)])
+        else:
+            d1, d2, total = _roll_2d6()
+
+        won, payout, flavor = _eval_dice_bet(game_type, d1, d2, total, amount)
+
+        face1 = _dice_face(d1)
+        face2 = _dice_face(d2)
+
+        if won:
+            user["money"] += payout
+            bot.say(
+                f"🎲 {face1}{face2} {tag(trigger.nick, user['money'])} rolls {d1}+{d2}={total} on {game_type}! "
+                f"{flavor} Payout: {fmt_coins(payout)}. Balance: {fmt_coins(user['money'])} 🪙"
+            )
+        else:
+            bot.say(
+                f"🎲 {face1}{face2} {tag(trigger.nick, user['money'])} rolls {d1}+{d2}={total} on {game_type}. "
+                f"{flavor} Lost {fmt_coins(amount)}. Balance: {fmt_coins(user['money'])} 🪙"
+            )
+
+
+# ============================================================
 # ======================= SHOP & INVENTORY ===================
 # ============================================================
 
