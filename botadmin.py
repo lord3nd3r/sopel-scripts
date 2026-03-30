@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import sys
 import signal
+import subprocess
 import logging
 
 from sopel import module
@@ -74,12 +75,27 @@ def rehash(bot, trigger):
         return
     _pm_reply(bot, trigger, '🔄 Rehashing — restarting bot process...')
     LOG.info('REHASH requested by %s', trigger.nick)
+    # Find the config file the bot is using
+    cfg_name = None
     try:
-        bot.quit('Rehashing — be right back!')
+        cfg_path = bot.config.filename
+        if cfg_path:
+            cfg_name = os.path.basename(cfg_path)
     except Exception:
         pass
-    # Re-exec the same process
-    os.execvp(sys.executable, [sys.executable] + sys.argv)
+    # Use subprocess to restart via sopel CLI so the daemon re-spawns
+    sopel_bin = os.path.join(os.path.dirname(sys.executable), 'sopel')
+    cmd = [sopel_bin, 'restart']
+    if cfg_name:
+        cmd += ['-c', cfg_name]
+    try:
+        subprocess.Popen(cmd, cwd=os.path.expanduser('~/.sopel'))
+    except Exception:
+        LOG.exception('rehash: subprocess failed, falling back to bot.restart()')
+        try:
+            bot.restart('Rehashing — be right back!')
+        except Exception:
+            bot.quit('Rehashing — be right back!')
 
 
 # ------------------------------------------------------------------
