@@ -40,6 +40,9 @@ def setup(bot):
     if BOT_PLAYER_ENABLED:
         _seed_bot_wallet(bot)
         _start_bot_proactive_thread(bot)
+    # Start auto-voice sweep thread
+    if VOICE_ENABLED:
+        _start_voice_sweep_thread(bot)
 
 
 def configure(config):
@@ -54,6 +57,7 @@ def configure(config):
 def shutdown(bot):
     """Called by Sopel when the plugin is unloaded/reloaded."""
     _bot_proactive_stop.set()
+    _voice_sweep_stop.set()
 
 
 # ============================================================
@@ -78,6 +82,13 @@ JAIL_TIME = 10 * 60
 BET_COOLDOWN = 60
 BOUNTY_COOLDOWN = 60  # prevents spam-bounty
 TOP_CD = 10 * 60          # per-user cooldown for $top5/$top10
+
+# ---- Auto-Voice (coin-based +v) ----
+VOICE_ENABLED = True              # Master switch for auto-voice
+VOICE_THRESHOLD = 500             # Coins needed to earn +v
+VOICE_CHECK_INTERVAL = 5 * 60     # Periodic sweep every 5 minutes
+VOICE_CHANNELS = {'#3nd3r'}       # Channels where auto-voice is active (lowercase)
+VOICE_EXEMPT_NICKS = {'end3r', 'glitchy'}  # Nicks to never touch (lowercase)
 
 # ---- Bot Player (Glitchy joins the game!) ----
 BOT_PLAYER_ENABLED = True          # Master switch for bot participation
@@ -402,6 +413,7 @@ _channel_toggles: dict[str, bool] | None = None  # None = not loaded yet
 _top_cd_cache: dict[tuple, float] = {}  # per-user cooldown for $top5/$top10
 _bot_proactive_thread: threading.Thread | None = None  # background mugger thread
 _bot_proactive_stop = threading.Event()  # signal to stop the proactive thread
+_voice_sweep_stop = threading.Event()    # signal to stop the voice sweep thread
 
 # Re-entrant lock: safe if helpers call helpers while locked
 _data_lock = threading.RLock()
@@ -574,6 +586,12 @@ def _save_data(bot):
         if _data is None:
             return
         bot.db.set_plugin_value(PLUGIN_NAME, 'data', _data)
+    # After saving, schedule a voice check for all managed channels
+    if VOICE_ENABLED:
+        try:
+            _voice_sweep_all(bot)
+        except Exception:
+            LOG.exception('coin_voice: post-save sweep failed')
 
 
 def get_user_record(bot, nick):
@@ -2465,4 +2483,154 @@ def mughelp(bot, trigger):
 
     for line in lines:
         _pm(bot, nick, line)
+
+
+# ============================================================
+# ===============  AUTO-VOICE (COIN-BASED +v)  ===============
+# ============================================================
+
+def _voice_is_voiced(bot, channel, nick):
+    """Check if nick currently has +v in channel."""
+    try:
+        chan = bot.channels.get(channel)
+        if not chan:
+            return False
+        privs = getattr(chan, 'privileges', None) or {}
+        for k, v in privs.items():
+            if k.lower() == nick.lower():
+                if isinstance(v, int):
+                    return (v & 1) != 0
+                return False
+        return False
+    except Exception:
+        return False
+
+
+def _voice_has_higher_mode(bot, channel, nick):
+    """Check if nick has hop/op/admin/owner — don't touch those."""
+    try:
+        chan = bot.channels.get(channel)
+        if not chan:
+            return False
+        privs = getattr(chan, 'privileges', None) or {}
+        for k, v in privs.items():
+            if k.lower() == nick.lower():
+                if isinstance(v, int):
+                    return (v & ~1) != 0
+                return False
+        return False
+    except Exception:
+        return False
+
+
+def _voice_nick_in_channel(bot, channel, nick_lower):
+    """Check if a nick is currently in the channel."""
+    try:
+        chan = bot.channels.get(channel)
+        if not chan:
+            return False
+        privs = getattr(chan, 'privileges', None) or {}
+        return any(k.lower() == nick_lower for k in privs)
+    except Exception:
+        return False
+
+
+def _voice_get_display_nick(nick_key):
+    """Get the display nick from loaded data, falling back to key."""
+    try:
+        if _data and isinstance(_data, dict):
+            rec = _data.get('users', {}).get(nick_key, {})
+            if isinstance(rec, dict) and rec.get('nick'):
+                return rec['nick']
+    except Exception:
+        pass
+    return nick_key
+
+
+def _voice_set(bot, channel, nick):
+    try:
+        bot.write(['MODE', channel, '+v', nick])
+        LOG.info('auto-voice: +v %s in %s', nick, channel)
+    except Exception:
+        LOG.exception('auto-voice: failed to +v %s in %s', nick, channel)
+
+
+def _voice_unset(bot, channel, nick):
+    try:
+        bot.write(['MODE', channel, '-v', nick])
+        LOG.info('auto-voice: -v %s in %s', nick, channel)
+    except Exception:
+        LOG.exception('auto-voice: failed to -v %s in %s', nick, channel)
+
+
+def _voice_sweep_all(bot):
+    """Check all players in all managed channels and voice/devoice as needed."""
+    if not VOICE_ENABLED or not _data:
+        return
+    users = _data.get('users', {})
+    for channel in VOICE_CHANNELS:
+        for nick_key, rec in users.items():
+            if not isinstance(rec, dict):
+                continue
+            if nick_key in VOICE_EXEMPT_NICKS:
+                continue
+            display = _voice_get_display_nick(nick_key)
+            if not _voice_nick_in_channel(bot, channel, nick_key):
+                continue
+            if _voice_has_higher_mode(bot, channel, display):
+                continue
+            coins = rec.get('money', 0)
+            voiced = _voice_is_voiced(bot, channel, display)
+            if coins >= VOICE_THRESHOLD and not voiced:
+                _voice_set(bot, channel, display)
+            elif coins < VOICE_THRESHOLD and voiced:
+                _voice_unset(bot, channel, display)
+
+
+def _start_voice_sweep_thread(bot):
+    """Start the background thread that periodically voices/devoices."""
+    _voice_sweep_stop.clear()
+    t = threading.Thread(target=_voice_sweep_loop, args=(bot,), daemon=True)
+    t.start()
+
+
+def _voice_sweep_loop(bot):
+    """Runs in a background thread. Sweeps every VOICE_CHECK_INTERVAL."""
+    _voice_sweep_stop.wait(30)  # let the bot join channels first
+    while not _voice_sweep_stop.is_set():
+        try:
+            _voice_sweep_all(bot)
+        except Exception:
+            LOG.exception('auto-voice: sweep failed')
+        _voice_sweep_stop.wait(VOICE_CHECK_INTERVAL)
+
+
+@module.event('JOIN')
+@module.rule('.*')
+@module.priority('low')
+def voice_on_join(bot, trigger):
+    """When someone joins a managed channel, voice them if they qualify."""
+    if not VOICE_ENABLED:
+        return
+    try:
+        if not trigger.sender or not trigger.sender.startswith('#'):
+            return
+        if trigger.sender.lower() not in VOICE_CHANNELS:
+            return
+        if trigger.nick.lower() == bot.nick.lower():
+            return
+        if trigger.nick.lower() in VOICE_EXEMPT_NICKS:
+            return
+        # Small delay so Sopel's privilege tracking catches up
+        time.sleep(2)
+        if _voice_has_higher_mode(bot, trigger.sender, trigger.nick):
+            return
+        nick_key = normalize_key(trigger.nick)
+        data = _load_data(bot)
+        rec = data.get('users', {}).get(nick_key, {})
+        coins = rec.get('money', 0) if isinstance(rec, dict) else 0
+        if coins >= VOICE_THRESHOLD:
+            _voice_set(bot, trigger.sender, trigger.nick)
+    except Exception:
+        pass
 
