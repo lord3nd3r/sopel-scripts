@@ -30,7 +30,7 @@ REVIEW_CHAR_BUDGET = 10000
 REVIEW_MAX_ENTRIES = 200
 MAX_REPLY_LENGTH = 1400
 TRUNCATED_REPLY_LENGTH = 1390
-BG_CHAR_BUDGET = 3200          # prevent huge context from being sent to model
+BG_CHAR_BUDGET = 6000          # background context budget — includes bot output & commands
 
 # Bounded queue and worker threads to process API requests without unbounded threads
 API_TASK_QUEUE = queue.Queue(maxsize=API_QUEUE_MAXSIZE)
@@ -116,6 +116,22 @@ def setup(bot):
     bot.memory['grok_locks_lock'] = threading.Lock()
     bot.memory['grok_busy'] = {}  # NEW: per-channel busy flag to reduce spam
     bot.memory['grok_channel_log'] = {}  # per-channel chronological message log
+
+    # Wrap bot.say so ALL bot output (from every plugin) is captured in channel log.
+    # This lets the AI see game results, mug outcomes, bet payouts, etc.
+    _original_say = bot.say
+    def _grok_say_wrapper(text, target=None, *args, **kwargs):
+        _original_say(text, target, *args, **kwargs)
+        try:
+            t = target or ''
+            if isinstance(t, str) and t.startswith('#'):
+                chan_log = bot.memory.get('grok_channel_log')
+                if chan_log is not None:
+                    dq = chan_log.setdefault(t.lower(), deque(maxlen=300))
+                    dq.append((bot.nick, str(text)))
+        except Exception:
+            pass
+    bot.say = _grok_say_wrapper
 
     try:
         base_dir = os.environ.get('AI_GROK_DIR') or os.path.join(os.path.dirname(__file__), 'grok_data')
@@ -818,6 +834,20 @@ def handle(bot, trigger):
 
     line = trigger.group(0).strip()
 
+    # Early channel-log capture: log ALL user messages (including $ commands)
+    # BEFORE any filtering, so the AI has full context of what's happening.
+    if not is_pm and line.strip():
+        _noise = any(re.search(p, line, re.IGNORECASE) for p in [r'^MODE '])
+        if not _noise:
+            try:
+                _cl_key = trigger.sender.lower()
+                _cl_dq = bot.memory['grok_channel_log'].setdefault(
+                    _cl_key, deque(maxlen=300)
+                )
+                _cl_dq.append((trigger.nick, line.strip()))
+            except Exception:
+                pass
+
     try:
         bot_nick = bot.nick
         allowlisted_commands = {'grokreset', 'testemote'}
@@ -935,13 +965,6 @@ def handle(bot, trigger):
                     history.append(new)
                 else:
                     history.append(f"{trigger.nick}: {text_for_history}")
-                # Also append to the per-channel chronological log
-                if not is_pm:
-                    chan_log_key = trigger.sender.lower()
-                    chan_log_dq = bot.memory['grok_channel_log'].setdefault(
-                        chan_log_key, deque(maxlen=300)
-                    )
-                    chan_log_dq.append((trigger.nick, text_for_history))
 
     if not mentioned:
         return
@@ -1026,6 +1049,12 @@ def handle(bot, trigger):
             "content": (
                 f"Current date/time: {now_str}. "
                 f"Your IRC nick is '{bot_nick}'. You are replying to {trigger.nick}. "
+                f"You also run game/utility plugins that respond to $ commands "
+                f"(e.g. $bet, $mug, $coins, $top5, $trivia, $stock, $weather, $quote, etc.). "
+                f"Messages from '{bot_nick}' in the channel log are your own previous outputs "
+                f"from these plugins — treat them as things you said/did. "
+                f"Be aware of game events, coin balances, mug outcomes, and banter — "
+                f"reference them naturally when relevant. "
                 f"If the user asks about news, current events, or anything time-sensitive, "
                 f"search the web and give a substantive answer with real details. "
                 f"All responses must be single-line (no newlines — this is IRC)."
@@ -1105,7 +1134,7 @@ def handle(bot, trigger):
                     if chan_log_dq:
                         channel_bg = list(chan_log_dq)
                 unique_bg = channel_bg  # already in chronological order
-                BG_MAX_LINES = 80
+                BG_MAX_LINES = 150
                 bg_collected = []
                 bg_chars = 0
                 for n, t in reversed(unique_bg):
@@ -1126,6 +1155,8 @@ def handle(bot, trigger):
                         "role": "system",
                         "content": (
                             "Recent channel conversation log (each line is 'nick: message'). "
+                            "This includes ALL activity: user chat, $ commands (like $bet, $mug), "
+                            f"and your own plugin outputs (lines from '{bot_nick}'). "
                             "When asked who said something or what a specific user said, "
                             "always answer accurately based on this log — name the correct nick. "
                             "Do not invent or attribute statements to yourself or the wrong person.\n\n"

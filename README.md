@@ -38,6 +38,8 @@ An AI chatbot powered by the **xAI Grok API**. The bot responds when mentioned b
 ### Features
 - Responds conversationally when addressed by nick
 - Reacts to `/me` actions (pets, hugs, pokes, etc.) with fun emote replies
+- **Full channel awareness** — sees ALL channel activity including `$` commands (`$bet`, `$mug`, `$coins`, `$top5`, etc.) and the bot's own plugin outputs (game results, payouts, mug outcomes)
+- **Cross-plugin context** — the AI knows it runs other scripts and treats its own output as things it said/did, referencing game events naturally in conversation
 - **Automatic web search** for news, scores, current events, and time-sensitive queries
 - Per-user conversation history stored in SQLite
 - **Review mode** — summarize what has been discussed in channel (persisted to DB across restarts)
@@ -45,7 +47,7 @@ An AI chatbot powered by the **xAI Grok API**. The bot responds when mentioned b
 - Admin commands via PM
 - Heuristic intent detection to avoid responding to incidental mentions
 - Per-channel busy flag to prevent response spam
-- Context truncation (3,200 char budget) to keep API calls efficient
+- Context window: up to 150 lines / 6,000 char budget for background channel context
 
 ### Commands
 
