@@ -1986,6 +1986,104 @@ def penny_slots(bot, trigger):
 
 
 # ============================================================
+# ================ DOLLAR SLOTS 💵 ============================
+# ============================================================
+# $dollar — High-roller slot machine! 100 coins per pull, max 50k jackpot.
+# Own cooldown (DOLLAR_COOLDOWN) separate from $bet/$roll.
+
+DOLLAR_COOLDOWN = 30  # seconds between pulls
+DOLLAR_COST = 100     # 100 coins per pull
+
+# (weight, payout, reels, message)
+DOLLAR_PRIZES = [
+    (30, 0,     '☠️☠️☠️', "Dead on arrival. The machine devours your dollar."),
+    (18, 0,     '🍇🍊☠️', "Fruit salad of failure. Nothing."),
+    (12, 50,    '🍊🍊🍇', "Two oranges! Partial refund — {coins} back. 🍊"),
+    (9,  200,   '🍊🍊🍊', "Triple oranges! 🍊🍊🍊 +{coins}!"),
+    (7,  500,   '🍇🍇🍇', "Grapes! 🍇🍇🍇 Wine money — +{coins}!"),
+    (6,  1500,  '💰💰🍇', "Two money bags! 💰💰 +{coins}!"),
+    (5,  3000,  '💰💰💰', "TRIPLE MONEY BAGS! 💰💰💰 +{coins}! 🤑"),
+    (4,  8000,  '🌟🌟💰', "Shooting stars! 🌟✨ +{coins}!"),
+    (3,  15000, '🌟🌟🌟', "⭐ TRIPLE STARS! ⭐ +{coins}! The machine is GLOWING!"),
+    (2,  30000, '💎🔥💎', "💎🔥💎 INFERNO DIAMONDS! +{coins}! Security is on their way! 🚨"),
+    (1,  50000, '🏆🏆🏆', "🏆🏆🏆 MEGA JACKPOT!!! 💵🎆🎇🪩💸🥳🎊 +{coins}!!! THE FLOOR ERUPTS!!!"),
+]
+
+DOLLAR_COOLDOWN_MESSAGES = [
+    "💵 The dollar machine is recalibrating… {time}.",
+    "💵 High rollers wait their turn — {time}.",
+    "💵 The vault needs to restock. {time}.",
+    "💵 A guard is polishing the machine. {time}.",
+    "💵 Your luck needs a cooldown. {time}.",
+]
+
+
+def _dollar_cd_remaining(user, now):
+    return max(0.0, (user.get("last_dollar", 0.0) + DOLLAR_COOLDOWN) - now)
+
+
+def _dollar_spin(godmode=False):
+    """Pick a prize tier. Returns (payout, reels, message)."""
+    if godmode:
+        _, payout, reels, msg = DOLLAR_PRIZES[-1]
+        return payout, reels, msg
+    total_weight = sum(w for w, _, _, _ in DOLLAR_PRIZES)
+    roll = random.randint(1, total_weight)
+    cumulative = 0
+    for weight, payout, reels, msg in DOLLAR_PRIZES:
+        cumulative += weight
+        if roll <= cumulative:
+            return payout, reels, msg
+    return 0, '☠️☠️☠️', "The machine ate your dollar."
+
+
+@module.commands('dollar')
+def dollar_slots(bot, trigger):
+    """$dollar — High-roller slot machine! Costs 100 coins per spin."""
+    if not _plugin_enabled(bot, trigger.sender):
+        _disabled_msg(bot, trigger)
+        return
+    if not trigger.sender.startswith('#'):
+        bot.reply("🏠 Use this in a channel.")
+        return
+    if _anticheat_gate(bot, trigger, 'dollar'):
+        return
+
+    now = time.time()
+
+    with locked_data(bot):
+        user = get_user_record(bot, trigger.nick)
+
+        rem = 0 if _is_admin(bot, trigger.nick) else _dollar_cd_remaining(user, now)
+        if rem > 0:
+            bot.reply(_rand(DOLLAR_COOLDOWN_MESSAGES).format(time=fmt_time_remaining(rem)))
+            return
+
+        if int(user.get("money", 0)) < DOLLAR_COST:
+            bot.reply(f"💸 You need at least {fmt_coins(DOLLAR_COST)} for the dollar machine.")
+            return
+
+        user["money"] = int(user.get("money", 0)) - DOLLAR_COST
+        user["last_dollar"] = now
+
+        payout, reels, msg = _dollar_spin(godmode=_has_godmode(trigger.nick))
+
+        if payout > 0:
+            user["money"] += payout
+            msg_formatted = msg.format(coins=fmt_coins(payout))
+            bot.say(
+                f"💵 {reels} {tag(trigger.nick, user['money'])} "
+                f"{msg_formatted} Balance: {fmt_coins(user['money'])} 🪙"
+            )
+        else:
+            msg_formatted = msg.format(coins=fmt_coins(0))
+            bot.say(
+                f"💵 {reels} {tag(trigger.nick, user['money'])} "
+                f"{msg_formatted} Balance: {fmt_coins(user['money'])} 🪙"
+            )
+
+
+# ============================================================
 # ==================== ROULETTE 🎡 ============================
 # ============================================================
 # $roulette <amount> <bet>
