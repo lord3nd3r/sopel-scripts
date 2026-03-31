@@ -1790,7 +1790,7 @@ def _eval_dice_bet(game_type, d1, d2, total, amount):
     return False, 0, f"Total {total} — nope. 💀"
 
 
-@module.commands('roll', 'dice')
+@module.commands('roll')
 def roll_dice(bot, trigger):
     """$roll <amount> [type] — Roll the dice! Types: high, lucky7, snake, field, hardway, yolo"""
     if not _plugin_enabled(bot, trigger.sender):
