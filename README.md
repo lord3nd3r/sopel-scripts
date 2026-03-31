@@ -396,6 +396,7 @@ A full IRC economy game with coins, mugging, betting, bounties, a shop, and an i
 | `$mugtoggle [on\|off]` | Enable/disable per-channel (admin) |
 | `$mugstats` | Economy overview: user count, top 5, total coins (admin, PM) |
 | `$godmode [on\|off] [nick]` | Toggle 99% luck for yourself or a player (admin, PM) |
+| `$uncooldown <nick>` | Clear a user's 30-min flood lockout (admin, PM) |
 
 > **Auto-Voice:** Users with ≥500 coins automatically get +v in configured channels. Dropping below 500 = devoiced. Ops/hops/owners are exempt.
 
@@ -409,6 +410,7 @@ A full IRC economy game with coins, mugging, betting, bounties, a shop, and an i
 - Mug game is **disabled by default** per channel — an admin must `$mugtoggle on`
 - Home channel: `#mug` — disabled messages direct players there
 - **Admins are exempt from all cooldown timers**
+- **Spam protection:** More than 15 commands in 60 seconds triggers a 30-minute casino lockout. Admins can clear it with `$uncooldown <nick>`
 
 ### Features
 - Wealth-scaled coin collection

@@ -136,6 +136,8 @@ IRC economy game with coins, mugging, bounties, a shop, and gambling.
 | `$bj <amount>` | 🃏 Blackjack vs dealer (then $hit/$stand/$dd) |
 | `$holdem <amount>` | 🤠 Texas Hold'em heads-up vs dealer |
 
+> **Anti-Spam:** More than 15 commands in 60 seconds triggers a 30-minute casino lockout. Admins are exempt and can clear lockouts with `$uncooldown`.
+
 **Dice Casino Types ($roll):**
 
 | Type | How to Win | Payout |
@@ -211,6 +213,7 @@ IRC economy game with coins, mugging, bounties, a shop, and gambling.
 | `$mugclearbounty <nick>` | Clear all bounties on a nick |
 | `$mugtoggle [on\|off]` | Enable/disable per-channel |
 | `$godmode <nick>` | Toggle luck override (owner only) |
+| `$uncooldown <nick>` | Clear a user's 30-min flood lockout |
 | `$mugstats` | Show game statistics |
 
 > **Auto-Voice:** Users with ≥500 coins automatically receive +v in configured channels. Drops below 500 = devoiced. Ops/hops/owners are exempt.
