@@ -131,6 +131,9 @@ IRC economy game with coins, mugging, bounties, a shop, and gambling.
 | `$bet <amount>` | Gamble coins (slot machine) |
 | `$roll <amount> [type]` | 🎲 Dice casino (see types below) |
 | `$penny` | 🎰 Penny slot machine — 1 coin per pull, win up to 5,000! |
+| `$roulette <amount> <bet>` | 🎡 Roulette — red/black/odd/even/high/low/1st/2nd/3rd/0-36 |
+| `$bj <amount>` | 🃏 Blackjack vs dealer (then $hit/$stand/$dd) |
+| `$holdem <amount>` | 🤠 Texas Hold'em heads-up vs dealer |
 
 **Dice Casino Types ($roll):**
 
@@ -142,6 +145,39 @@ IRC economy game with coins, mugging, bounties, a shop, and gambling.
 | `field` | Roll 2,3,4,9,10,11,12 | 2x (3x on 2 or 12) |
 | `hardway` | Doubles (except snake eyes) | 8x |
 | `yolo` | Roll 2 or 12 | 15x |
+
+**Roulette Bets (`$roulette`):**
+
+| Bet | Description | Payout |
+|-----|-----------|--------|
+| `red` / `black` | Color bet | 2x |
+| `odd` / `even` | Parity bet | 2x |
+| `high` / `low` | 19-36 / 1-18 | 2x |
+| `1st` / `2nd` / `3rd` | Dozens (1-12, 13-24, 25-36) | 3x |
+| `0`–`36` | Straight number | 36x |
+
+**Blackjack (`$bj`):**
+
+| Command | Description |
+|---------|-------------|
+| `$bj <amount>` | Deal a hand vs the dealer |
+| `$hit` | Draw another card |
+| `$stand` | Keep your hand, dealer plays |
+| `$dd` | Double down — double bet, one card, auto-stand |
+
+> Natural blackjack pays 2.5x. Regular win pays 2x.
+
+**Texas Hold'em Payouts (`$holdem`):**
+
+| Hand | Payout |
+|------|--------|
+| Royal Flush | 50x |
+| Straight Flush | 25x |
+| Four of a Kind | 12x |
+| Full House | 6x |
+| Flush | 4x |
+| Straight | 3x |
+| Three/Two/One Pair, High Card | 2x |
 
 **Shop & Items:**
 

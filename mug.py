@@ -1984,6 +1984,717 @@ def penny_slots(bot, trigger):
 
 
 # ============================================================
+# ==================== ROULETTE 🎡 ============================
+# ============================================================
+# $roulette <amount> <bet>
+#   Bets: red, black, odd, even, high, low, 1st, 2nd, 3rd, 0-36
+# Shares BET_COOLDOWN with $bet/$roll.
+
+ROULETTE_REDS = {1,3,5,7,9,12,14,16,18,19,21,23,25,27,30,32,34,36}
+ROULETTE_BLACKS = {2,4,6,8,10,11,13,15,17,20,22,24,26,28,29,31,33,35}
+
+ROULETTE_COOLDOWN_MESSAGES = [
+    "🎡 The wheel is still spinning… {time}.",
+    "🎡 No bets while the ball is in play — {time}.",
+    "🎡 The croupier says wait — {time}.",
+    "🎡 Table's full. Come back in {time}.",
+    "🎡 You're sweating on the felt. Chill for {time}.",
+]
+
+
+def _roulette_color(n):
+    if n == 0:
+        return 'green'
+    return 'red' if n in ROULETTE_REDS else 'black'
+
+
+def _roulette_color_emoji(n):
+    c = _roulette_color(n)
+    return {'red': '🔴', 'black': '⚫', 'green': '🟢'}[c]
+
+
+def _roulette_eval(bet_str, number):
+    """Evaluate a roulette bet. Returns (won, multiplier, description)."""
+    color = _roulette_color(number)
+
+    if bet_str == 'red':
+        return color == 'red', 2, 'Red'
+    if bet_str == 'black':
+        return color == 'black', 2, 'Black'
+    if bet_str == 'odd':
+        return number != 0 and number % 2 == 1, 2, 'Odd'
+    if bet_str == 'even':
+        return number != 0 and number % 2 == 0, 2, 'Even'
+    if bet_str == 'low':
+        return 1 <= number <= 18, 2, 'Low (1-18)'
+    if bet_str == 'high':
+        return 19 <= number <= 36, 2, 'High (19-36)'
+    if bet_str == '1st':
+        return 1 <= number <= 12, 3, '1st Dozen'
+    if bet_str == '2nd':
+        return 13 <= number <= 24, 3, '2nd Dozen'
+    if bet_str == '3rd':
+        return 25 <= number <= 36, 3, '3rd Dozen'
+
+    # Straight number bet
+    try:
+        target = int(bet_str)
+        if 0 <= target <= 36:
+            return number == target, 36, f'Straight {target}'
+    except ValueError:
+        pass
+
+    return None, 0, None  # invalid bet
+
+
+@module.commands('roulette')
+def roulette(bot, trigger):
+    """$roulette <amount> <bet> — Spin the wheel! Bets: red/black/odd/even/high/low/1st/2nd/3rd/0-36"""
+    if not _plugin_enabled(bot, trigger.sender):
+        _disabled_msg(bot, trigger)
+        return
+    if not trigger.sender.startswith('#'):
+        bot.reply("🏠 Use this in a channel.")
+        return
+    if _anticheat_gate(bot, trigger, 'roulette'):
+        return
+
+    args = (trigger.group(2) or "").strip().split()
+    if len(args) < 2:
+        bot.say(
+            "🎡 $roulette <amount> <bet> — Bets: red, black, odd, even, high, low, 1st, 2nd, 3rd, or 0-36 (straight). "
+            "Even money = 2x | Dozens = 3x | Straight number = 36x"
+        )
+        return
+
+    try:
+        amount = int(args[0].replace(",", ""))
+    except ValueError:
+        bot.reply("🔢 Bet amount must be a number.")
+        return
+
+    if amount < 1 or amount < GAMBLE_MIN_BET:
+        bot.reply(f"💁 Minimum bet is {fmt_coins(GAMBLE_MIN_BET)}.")
+        return
+    if amount > GAMBLE_MAX_BET:
+        bot.reply(f"🚫 Max bet is {fmt_coins(GAMBLE_MAX_BET)}.")
+        return
+
+    bet_str = args[1].lower()
+
+    # Validate bet before taking money
+    test_won, test_mult, test_desc = _roulette_eval(bet_str, 0)
+    if test_desc is None:
+        bot.reply("❓ Invalid bet. Options: red, black, odd, even, high, low, 1st, 2nd, 3rd, or a number 0-36.")
+        return
+
+    now = time.time()
+
+    with locked_data(bot):
+        user = get_user_record(bot, trigger.nick)
+
+        rem = 0 if _is_admin(bot, trigger.nick) else bet_cd_remaining(user, now)
+        if rem > 0:
+            bot.reply(_rand(ROULETTE_COOLDOWN_MESSAGES).format(time=fmt_time_remaining(rem)))
+            return
+
+        if int(user.get("money", 0)) < amount:
+            bot.reply(_rand(BROKE_MESSAGES))
+            return
+
+        user["money"] = int(user.get("money", 0)) - amount
+        user["last_bet"] = now
+
+        if _has_godmode(trigger.nick):
+            # Rig it: pick a winning number
+            if bet_str == 'red':
+                number = random.choice(list(ROULETTE_REDS))
+            elif bet_str == 'black':
+                number = random.choice(list(ROULETTE_BLACKS))
+            elif bet_str == 'odd':
+                number = random.choice([n for n in range(1, 37) if n % 2 == 1])
+            elif bet_str == 'even':
+                number = random.choice([n for n in range(2, 37) if n % 2 == 0])
+            elif bet_str == 'low':
+                number = random.randint(1, 18)
+            elif bet_str == 'high':
+                number = random.randint(19, 36)
+            elif bet_str == '1st':
+                number = random.randint(1, 12)
+            elif bet_str == '2nd':
+                number = random.randint(13, 24)
+            elif bet_str == '3rd':
+                number = random.randint(25, 36)
+            else:
+                try:
+                    number = int(bet_str)
+                except ValueError:
+                    number = random.randint(0, 36)
+        else:
+            number = random.randint(0, 36)
+
+        won, mult, desc = _roulette_eval(bet_str, number)
+        color_emoji = _roulette_color_emoji(number)
+        color_name = _roulette_color(number).upper()
+
+        if won:
+            payout = amount * mult
+            user["money"] += payout
+            bot.say(
+                f"🎡 {color_emoji} The ball lands on {number} ({color_name})! "
+                f"{tag(trigger.nick, user['money'])} bet {desc} — WIN! 🎉 "
+                f"Payout: {fmt_coins(payout)} ({mult}x). Balance: {fmt_coins(user['money'])} 🪙"
+            )
+        else:
+            bot.say(
+                f"🎡 {color_emoji} The ball lands on {number} ({color_name}). "
+                f"{tag(trigger.nick, user['money'])} bet {desc} — nope. 💀 "
+                f"Lost {fmt_coins(amount)}. Balance: {fmt_coins(user['money'])} 🪙"
+            )
+
+
+# ============================================================
+# ==================== BLACKJACK 🃏 ===========================
+# ============================================================
+# $bj <amount> — Start a hand vs the dealer
+# $hit — Draw a card
+# $stand — Keep your hand
+# $dd — Double down (one more card, auto-stand)
+# Shares BET_COOLDOWN with $bet/$roll/$roulette.
+
+_BJ_HANDS = {}  # {nick_lower: {hand, dealer, amount, channel, deck, doubled}}
+_BJ_LOCK = threading.Lock()
+
+_SUITS = ['♠️', '♥️', '♦️', '♣️']
+_RANKS = ['A', '2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K']
+
+BJ_COOLDOWN_MESSAGES = [
+    "🃏 The dealer is shuffling. Chill — {time}.",
+    "🃏 Cards are still in the air. Wait {time}.",
+    "🃏 You're barred from the table for {time}.",
+    "🃏 The pit boss is watching you. {time}.",
+]
+
+
+def _bj_new_deck():
+    """Create and shuffle a standard 52-card deck."""
+    deck = [(r, s) for s in _SUITS for r in _RANKS]
+    random.shuffle(deck)
+    return deck
+
+
+def _bj_card_str(card):
+    """Format a card tuple as a string."""
+    return f"{card[0]}{card[1]}"
+
+
+def _bj_hand_str(hand):
+    """Format a list of cards as a string."""
+    return ' '.join(_bj_card_str(c) for c in hand)
+
+
+def _bj_card_value(rank):
+    """Value of a single card rank (A=11, face=10)."""
+    if rank == 'A':
+        return 11
+    if rank in ('K', 'Q', 'J'):
+        return 10
+    return int(rank)
+
+
+def _bj_hand_value(hand):
+    """Calculate best hand value, adjusting aces down from 11 to 1 as needed."""
+    total = sum(_bj_card_value(r) for r, s in hand)
+    aces = sum(1 for r, s in hand if r == 'A')
+    while total > 21 and aces > 0:
+        total -= 10
+        aces -= 1
+    return total
+
+
+def _bj_draw(deck):
+    """Draw a card from the deck."""
+    return deck.pop()
+
+
+def _bj_is_blackjack(hand):
+    return len(hand) == 2 and _bj_hand_value(hand) == 21
+
+
+def _bj_dealer_play(deck, dealer_hand, godmode=False):
+    """Dealer draws until 17+. If godmode, dealer busts."""
+    if godmode:
+        # Rig dealer to bust: keep drawing until bust
+        while _bj_hand_value(dealer_hand) < 22:
+            dealer_hand.append(_bj_draw(deck))
+            if len(deck) == 0:
+                break
+        return
+    while _bj_hand_value(dealer_hand) < 17:
+        dealer_hand.append(_bj_draw(deck))
+
+
+def _bj_resolve(bot, nick, game):
+    """Resolve a blackjack hand and pay out."""
+    user_key = normalize_key(nick)
+    with locked_data(bot):
+        user = get_user_record(bot, nick)
+        hand_val = _bj_hand_value(game['hand'])
+        dealer_val = _bj_hand_value(game['dealer'])
+        amount = game['amount']
+        chan = game['channel']
+
+        player_bj = _bj_is_blackjack(game['hand'])
+        dealer_bj = _bj_is_blackjack(game['dealer'])
+
+        dealer_str = _bj_hand_str(game['dealer'])
+
+        if player_bj and dealer_bj:
+            # Push on double blackjack
+            user["money"] += amount
+            bot.say(
+                f"🃏 Dealer: {dealer_str} ({dealer_val}) — Both blackjack! Push. "
+                f"{tag(nick, user['money'])} gets {fmt_coins(amount)} back. Balance: {fmt_coins(user['money'])} 🪙",
+                chan
+            )
+        elif player_bj:
+            payout = int(amount * 2.5)
+            user["money"] += payout
+            bot.say(
+                f"🃏 ✨ BLACKJACK! ✨ {_bj_hand_str(game['hand'])} — "
+                f"{tag(nick, user['money'])} wins {fmt_coins(payout)} (2.5x)! 🎉🃏💰 "
+                f"Balance: {fmt_coins(user['money'])} 🪙",
+                chan
+            )
+        elif hand_val > 21:
+            bot.say(
+                f"🃏 BUST! {_bj_hand_str(game['hand'])} ({hand_val}) 💥 "
+                f"Dealer: {dealer_str} ({dealer_val}). "
+                f"{tag(nick, user['money'])} lost {fmt_coins(amount)}. Balance: {fmt_coins(user['money'])} 🪙",
+                chan
+            )
+        elif dealer_val > 21:
+            payout = amount * 2
+            user["money"] += payout
+            bot.say(
+                f"🃏 Dealer BUSTS! {dealer_str} ({dealer_val}) 💥 "
+                f"{tag(nick, user['money'])} wins {fmt_coins(payout)}! 🎉 "
+                f"Balance: {fmt_coins(user['money'])} 🪙",
+                chan
+            )
+        elif hand_val > dealer_val:
+            payout = amount * 2
+            user["money"] += payout
+            bot.say(
+                f"🃏 {_bj_hand_str(game['hand'])} ({hand_val}) vs Dealer {dealer_str} ({dealer_val}) — "
+                f"{tag(nick, user['money'])} WINS! 🎉 +{fmt_coins(payout)}. Balance: {fmt_coins(user['money'])} 🪙",
+                chan
+            )
+        elif hand_val < dealer_val:
+            bot.say(
+                f"🃏 {_bj_hand_str(game['hand'])} ({hand_val}) vs Dealer {dealer_str} ({dealer_val}) — "
+                f"Dealer wins. 💀 {tag(nick, user['money'])} lost {fmt_coins(amount)}. Balance: {fmt_coins(user['money'])} 🪙",
+                chan
+            )
+        else:
+            # Push
+            user["money"] += amount
+            bot.say(
+                f"🃏 {_bj_hand_str(game['hand'])} ({hand_val}) vs Dealer {dealer_str} ({dealer_val}) — "
+                f"Push! {tag(nick, user['money'])} gets {fmt_coins(amount)} back. Balance: {fmt_coins(user['money'])} 🪙",
+                chan
+            )
+
+
+@module.commands('bj', 'blackjack')
+def blackjack_start(bot, trigger):
+    """$bj <amount> — Start a blackjack hand against the dealer."""
+    if not _plugin_enabled(bot, trigger.sender):
+        _disabled_msg(bot, trigger)
+        return
+    if not trigger.sender.startswith('#'):
+        bot.reply("🏠 Use this in a channel.")
+        return
+    if _anticheat_gate(bot, trigger, 'bj'):
+        return
+
+    nick_key = normalize_key(trigger.nick)
+
+    with _BJ_LOCK:
+        if nick_key in _BJ_HANDS:
+            game = _BJ_HANDS[nick_key]
+            bot.reply(
+                f"🃏 You already have a hand! {_bj_hand_str(game['hand'])} "
+                f"({_bj_hand_value(game['hand'])}). Use $hit or $stand."
+            )
+            return
+
+    arg = (trigger.group(2) or "").strip()
+    if not arg:
+        bot.say("🃏 $bj <amount> — Play blackjack! Then use $hit, $stand, or $dd (double down).")
+        return
+
+    try:
+        amount = int(arg.replace(",", ""))
+    except ValueError:
+        bot.reply("🔢 Bet amount must be a number.")
+        return
+
+    if amount < 1 or amount < GAMBLE_MIN_BET:
+        bot.reply(f"💁 Minimum bet is {fmt_coins(GAMBLE_MIN_BET)}.")
+        return
+    if amount > GAMBLE_MAX_BET:
+        bot.reply(f"🚫 Max bet is {fmt_coins(GAMBLE_MAX_BET)}.")
+        return
+
+    now = time.time()
+
+    with locked_data(bot):
+        user = get_user_record(bot, trigger.nick)
+
+        rem = 0 if _is_admin(bot, trigger.nick) else bet_cd_remaining(user, now)
+        if rem > 0:
+            bot.reply(_rand(BJ_COOLDOWN_MESSAGES).format(time=fmt_time_remaining(rem)))
+            return
+
+        if int(user.get("money", 0)) < amount:
+            bot.reply(_rand(BROKE_MESSAGES))
+            return
+
+        user["money"] = int(user.get("money", 0)) - amount
+        user["last_bet"] = now
+
+    deck = _bj_new_deck()
+    hand = [_bj_draw(deck), _bj_draw(deck)]
+    dealer = [_bj_draw(deck), _bj_draw(deck)]
+
+    game = {
+        'hand': hand,
+        'dealer': dealer,
+        'amount': amount,
+        'channel': str(trigger.sender),
+        'deck': deck,
+        'doubled': False,
+    }
+
+    # Check for natural blackjack
+    if _bj_is_blackjack(hand):
+        _bj_dealer_play(deck, dealer, godmode=_has_godmode(trigger.nick))
+        _bj_resolve(bot, trigger.nick, game)
+        return
+
+    with _BJ_LOCK:
+        _BJ_HANDS[nick_key] = game
+
+    dealer_show = _bj_card_str(dealer[0])
+    bot.say(
+        f"🃏 {tag(trigger.nick, None)} — Your hand: {_bj_hand_str(hand)} ({_bj_hand_value(hand)}) | "
+        f"Dealer shows: {dealer_show} | $hit, $stand, or $dd"
+    )
+
+
+@module.commands('hit')
+def blackjack_hit(bot, trigger):
+    """$hit — Draw another card in blackjack."""
+    nick_key = normalize_key(trigger.nick)
+
+    with _BJ_LOCK:
+        game = _BJ_HANDS.get(nick_key)
+        if not game:
+            bot.reply("🃏 You don't have a hand. Start one with $bj <amount>.")
+            return
+        # Draw from the game's deck
+        card = _bj_draw(game['deck'])
+        game['hand'].append(card)
+        hand_val = _bj_hand_value(game['hand'])
+
+        if hand_val > 21:
+            # Bust — remove game and resolve
+            del _BJ_HANDS[nick_key]
+
+    if hand_val > 21:
+        _bj_dealer_play(game['deck'], game['dealer'])
+        _bj_resolve(bot, trigger.nick, game)
+        return
+
+    bot.say(
+        f"🃏 {tag(trigger.nick, None)} drew {_bj_card_str(card)} — "
+        f"Hand: {_bj_hand_str(game['hand'])} ({hand_val}) | $hit, $stand, or $dd"
+    )
+
+
+@module.commands('stand')
+def blackjack_stand(bot, trigger):
+    """$stand — Keep your hand, dealer plays."""
+    nick_key = normalize_key(trigger.nick)
+
+    with _BJ_LOCK:
+        game = _BJ_HANDS.pop(nick_key, None)
+    if not game:
+        bot.reply("🃏 You don't have a hand. Start one with $bj <amount>.")
+        return
+
+    _bj_dealer_play(game['deck'], game['dealer'], godmode=_has_godmode(trigger.nick))
+    _bj_resolve(bot, trigger.nick, game)
+
+
+@module.commands('dd')
+def blackjack_double_down(bot, trigger):
+    """$dd — Double down: double your bet, draw one card, auto-stand."""
+    nick_key = normalize_key(trigger.nick)
+
+    with _BJ_LOCK:
+        game = _BJ_HANDS.get(nick_key)
+        if not game:
+            bot.reply("🃏 You don't have a hand. Start one with $bj <amount>.")
+            return
+        if len(game['hand']) != 2:
+            bot.reply("🃏 You can only double down on your first two cards.")
+            return
+        if game['doubled']:
+            bot.reply("🃏 Already doubled!")
+            return
+
+    # Deduct the extra bet
+    with locked_data(bot):
+        user = get_user_record(bot, trigger.nick)
+        if int(user.get("money", 0)) < game['amount']:
+            bot.reply(f"💸 You need {fmt_coins(game['amount'])} more to double down and you're short.")
+            return
+        user["money"] = int(user.get("money", 0)) - game['amount']
+
+    with _BJ_LOCK:
+        game['amount'] *= 2
+        game['doubled'] = True
+        card = _bj_draw(game['deck'])
+        game['hand'].append(card)
+        del _BJ_HANDS[nick_key]
+
+    bot.say(
+        f"🃏 DOUBLE DOWN! {tag(trigger.nick, None)} drew {_bj_card_str(card)} — "
+        f"Hand: {_bj_hand_str(game['hand'])} ({_bj_hand_value(game['hand'])})"
+    )
+
+    _bj_dealer_play(game['deck'], game['dealer'], godmode=_has_godmode(trigger.nick))
+    _bj_resolve(bot, trigger.nick, game)
+
+
+# ============================================================
+# ================ TEXAS HOLD'EM 🤠 ==========================
+# ============================================================
+# $holdem <amount> — Instant heads-up vs the dealer.
+# 2 hole cards each, 5 community cards, best 5-card hand wins.
+# Shares BET_COOLDOWN.
+
+HOLDEM_COOLDOWN_MESSAGES = [
+    "🤠 The dealer is still counting chips. {time}.",
+    "🤠 Cards haven't been shuffled yet — {time}.",
+    "🤠 The table's not ready. {time}.",
+    "🤠 Your poker face needs a break. {time}.",
+]
+
+_HOLDEM_RANK_VALUES = {
+    '2': 2, '3': 3, '4': 4, '5': 5, '6': 6, '7': 7, '8': 8,
+    '9': 9, '10': 10, 'J': 11, 'Q': 12, 'K': 13, 'A': 14
+}
+
+_HAND_NAMES = {
+    9: "🏆 ROYAL FLUSH",
+    8: "🌟 Straight Flush",
+    7: "💎 Four of a Kind",
+    6: "🏠 Full House",
+    5: "🎨 Flush",
+    4: "📏 Straight",
+    3: "🎯 Three of a Kind",
+    2: "👯 Two Pair",
+    1: "👫 One Pair",
+    0: "👋 High Card",
+}
+
+# Payout multipliers based on winning hand rank
+_HOLDEM_PAYOUTS = {
+    9: 50,  # Royal flush
+    8: 25,  # Straight flush
+    7: 12,  # Four of a kind
+    6: 6,   # Full house
+    5: 4,   # Flush
+    4: 3,   # Straight
+    3: 2,   # Three of a kind
+    2: 2,   # Two pair
+    1: 2,   # One pair (must beat dealer)
+    0: 2,   # High card (must beat dealer)
+}
+
+
+def _holdem_best_hand(hole, community):
+    """Find the best 5-card poker hand from 7 cards. Returns (rank, tiebreakers, hand_name, five_cards)."""
+    from itertools import combinations
+    all_cards = hole + community
+    best = None
+    best_five = None
+    for five in combinations(all_cards, 5):
+        score = _holdem_score_five(list(five))
+        if best is None or score > best:
+            best = score
+            best_five = list(five)
+    rank = best[0]
+    return rank, best, _HAND_NAMES.get(rank, "???"), best_five
+
+
+def _holdem_score_five(five):
+    """Score a 5-card hand. Returns a tuple for comparison (rank, tiebreakers...)."""
+    ranks = sorted([_HOLDEM_RANK_VALUES[c[0]] for c in five], reverse=True)
+    suits = [c[1] for c in five]
+
+    is_flush = len(set(suits)) == 1
+    # Check for straight (including A-low: A,2,3,4,5)
+    is_straight = False
+    straight_high = 0
+    if ranks[0] - ranks[4] == 4 and len(set(ranks)) == 5:
+        is_straight = True
+        straight_high = ranks[0]
+    elif ranks == [14, 5, 4, 3, 2]:
+        is_straight = True
+        straight_high = 5  # Wheel
+
+    rank_counts = {}
+    for r in ranks:
+        rank_counts[r] = rank_counts.get(r, 0) + 1
+
+    groups = sorted(rank_counts.items(), key=lambda x: (x[1], x[0]), reverse=True)
+
+    if is_flush and is_straight:
+        if straight_high == 14:
+            return (9, 14)  # Royal flush
+        return (8, straight_high)  # Straight flush
+    if groups[0][1] == 4:
+        return (7, groups[0][0], groups[1][0])  # Four of a kind
+    if groups[0][1] == 3 and groups[1][1] == 2:
+        return (6, groups[0][0], groups[1][0])  # Full house
+    if is_flush:
+        return (5,) + tuple(ranks)  # Flush
+    if is_straight:
+        return (4, straight_high)  # Straight
+    if groups[0][1] == 3:
+        kickers = sorted([g[0] for g in groups[1:]], reverse=True)
+        return (3, groups[0][0]) + tuple(kickers)  # Three of a kind
+    if groups[0][1] == 2 and groups[1][1] == 2:
+        pairs = sorted([groups[0][0], groups[1][0]], reverse=True)
+        kicker = [g[0] for g in groups if g[1] == 1][0]
+        return (2, pairs[0], pairs[1], kicker)  # Two pair
+    if groups[0][1] == 2:
+        kickers = sorted([g[0] for g in groups[1:]], reverse=True)
+        return (1, groups[0][0]) + tuple(kickers)  # One pair
+    return (0,) + tuple(ranks)  # High card
+
+
+@module.commands('holdem')
+def texas_holdem(bot, trigger):
+    """$holdem <amount> — Heads-up Texas Hold'em vs the dealer!"""
+    if not _plugin_enabled(bot, trigger.sender):
+        _disabled_msg(bot, trigger)
+        return
+    if not trigger.sender.startswith('#'):
+        bot.reply("🏠 Use this in a channel.")
+        return
+    if _anticheat_gate(bot, trigger, 'holdem'):
+        return
+
+    arg = (trigger.group(2) or "").strip()
+    if not arg:
+        bot.say(
+            "🤠 $holdem <amount> — Heads-up Texas Hold'em vs the dealer! "
+            "Best 5-card hand from 2 hole cards + 5 community cards wins. "
+            "Payout scales with hand strength: Pair 2x → Royal Flush 50x!"
+        )
+        return
+
+    try:
+        amount = int(arg.replace(",", ""))
+    except ValueError:
+        bot.reply("🔢 Bet amount must be a number.")
+        return
+
+    if amount < 1 or amount < GAMBLE_MIN_BET:
+        bot.reply(f"💁 Minimum bet is {fmt_coins(GAMBLE_MIN_BET)}.")
+        return
+    if amount > GAMBLE_MAX_BET:
+        bot.reply(f"🚫 Max bet is {fmt_coins(GAMBLE_MAX_BET)}.")
+        return
+
+    now = time.time()
+
+    with locked_data(bot):
+        user = get_user_record(bot, trigger.nick)
+
+        rem = 0 if _is_admin(bot, trigger.nick) else bet_cd_remaining(user, now)
+        if rem > 0:
+            bot.reply(_rand(HOLDEM_COOLDOWN_MESSAGES).format(time=fmt_time_remaining(rem)))
+            return
+
+        if int(user.get("money", 0)) < amount:
+            bot.reply(_rand(BROKE_MESSAGES))
+            return
+
+        user["money"] = int(user.get("money", 0)) - amount
+        user["last_bet"] = now
+
+    # Deal
+    deck = _bj_new_deck()  # reuse the 52-card deck builder
+    player_hole = [_bj_draw(deck), _bj_draw(deck)]
+    dealer_hole = [_bj_draw(deck), _bj_draw(deck)]
+    community = [_bj_draw(deck) for _ in range(5)]
+
+    p_rank, p_score, p_name, p_best = _holdem_best_hand(player_hole, community)
+    d_rank, d_score, d_name, d_best = _holdem_best_hand(dealer_hole, community)
+
+    hole_str = _bj_hand_str(player_hole)
+    d_hole_str = _bj_hand_str(dealer_hole)
+    comm_str = _bj_hand_str(community)
+
+    # God mode: if player would lose, re-deal player's hole cards to win
+    if _has_godmode(trigger.nick) and p_score <= d_score:
+        # Give the player a royal flush if possible, otherwise just re-score to win
+        for _ in range(50):
+            random.shuffle(deck)
+            player_hole = [_bj_draw(deck), _bj_draw(deck)]
+            deck.extend(player_hole)  # put them back for reshuffling
+            p_rank, p_score, p_name, p_best = _holdem_best_hand(player_hole, community)
+            if p_score > d_score:
+                hole_str = _bj_hand_str(player_hole)
+                break
+
+    won = p_score > d_score
+    tied = p_score == d_score
+
+    with locked_data(bot):
+        user = get_user_record(bot, trigger.nick)
+
+        if tied:
+            user["money"] += amount
+            bot.say(
+                f"🤠 {hole_str} | Board: {comm_str} | Dealer: {d_hole_str} — "
+                f"Both have {p_name}! Push. {tag(trigger.nick, user['money'])} "
+                f"gets {fmt_coins(amount)} back. Balance: {fmt_coins(user['money'])} 🪙"
+            )
+        elif won:
+            mult = _HOLDEM_PAYOUTS.get(p_rank, 2)
+            payout = amount * mult
+            user["money"] += payout
+            bot.say(
+                f"🤠 {hole_str} | Board: {comm_str} | Dealer: {d_hole_str} — "
+                f"{p_name} beats {d_name}! 🎉 {tag(trigger.nick, user['money'])} "
+                f"wins {fmt_coins(payout)} ({mult}x)! Balance: {fmt_coins(user['money'])} 🪙"
+            )
+        else:
+            bot.say(
+                f"🤠 {hole_str} | Board: {comm_str} | Dealer: {d_hole_str} — "
+                f"Dealer's {d_name} beats your {p_name}. 💀 "
+                f"{tag(trigger.nick, user['money'])} lost {fmt_coins(amount)}. Balance: {fmt_coins(user['money'])} 🪙"
+            )
+
+
+# ============================================================
 # ======================= SHOP & INVENTORY ===================
 # ============================================================
 
