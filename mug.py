@@ -941,6 +941,8 @@ def _is_admin(bot, nick: str) -> bool:
 
 def get_title_for_money(money: int) -> str | None:
     """Return a title string (with emoji) for money >= 50, else None."""
+    if money is None:
+        return None
     title = None
     for threshold, name in TITLE_THRESHOLDS:
         if money >= threshold:
