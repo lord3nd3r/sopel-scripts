@@ -179,6 +179,11 @@ TITLE_THRESHOLDS = [
 # Anti-cheat settings
 REQUIRE_IDENTIFIED = True      # Require NickServ identification for economy commands
 GLOBAL_CMD_COOLDOWN = 3        # Min seconds between ANY economy command per user
+
+# ---- Flood / spam gate ----
+FLOOD_WINDOW = 60              # Rolling window in seconds
+FLOOD_MAX_CMDS = 15            # Max commands in that window before lockout
+FLOOD_LOCKOUT = 30 * 60        # 30-minute lockout
 GIVE_COOLDOWN = 5 * 60         # 5 min cooldown on $give
 GIVE_DAILY_MAX = 500_000       # Max coins transferable per day via $give
 GIVE_DAILY_WINDOW = 86400      # Rolling window for daily give cap (24h)
@@ -706,6 +711,9 @@ def get_item_bonus(user, attr):
 
 # ---- Anti-cheat: global per-user command throttle ----
 _last_cmd: dict[str, float] = {}
+# ---- Anti-cheat: flood tracker & lockouts ----
+_flood_history: dict[str, list[float]] = {}   # {nick_lower: [timestamps]}
+_flood_lockout: dict[str, float] = {}          # {nick_lower: lockout_expiry_ts}
 # ---- Anti-cheat: rolling $give tracker {nick_lower: [(timestamp, amount), ...]} ----
 _give_history: dict[str, list[tuple[float, int]]] = {}
 _give_history_loaded = False  # flag to avoid repeated DB loads
@@ -805,6 +813,49 @@ def _check_global_cooldown(nick: str) -> bool:
     return True
 
 
+def _flood_check(bot, trigger) -> bool:
+    """Track command usage and enforce flood lockout.
+    Returns True if the user is BLOCKED (locked out or just triggered lockout).
+    Admins are exempt.
+    """
+    if _is_admin(bot, trigger.nick):
+        return False
+    now = time.time()
+    key = normalize_key(trigger.nick)
+
+    # Already locked out?
+    expiry = _flood_lockout.get(key, 0.0)
+    if now < expiry:
+        rem = expiry - now
+        bot.reply(f"🚫 You're on a 30-minute casino timeout for spamming. {fmt_time_remaining(rem)} remaining.")
+        return True
+
+    # Track this command in the rolling window
+    history = _flood_history.setdefault(key, [])
+    history.append(now)
+    # Prune entries outside the window
+    cutoff = now - FLOOD_WINDOW
+    _flood_history[key] = [t for t in history if t > cutoff]
+
+    if len(_flood_history[key]) > FLOOD_MAX_CMDS:
+        _flood_lockout[key] = now + FLOOD_LOCKOUT
+        _flood_history[key] = []  # reset history
+        bot.reply(
+            f"🚫 Whoa there, speed demon! You've been locked out of ALL casino games "
+            f"for 30 minutes. Take a walk. 🚶"
+        )
+        return True
+
+    return False
+
+
+def _flood_clear(nick: str):
+    """Clear a user's flood lockout (admin use)."""
+    key = normalize_key(nick)
+    _flood_lockout.pop(key, None)
+    _flood_history.pop(key, None)
+
+
 def _load_give_history(bot):
     """Load give history from bot.db on first use (persists across restarts)."""
     global _give_history_loaded
@@ -862,6 +913,8 @@ def _anticheat_gate(bot, trigger, cmd_name: str = "") -> bool:
         return False  # admins bypass all rate limiting
     if not _check_global_cooldown(trigger.nick):
         return True  # silently drop rapid-fire commands
+    if _flood_check(bot, trigger):
+        return True  # flood lockout
     return False
 
 
@@ -3415,6 +3468,27 @@ def godmode(bot, trigger):
         _pm(bot, trigger.nick, f"🔱 God mode DISABLED for {target}. Back to mortal luck. 💨")
     else:
         _pm(bot, trigger.nick, "Usage: $godmode [on|off] [nick] — no args = check status")
+
+
+@module.commands('uncooldown')
+def uncooldown(bot, trigger):
+    """PM: $uncooldown <nick> — remove a user's 30-min flood lockout (admin only)"""
+    if not _pm_only(trigger):
+        bot.reply("📩 Use this in PM, not in-channel.")
+        return
+    if not _is_admin(bot, trigger.nick):
+        _pm(bot, trigger.nick, "🚫 Nice try. You're not an admin.")
+        return
+    target = (trigger.group(2) or "").strip()
+    if not target:
+        _pm(bot, trigger.nick, "Usage: $uncooldown <nick>")
+        return
+    key = normalize_key(target)
+    if key in _flood_lockout:
+        _flood_clear(target)
+        _pm(bot, trigger.nick, f"✅ Flood lockout cleared for {target}.")
+    else:
+        _pm(bot, trigger.nick, f"ℹ️ {target} is not currently locked out.")
 
 
 # ============================================================
