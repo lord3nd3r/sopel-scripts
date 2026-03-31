@@ -99,17 +99,17 @@ def restart(bot, trigger):
 
 
 # ------------------------------------------------------------------
-# $reload <module> — reload a specific plugin
+# $breload <module> — reload a specific plugin
 # ------------------------------------------------------------------
-@module.commands('reload')
+@module.commands('breload')
 def reload_plugin(bot, trigger):
-    """$reload <module> — Reload a specific plugin (owner only)."""
+    """$breload <module> — Reload a specific plugin (owner only)."""
     if not _is_owner(bot, trigger):
         _deny(bot, trigger)
         return
     arg = (trigger.group(2) or '').strip()
     if not arg:
-        _pm_reply(bot, trigger, '❓ Usage: $reload <module_name|all>')
+        _pm_reply(bot, trigger, '❓ Usage: $breload <module_name|all>')
         return
     if arg.lower() == 'all':
         # Reload every loaded plugin
@@ -321,7 +321,7 @@ def bothelp(bot, trigger):
     lines = [
         '🛠️ Bot Admin Commands:',
         '  $restart — Restart the bot (owner)',
-        '  $reload <module|all> — Reload a plugin or all (owner)',
+        '  $breload <module|all> — Reload a plugin or all (owner)',
         '  $botquit [msg] — Shut down the bot (owner)',
         '  $say <target> <msg> — Say something (admin)',
         '  $act <target> <action> — /me action (admin)',
