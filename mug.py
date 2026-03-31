@@ -40,9 +40,8 @@ def setup(bot):
     if BOT_PLAYER_ENABLED:
         _seed_bot_wallet(bot)
         _start_bot_proactive_thread(bot)
-    # Fetch ChanServ access lists and start auto-mode sweep thread
+    # Start auto-mode sweep thread
     if VOICE_ENABLED:
-        _fetch_access_list(bot)
         _start_voice_sweep_thread(bot)
 
 
@@ -3660,42 +3659,6 @@ _PRIV_OP     = 4       # +o
 _PRIV_ADMIN  = 8       # +a
 _PRIV_OWNER  = 16      # +q
 
-# ChanServ access list cache — nicks on the access list are never touched
-_chanserv_access: dict[str, set[str]] = {}   # {channel_lower: {nick_lower, ...}}
-_chanserv_access_ready = threading.Event()
-
-
-def _fetch_access_list(bot):
-    """Request ChanServ ACCESS LIST for each managed channel."""
-    for ch in VOICE_CHANNELS:
-        _chanserv_access[ch] = set()
-        bot.write(['PRIVMSG', 'ChanServ', f'ACCESS {ch} LIST'])
-
-
-@module.event('NOTICE')
-@module.rule('.*')
-@module.priority('low')
-def _chanserv_access_notice(bot, trigger):
-    """Parse ChanServ ACCESS LIST replies and populate the access cache."""
-    if not trigger.nick or trigger.nick.lower() != 'chanserv':
-        return
-    text = trigger.group(0) or ''
-    # Match lines like: "  1   NickName   100" or "  1   NickName   +AOo"
-    m = re.match(r'^\s*\d+\s+(\S+)\s+\S+', text)
-    if m:
-        nick = m.group(1).lower()
-        for ch in VOICE_CHANNELS:
-            _chanserv_access.setdefault(ch, set()).add(nick)
-    # Detect end-of-list
-    if 'end of' in text.lower() and ('access' in text.lower() or 'list' in text.lower()):
-        _chanserv_access_ready.set()
-        LOG.info('auto-mode: ChanServ access list loaded: %s', _chanserv_access)
-
-
-def _nick_on_access_list(channel, nick):
-    """Check if nick is on the ChanServ access list for channel."""
-    return nick.lower() in _chanserv_access.get(channel.lower(), set())
-
 
 def _mode_get_privs(bot, channel, nick):
     """Return the integer privilege bitmask for nick in channel (0 if absent)."""
@@ -3748,15 +3711,22 @@ def _mode_desired(coins):
 
 
 def _mode_sync_nick(bot, channel, nick, coins):
-    """Set the correct mode for nick based on coins. Adds the target and removes lower/higher managed modes."""
+    """Set the correct mode for nick based on coins. Only promotes or strips +v on broke users.
+    Never demotes +o/+h that came from the access list."""
     privs = _mode_get_privs(bot, channel, nick)
     # If they have admin (+a) or owner (+q), never touch them
     if privs & (_PRIV_ADMIN | _PRIV_OWNER):
         return
-    # If they're on the ChanServ access list, never touch them
-    if _nick_on_access_list(channel, nick):
-        return
     desired = _mode_desired(coins)
+    desired_bit = desired[1] if desired else 0
+
+    # If they already have a mode HIGHER than what coins warrant,
+    # it came from the access list / ChanServ — leave them alone.
+    if (privs & _PRIV_OP) and desired_bit < _PRIV_OP:
+        return
+    if (privs & _PRIV_HALFOP) and desired_bit < _PRIV_HALFOP:
+        return
+
     # Managed modes we control: v, h, o
     managed = [('v', _PRIV_VOICE), ('h', _PRIV_HALFOP), ('o', _PRIV_OP)]
     add_modes = ''
