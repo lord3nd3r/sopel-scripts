@@ -87,7 +87,7 @@ TOP_CD = 10 * 60          # per-user cooldown for $top5/$top10
 VOICE_ENABLED = True              # Master switch for auto-voice
 VOICE_THRESHOLD = 500             # Coins needed to earn +v
 VOICE_CHECK_INTERVAL = 5 * 60     # Periodic sweep every 5 minutes
-VOICE_CHANNELS = {'#3nd3r'}       # Channels where auto-voice is active (lowercase)
+VOICE_CHANNELS = {'#3nd3r', '#mug'}  # Channels where auto-voice is active (lowercase)
 VOICE_EXEMPT_NICKS = {'end3r', 'glitchy'}  # Nicks to never touch (lowercase)
 
 # ---- Bot Player (Glitchy joins the game!) ----
