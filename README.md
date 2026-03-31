@@ -315,6 +315,7 @@ A full IRC economy game with coins, mugging, betting, bounties, a shop, and an i
 |---------|-------------|---------|
 | `$bet <amount>` | Gamble your coins (max 1B per bet) | `$bet 500` |
 | `$roll <amount> [type]` | Dice casino — 6 bet types with varying payouts | `$roll 500 lucky7` |
+| `$penny` | Penny slot machine — 1 coin per pull, win up to 5,000! | `$penny` |
 
 **Dice Casino Types (`$roll`):**
 

@@ -1883,6 +1883,107 @@ def roll_dice(bot, trigger):
 
 
 # ============================================================
+# ================== PENNY SLOTS 🎰 ==========================
+# ============================================================
+# $penny — Drop a coin in the penny slot machine!
+# Costs 1 coin per pull. 10 prize tiers + jackpot.
+# Own cooldown (PENNY_COOLDOWN) separate from $bet/$roll.
+
+PENNY_COOLDOWN = 15  # seconds between pulls
+PENNY_COST = 1       # 1 coin per pull
+
+# (weight, payout, reels, message)
+# Higher weight = more common. Weights summed for probability.
+PENNY_PRIZES = [
+    (35, 0,    '💀💀💀', "Nothing. The machine laughs at you."),
+    (20, 0,    '🍋🍒💀', "Two fruits and a skull. Almost."),
+    (12, 2,    '🍒🍒🍋', "Two cherries! {coins} back. 🍒"),
+    (8,  5,    '🍒🍒🍒', "Triple cherries! 🍒🍒🍒 +{coins}!"),
+    (6,  15,   '🍋🍋🍋', "Lemons! 🍋🍋🍋 Sour but sweet — +{coins}!"),
+    (5,  50,   '🔔🔔🔔', "DING DING DING! 🔔🔔🔔 +{coins}!"),
+    (4,  150,  '💎💎🔔', "Diamonds and a bell! 💎✨ +{coins}!"),
+    (3,  500,  '💎💎💎', "TRIPLE DIAMONDS! 💎💎💎 +{coins}! 🤑"),
+    (2,  1500, '🔥🔥🔥', "🔥🔥🔥 FIRE SPIN!!! +{coins}! The machine is SMOKING! 🚒"),
+    (1,  5000, '👑👑👑', "👑👑👑 JACKPOT!!! 🎰💰🎆🎇🪩🥳 +{coins}!!! THE CROWD GOES WILD!!!"),
+]
+
+PENNY_COOLDOWN_MESSAGES = [
+    "🎰 The machine needs a second to cool down… {time}.",
+    "🎰 Slow down, speed demon — {time}.",
+    "🎰 The lever is stuck. Try again in {time}.",
+    "🎰 A tiny gremlin is resetting the reels. {time}.",
+    "🎰 Penny slots have dignity too. Wait {time}.",
+]
+
+
+def _penny_cd_remaining(user, now):
+    return max(0.0, (user.get("last_penny", 0.0) + PENNY_COOLDOWN) - now)
+
+
+def _penny_spin(godmode=False):
+    """Pick a prize tier. Returns (payout, reels, message)."""
+    if godmode:
+        # Always jackpot
+        _, payout, reels, msg = PENNY_PRIZES[-1]
+        return payout, reels, msg
+    total_weight = sum(w for w, _, _, _ in PENNY_PRIZES)
+    roll = random.randint(1, total_weight)
+    cumulative = 0
+    for weight, payout, reels, msg in PENNY_PRIZES:
+        cumulative += weight
+        if roll <= cumulative:
+            return payout, reels, msg
+    # Fallback
+    return 0, '💀💀💀', "The machine ate your coin."
+
+
+@module.commands('penny')
+def penny_slots(bot, trigger):
+    """$penny — Pull the penny slot machine! Costs 1 coin per spin."""
+    if not _plugin_enabled(bot, trigger.sender):
+        _disabled_msg(bot, trigger)
+        return
+    if not trigger.sender.startswith('#'):
+        bot.reply("🏠 Use this in a channel.")
+        return
+    if _anticheat_gate(bot, trigger, 'penny'):
+        return
+
+    now = time.time()
+
+    with locked_data(bot):
+        user = get_user_record(bot, trigger.nick)
+
+        rem = 0 if _is_admin(bot, trigger.nick) else _penny_cd_remaining(user, now)
+        if rem > 0:
+            bot.reply(_rand(PENNY_COOLDOWN_MESSAGES).format(time=fmt_time_remaining(rem)))
+            return
+
+        if int(user.get("money", 0)) < PENNY_COST:
+            bot.reply("🫗 You don't even have a single coin for the penny slot.")
+            return
+
+        user["money"] = int(user.get("money", 0)) - PENNY_COST
+        user["last_penny"] = now
+
+        payout, reels, msg = _penny_spin(godmode=_has_godmode(trigger.nick))
+
+        if payout > 0:
+            user["money"] += payout
+            msg_formatted = msg.format(coins=fmt_coins(payout))
+            bot.say(
+                f"🎰 {reels} {tag(trigger.nick, user['money'])} "
+                f"{msg_formatted} Balance: {fmt_coins(user['money'])} 🪙"
+            )
+        else:
+            msg_formatted = msg.format(coins=fmt_coins(0))
+            bot.say(
+                f"🎰 {reels} {tag(trigger.nick, user['money'])} "
+                f"{msg_formatted} Balance: {fmt_coins(user['money'])} 🪙"
+            )
+
+
+# ============================================================
 # ======================= SHOP & INVENTORY ===================
 # ============================================================
 

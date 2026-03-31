@@ -130,6 +130,7 @@ IRC economy game with coins, mugging, bounties, a shop, and gambling.
 |---------|-------------|
 | `$bet <amount>` | Gamble coins (slot machine) |
 | `$roll <amount> [type]` | 🎲 Dice casino (see types below) |
+| `$penny` | 🎰 Penny slot machine — 1 coin per pull, win up to 5,000! |
 
 **Dice Casino Types ($roll):**
 
