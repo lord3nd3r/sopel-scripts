@@ -1693,7 +1693,7 @@ def mug(bot, trigger):
 # Keep betting as a percentage chance, but use a larger roll range to reduce
 # the "small sample" feel and allow finer granularity if needed later.
 BET_ROLL_MAX = 10000
- on access, it can do /nsg chanserv access #mug list
+
 @module.commands('bet')
 def bet(bot, trigger):
     """$bet <amount>"""
