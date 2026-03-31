@@ -83,11 +83,13 @@ BET_COOLDOWN = 60
 BOUNTY_COOLDOWN = 60  # prevents spam-bounty
 TOP_CD = 10 * 60          # per-user cooldown for $top5/$top10
 
-# ---- Auto-Voice (coin-based +v) ----
-VOICE_ENABLED = True              # Master switch for auto-voice
+# ---- Auto-Mode (coin-based +v / +h / +o) ----
+VOICE_ENABLED = True              # Master switch for auto-mode
 VOICE_THRESHOLD = 500             # Coins needed to earn +v
+HALFOP_THRESHOLD = 10_000_000     # Coins needed to earn +h (10M)
+OP_THRESHOLD = 1_000_000_000      # Coins needed to earn +o (1B)
 VOICE_CHECK_INTERVAL = 5 * 60     # Periodic sweep every 5 minutes
-VOICE_CHANNELS = {'#3nd3r', '#mug'}  # Channels where auto-voice is active (lowercase)
+VOICE_CHANNELS = {'#mug'}         # Channels where auto-mode is active (lowercase)
 VOICE_EXEMPT_NICKS = {'end3r', 'glitchy'}  # Nicks to never touch (lowercase)
 
 # ---- Bot Player (Glitchy joins the game!) ----
@@ -3647,44 +3649,33 @@ def mughelp(bot, trigger):
 
 
 # ============================================================
-# ===============  AUTO-VOICE (COIN-BASED +v)  ===============
+# ===============  AUTO-MODE (COIN-BASED +v/+h/+o)  ==========
 # ============================================================
 
-def _voice_is_voiced(bot, channel, nick):
-    """Check if nick currently has +v in channel."""
+# Privilege bitmask constants (Sopel convention)
+_PRIV_VOICE  = 1       # +v
+_PRIV_HALFOP = 2       # +h
+_PRIV_OP     = 4       # +o
+_PRIV_ADMIN  = 8       # +a
+_PRIV_OWNER  = 16      # +q
+
+
+def _mode_get_privs(bot, channel, nick):
+    """Return the integer privilege bitmask for nick in channel (0 if absent)."""
     try:
         chan = bot.channels.get(channel)
         if not chan:
-            return False
+            return 0
         privs = getattr(chan, 'privileges', None) or {}
         for k, v in privs.items():
             if k.lower() == nick.lower():
-                if isinstance(v, int):
-                    return (v & 1) != 0
-                return False
-        return False
+                return v if isinstance(v, int) else 0
+        return 0
     except Exception:
-        return False
+        return 0
 
 
-def _voice_has_higher_mode(bot, channel, nick):
-    """Check if nick has hop/op/admin/owner — don't touch those."""
-    try:
-        chan = bot.channels.get(channel)
-        if not chan:
-            return False
-        privs = getattr(chan, 'privileges', None) or {}
-        for k, v in privs.items():
-            if k.lower() == nick.lower():
-                if isinstance(v, int):
-                    return (v & ~1) != 0
-                return False
-        return False
-    except Exception:
-        return False
-
-
-def _voice_nick_in_channel(bot, channel, nick_lower):
+def _mode_nick_in_channel(bot, channel, nick_lower):
     """Check if a nick is currently in the channel."""
     try:
         chan = bot.channels.get(channel)
@@ -3696,7 +3687,7 @@ def _voice_nick_in_channel(bot, channel, nick_lower):
         return False
 
 
-def _voice_get_display_nick(nick_key):
+def _mode_get_display_nick(nick_key):
     """Get the display nick from loaded data, falling back to key."""
     try:
         if _data and isinstance(_data, dict):
@@ -3708,24 +3699,50 @@ def _voice_get_display_nick(nick_key):
     return nick_key
 
 
-def _voice_set(bot, channel, nick):
-    try:
-        bot.write(['MODE', channel, '+v', nick])
-        LOG.info('auto-voice: +v %s in %s', nick, channel)
-    except Exception:
-        LOG.exception('auto-voice: failed to +v %s in %s', nick, channel)
+def _mode_desired(coins):
+    """Return the target (mode_char, priv_bit) for a coin balance, or None."""
+    if coins >= OP_THRESHOLD:
+        return ('o', _PRIV_OP)
+    if coins >= HALFOP_THRESHOLD:
+        return ('h', _PRIV_HALFOP)
+    if coins >= VOICE_THRESHOLD:
+        return ('v', _PRIV_VOICE)
+    return None
 
 
-def _voice_unset(bot, channel, nick):
-    try:
-        bot.write(['MODE', channel, '-v', nick])
-        LOG.info('auto-voice: -v %s in %s', nick, channel)
-    except Exception:
-        LOG.exception('auto-voice: failed to -v %s in %s', nick, channel)
+def _mode_sync_nick(bot, channel, nick, coins):
+    """Set the correct mode for nick based on coins. Adds the target and removes lower/higher managed modes."""
+    privs = _mode_get_privs(bot, channel, nick)
+    # If they have admin (+a) or owner (+q), never touch them
+    if privs & (_PRIV_ADMIN | _PRIV_OWNER):
+        return
+    desired = _mode_desired(coins)
+    # Managed modes we control: v, h, o
+    managed = [('v', _PRIV_VOICE), ('h', _PRIV_HALFOP), ('o', _PRIV_OP)]
+    add_modes = ''
+    remove_modes = ''
+    for char, bit in managed:
+        has = (privs & bit) != 0
+        want = desired is not None and desired[0] == char
+        if want and not has:
+            add_modes += char
+        elif not want and has:
+            remove_modes += char
+    mode_str = ''
+    if remove_modes:
+        mode_str += '-' + remove_modes
+    if add_modes:
+        mode_str += '+' + add_modes
+    if mode_str:
+        # Each mode flag needs the nick as a parameter
+        count = len(remove_modes) + len(add_modes)
+        params = ' '.join([nick] * count)
+        bot.write(['MODE', channel, mode_str, params])
+        LOG.info('auto-mode: %s %s in %s (coins=%s)', mode_str, nick, channel, coins)
 
 
 def _voice_sweep_all(bot):
-    """Check all players in all managed channels and voice/devoice as needed."""
+    """Check all players in all managed channels and sync modes."""
     if not VOICE_ENABLED or not _data:
         return
     users = _data.get('users', {})
@@ -3735,21 +3752,15 @@ def _voice_sweep_all(bot):
                 continue
             if nick_key in VOICE_EXEMPT_NICKS:
                 continue
-            display = _voice_get_display_nick(nick_key)
-            if not _voice_nick_in_channel(bot, channel, nick_key):
-                continue
-            if _voice_has_higher_mode(bot, channel, display):
+            display = _mode_get_display_nick(nick_key)
+            if not _mode_nick_in_channel(bot, channel, nick_key):
                 continue
             coins = rec.get('money', 0)
-            voiced = _voice_is_voiced(bot, channel, display)
-            if coins >= VOICE_THRESHOLD and not voiced:
-                _voice_set(bot, channel, display)
-            elif coins < VOICE_THRESHOLD and voiced:
-                _voice_unset(bot, channel, display)
+            _mode_sync_nick(bot, channel, display, coins)
 
 
 def _start_voice_sweep_thread(bot):
-    """Start the background thread that periodically voices/devoices."""
+    """Start the background thread that periodically syncs modes."""
     _voice_sweep_stop.clear()
     t = threading.Thread(target=_voice_sweep_loop, args=(bot,), daemon=True)
     t.start()
@@ -3762,7 +3773,7 @@ def _voice_sweep_loop(bot):
         try:
             _voice_sweep_all(bot)
         except Exception:
-            LOG.exception('auto-voice: sweep failed')
+            LOG.exception('auto-mode: sweep failed')
         _voice_sweep_stop.wait(VOICE_CHECK_INTERVAL)
 
 
@@ -3770,7 +3781,7 @@ def _voice_sweep_loop(bot):
 @module.rule('.*')
 @module.priority('low')
 def voice_on_join(bot, trigger):
-    """When someone joins a managed channel, voice them if they qualify."""
+    """When someone joins a managed channel, set their mode if they qualify."""
     if not VOICE_ENABLED:
         return
     try:
@@ -3784,14 +3795,11 @@ def voice_on_join(bot, trigger):
             return
         # Small delay so Sopel's privilege tracking catches up
         time.sleep(2)
-        if _voice_has_higher_mode(bot, trigger.sender, trigger.nick):
-            return
         nick_key = normalize_key(trigger.nick)
         data = _load_data(bot)
         rec = data.get('users', {}).get(nick_key, {})
         coins = rec.get('money', 0) if isinstance(rec, dict) else 0
-        if coins >= VOICE_THRESHOLD:
-            _voice_set(bot, trigger.sender, trigger.nick)
+        _mode_sync_nick(bot, trigger.sender, trigger.nick, coins)
     except Exception:
         pass
 
