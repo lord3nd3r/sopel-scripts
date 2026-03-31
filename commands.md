@@ -10,6 +10,7 @@ Quick reference for all commands. The bot command prefix is **`$`** unless noted
 - [Bartender (beer)](#-bartender-beer)
 - [Weed & Tripy (weed)](#-weed--trippy-weed)
 - [Coins & Mugging (mug)](#-coins--mugging-mug)
+- [Bot Admin (botadmin)](#-bot-admin-botadmin)
 - [Moo Counter (moo)](#-moo-counter-moo)
 - [Karma (karma)](#-karma-karma)
 - [Trivia (trivia)](#-trivia-trivia)
@@ -127,7 +128,19 @@ IRC economy game with coins, mugging, bounties, a shop, and gambling.
 
 | Command | Description |
 |---------|-------------|
-| `$bet <amount>` | Gamble coins |
+| `$bet <amount>` | Gamble coins (slot machine) |
+| `$roll <amount> [type]` | 🎲 Dice casino (see types below) |
+
+**Dice Casino Types ($roll):**
+
+| Type | How to Win | Payout |
+|------|-----------|--------|
+| `high` (default) | Roll 2d6, total 7+ wins | 2x |
+| `lucky7` | Roll exactly 7 | 4x |
+| `snake` | Snake eyes (1+1) | 30x |
+| `field` | Roll 2,3,4,9,10,11,12 | 2x (3x on 2 or 12) |
+| `hardway` | Doubles (except snake eyes) | 8x |
+| `yolo` | Roll 2 or 12 | 15x |
 
 **Shop & Items:**
 
@@ -161,6 +174,35 @@ IRC economy game with coins, mugging, bounties, a shop, and gambling.
 | `$mugtoggle [on\|off]` | Enable/disable per-channel |
 | `$godmode <nick>` | Toggle luck override (owner only) |
 | `$mugstats` | Show game statistics |
+
+> **Auto-Voice:** Users with ≥500 coins automatically receive +v in configured channels. Drops below 500 = devoiced. Ops/hops/owners are exempt.
+
+---
+
+## 🛠️ Bot Admin (botadmin)
+
+Owner/admin-only bot management commands.
+
+**Owner commands:**
+
+| Command | Description |
+|---------|-------------|
+| `$restart` | Restart the bot |
+| `$breload <module\|all>` | Reload a plugin or all plugins |
+| `$botquit [msg]` | Shut down the bot |
+| `$raw <irc line>` | Send a raw IRC command |
+| `$botnick <nick>` | Change the bot's nick |
+
+**Admin commands:**
+
+| Command | Description |
+|---------|-------------|
+| `$say <target> <msg>` | Make bot say something |
+| `$act <target> <action>` | Make bot do a /me action |
+| `$bjoin #channel [key]` | Join a channel |
+| `$bpart #channel [msg]` | Leave a channel |
+| `$bmode #channel <mode> [nick]` | Set a channel mode |
+| `$bothelp` | List all admin commands |
 
 ---
 

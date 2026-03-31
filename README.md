@@ -12,6 +12,7 @@ A collection of custom [Sopel](https://sopel.chat/) IRC bot plugins for fun, uti
 - [Bartender](#-beer---virtual-bartender)
 - [Weed & Trippy Commands](#-weed---smoking--psychedelic-sessions)
 - [Mug Game](#-mug---coin-mugging--gambling-game)
+- [Bot Admin](#-botadmin---bot-admin)
 - [Moo Counter](#-moo---moo-counter)
 - [Karma](#-karma---karma-system)
 - [Trivia](#-trivia---trivia-game)
@@ -313,6 +314,18 @@ A full IRC economy game with coins, mugging, betting, bounties, a shop, and an i
 | Command | Description | Example |
 |---------|-------------|---------|
 | `$bet <amount>` | Gamble your coins (max 1B per bet) | `$bet 500` |
+| `$roll <amount> [type]` | Dice casino — 6 bet types with varying payouts | `$roll 500 lucky7` |
+
+**Dice Casino Types (`$roll`):**
+
+| Type | How to Win | Payout |
+|------|-----------|--------|
+| `high` (default) | Roll 2d6, total 7+ wins | 2x |
+| `lucky7` | Roll exactly 7 | 4x |
+| `snake` | Snake eyes (1+1) | 30x |
+| `field` | Roll 2,3,4,9,10,11,12 | 2x (3x on 2 or 12) |
+| `hardway` | Doubles (except snake eyes) | 8x |
+| `yolo` | Roll 2 or 12 | 15x |
 
 ### Shop & Items
 
@@ -347,6 +360,8 @@ A full IRC economy game with coins, mugging, betting, bounties, a shop, and an i
 | `$mugstats` | Economy overview: user count, top 5, total coins (admin, PM) |
 | `$godmode [on\|off] [nick]` | Toggle 99% luck for yourself or a player (admin, PM) |
 
+> **Auto-Voice:** Users with ≥500 coins automatically get +v in configured channels. Dropping below 500 = devoiced. Ops/hops/owners are exempt.
+
 ### Bot Player (glitchy)
 - The bot participates in the mug game with its own wallet (seeded at 500k coins)
 - **Retaliation:** 60% chance to counter-mug you 5–15 seconds after you mug it
@@ -374,6 +389,33 @@ A full IRC economy game with coins, mugging, betting, bounties, a shop, and an i
 - **Scaled fail/crit loss caps:** Normal fail cap = max(100k, 5% of your money); Crit fail cap = max(250k, 10% of your money)
 - **Bet cap:** Max bet is 1,000,000,000 (1B) to prevent hyperinflation
 - **Whale protection:** If victim has > 10k coins, max steal is 25% per mug
+
+---
+
+## 🛠️ botadmin — Bot Admin
+
+Owner and admin-only bot management commands.
+
+### Owner Commands
+
+| Command | Description |
+|---------|-------------|
+| `$restart` | Restart the bot |
+| `$breload <module\|all>` | Reload a plugin or all plugins |
+| `$botquit [msg]` | Shut down the bot |
+| `$raw <irc line>` | Send a raw IRC command |
+| `$botnick <nick>` | Change the bot's nick |
+
+### Admin Commands
+
+| Command | Description |
+|---------|-------------|
+| `$say <target> <msg>` | Make bot say something |
+| `$act <target> <action>` | Make bot do a /me action |
+| `$bjoin #channel [key]` | Join a channel |
+| `$bpart #channel [msg]` | Leave a channel |
+| `$bmode #channel <mode> [nick]` | Set a channel mode |
+| `$bothelp` | List all admin commands |
 
 ---
 
