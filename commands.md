@@ -197,6 +197,7 @@ IRC economy game with coins, mugging, bounties, a shop, and gambling.
 |---------|-------------|
 | `$top5` | Top 5 richest users |
 | `$top10` | Top 10 richest users |
+| `$highscore` | All-time highest balance record |
 | `$mughelp` | Full help guide (PM) |
 
 **Admin PM commands:**

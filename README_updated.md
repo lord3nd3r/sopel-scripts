@@ -2,8 +2,6 @@
 
 A collection of custom [Sopel](https://sopel.chat/) IRC bot plugins for fun, utility, and community engagement.
 
-> **Quick reference:** See [commands.md](commands.md) for a concise list of every command across all scripts.
-
 ---
 
 ## 📋 Table of Contents
@@ -12,7 +10,6 @@ A collection of custom [Sopel](https://sopel.chat/) IRC bot plugins for fun, uti
 - [Bartender](#-beer---virtual-bartender)
 - [Weed & Trippy Commands](#-weed---smoking--psychedelic-sessions)
 - [Mug Game](#-mug---coin-mugging--gambling-game)
-- [Bot Admin](#-botadmin---bot-admin)
 - [Moo Counter](#-moo---moo-counter)
 - [Karma](#-karma---karma-system)
 - [Trivia](#-trivia---trivia-game)
@@ -20,7 +17,6 @@ A collection of custom [Sopel](https://sopel.chat/) IRC bot plugins for fun, uti
 - [Stocks](#-stock---stock-lookup)
 - [Voting](#-voting---channel-polls)
 - [Channel Monitor](#-monitor---channel-statistics)
-- [Verbal Morality](#-curse---verbal-morality-statute)
 - [Facepalm](#-facepalm---facepalm-reactions)
 - [Table Flip](#-tableflip---table-flip-animation)
 - [PromoteMe](#-opme---self-promotion)
@@ -39,8 +35,6 @@ An AI chatbot powered by the **xAI Grok API**. The bot responds when mentioned b
 ### Features
 - Responds conversationally when addressed by nick
 - Reacts to `/me` actions (pets, hugs, pokes, etc.) with fun emote replies
-- **Full channel awareness** — sees ALL channel activity including `$` commands (`$bet`, `$mug`, `$coins`, `$top5`, etc.) and the bot's own plugin outputs (game results, payouts, mug outcomes)
-- **Cross-plugin context** — the AI knows it runs other scripts and treats its own output as things it said/did, referencing game events naturally in conversation
 - **Automatic web search** for news, scores, current events, and time-sensitive queries
 - Per-user conversation history stored in SQLite
 - **Review mode** — summarize what has been discussed in channel (persisted to DB across restarts)
@@ -48,7 +42,7 @@ An AI chatbot powered by the **xAI Grok API**. The bot responds when mentioned b
 - Admin commands via PM
 - Heuristic intent detection to avoid responding to incidental mentions
 - Per-channel busy flag to prevent response spam
-- Context window: up to 150 lines / 6,000 char budget for background channel context
+- Context truncation (3,200 char budget) to keep API calls efficient
 
 ### Commands
 
@@ -259,7 +253,7 @@ Share lighthearted party messages with themed countdowns, gifts, and action mess
 | `$peyote [nick]` | `$mescaline` | Peyote desert vision quest 🌵 |
 
 ### Behavior
-- **With a target:** Sends an action message gifting the target a random item (target must be in the channel)
+- **With a target:** Sends an action message gifting the target a random item
   ```
   * Bot hands m0n a fat bong rip 🌊
   ```
@@ -270,22 +264,14 @@ Share lighthearted party messages with themed countdowns, gifts, and action mess
   🔥 1... Lighting the bowl...
   Bong rip incoming — lean back and ride the clouds 🌊💨
   ```
-- **Mid-sentence triggers:** Commands work anywhere in a message, not just at the start
-  ```
-  I feel the need for $weed
-  someone pass me a $bong please
-  ```
 
 ### Cooldowns
 - **Channel cooldown:** 20 minutes between countdown sessions (does not apply to gift actions)
 - **Per-user cooldown:** 30 seconds between gift commands (does not apply to countdowns)
-- Mid-sentence triggers respect the same cooldowns and show a notice if on cooldown
 
 ---
 
 ## 💰 mug — Coin, Mugging & Gambling Game
-
-Based on TAYbot by ANNA on Rizon - https://github.com/Annaslut/TAY/
 
 A full IRC economy game with coins, mugging, betting, bounties, a shop, and an item system. Includes anti-cheat measures and NickServ identity verification.
 
@@ -296,8 +282,6 @@ A full IRC economy game with coins, mugging, betting, bounties, a shop, and an i
 | `$coins` | Collect your coins (scaled by wealth) | `$coins` |
 | `$balance [nick]` | Check your (or someone's) balance | `$balance m0n` |
 | `$give <nick> <amount>` | Give coins to another user | `$give m0n 500` |
-
-> **Tip:** Amounts accept commas — `$bet 1,000,000` works everywhere.
 
 ### Combat & Crime
 
@@ -313,56 +297,7 @@ A full IRC economy game with coins, mugging, betting, bounties, a shop, and an i
 
 | Command | Description | Example |
 |---------|-------------|---------|
-| `$bet <amount>` | Gamble your coins (max 1B per bet) | `$bet 500` |
-| `$roll <amount> [type]` | Dice casino — 6 bet types with varying payouts | `$roll 500 lucky7` |
-| `$penny` | Penny slot machine — 1 coin per pull, win up to 5,000! | `$penny` |
-| `$dollar` | Dollar slot machine — 100 coins per pull, win up to 50,000! | `$dollar` |
-| `$roulette <amount> <bet>` | Roulette — red/black/odd/even/high/low/1st/2nd/3rd/0-36 | `$roulette 500 red` |
-| `$bj <amount>` | Blackjack vs dealer (then $hit/$stand/$dd) | `$bj 500` |
-| `$holdem <amount>` | Texas Hold’em heads-up vs dealer | `$holdem 500` |
-
-**Dice Casino Types (`$roll`):**
-
-| Type | How to Win | Payout |
-|------|-----------|--------|
-| `high` (default) | Roll 2d6, total 7+ wins | 2x |
-| `lucky7` | Roll exactly 7 | 4x |
-| `snake` | Snake eyes (1+1) | 30x |
-| `field` | Roll 2,3,4,9,10,11,12 | 2x (3x on 2 or 12) |
-| `hardway` | Doubles (except snake eyes) | 8x |
-| `yolo` | Roll 2 or 12 | 15x |
-
-**Roulette Bets (`$roulette`):**
-
-| Bet | Description | Payout |
-|-----|-----------|--------|
-| `red` / `black` | Color bet | 2x |
-| `odd` / `even` | Parity bet | 2x |
-| `high` / `low` | 19-36 / 1-18 | 2x |
-| `1st` / `2nd` / `3rd` | Dozens (1-12, 13-24, 25-36) | 3x |
-| `0`–`36` | Straight number | 36x |
-
-**Blackjack (`$bj`):**
-
-| Command | Description |
-|---------|-------------|
-| `$hit` | Draw another card |
-| `$stand` | Keep your hand, dealer plays |
-| `$dd` | Double down — double bet, one card, auto-stand |
-
-> Natural blackjack pays 2.5x. Regular win pays 2x.
-
-**Texas Hold’em Payouts (`$holdem`):**
-
-| Hand | Payout |
-|------|--------|
-| Royal Flush | 50x |
-| Straight Flush | 25x |
-| Four of a Kind | 12x |
-| Full House | 6x |
-| Flush | 4x |
-| Straight | 3x |
-| Three/Two/One Pair, High Card | 2x |
+| `$bet <amount>` | Gamble your coins (chance-based) | `$bet 500` |
 
 ### Shop & Items
 
@@ -377,9 +312,9 @@ A full IRC economy game with coins, mugging, betting, bounties, a shop, and an i
 
 | Command | Description |
 |---------|-------------|
-| `$top5` | Top 5 richest users (10-min per-user cooldown, admins exempt) |
-| `$top10` | Top 10 richest users (10-min per-user cooldown, admins exempt) |
-| `$highscore` | All-time highest balance ever achieved and who held it |
+| `$top5` | Top 5 richest users |
+| `$top10` | Top 10 richest users |
+| `$highscore` | All-time highest balance record |
 
 ### Help & Admin
 
@@ -395,23 +330,7 @@ A full IRC economy game with coins, mugging, betting, bounties, a shop, and an i
 | `$mugdup <nick>` | List duplicate records (admin, PM) |
 | `$mugclearbounty <nick>` | Clear all bounties on a nick (admin, PM) |
 | `$mugtoggle [on\|off]` | Enable/disable per-channel (admin) |
-| `$mugstats` | Economy overview: user count, top 5, total coins (admin, PM) |
-| `$godmode [on\|off] [nick]` | Toggle 99% luck for yourself or a player (admin, PM) |
-| `$uncooldown <nick>` | Clear a user's 30-min flood lockout (admin, PM) |
-
-> **Auto-Voice:** Users with ≥500 coins automatically get +v in configured channels. Dropping below 500 = devoiced. Ops/hops/owners are exempt.
-
-### Bot Player (glitchy)
-- The bot participates in the mug game with its own wallet (seeded at 500k coins)
-- **Retaliation:** 60% chance to counter-mug you 5–15 seconds after you mug it
-- **Proactive:** Randomly mugs top 5 richest players every 30–90 minutes in `#mug`
-- Normal odds (50% success, 5–15% steal, 10–25% fail loss) — no god mode
-
-### Channel Rules
-- Mug game is **disabled by default** per channel — an admin must `$mugtoggle on`
-- Home channel: `#mug` — disabled messages direct players there
-- **Admins are exempt from all cooldown timers**
-- **Spam protection:** More than 15 commands in 60 seconds triggers a 30-minute casino lockout. Admins can clear it with `$uncooldown <nick>`
+| `$godmode <nick>` | Toggle near-guaranteed luck for a nick (owner only) |
 
 ### Features
 - Wealth-scaled coin collection
@@ -420,42 +339,6 @@ A full IRC economy game with coins, mugging, betting, bounties, a shop, and an i
 - Active item effects (attack bonuses, defense)
 - Anti-cheat: NickServ verification, daily give caps, command throttling
 - Titles based on wealth level
-- Bot player with retaliation and proactive mugging AI
-- Comma support in all amount inputs
-
-### Economy Balancing
-- **Minimum balance to mug:** Attacker must have ≥ 1% of the victim's wallet (skip for tiny wallets ≤ 100 coins)
-- **Scaled mug fee:** 0.1% of attacker balance (min 2 coins) — whales pay more to mug
-- **Scaled fail/crit loss caps:** Normal fail cap = max(100k, 5% of your money); Crit fail cap = max(250k, 10% of your money)
-- **Bet cap:** Max bet is 1,000,000,000 (1B) to prevent hyperinflation
-- **Whale protection:** If victim has > 10k coins, max steal is 25% per mug
-
----
-
-## 🛠️ botadmin — Bot Admin
-
-Owner and admin-only bot management commands.
-
-### Owner Commands
-
-| Command | Description |
-|---------|-------------|
-| `$restart` | Restart the bot |
-| `$breload <module\|all>` | Reload a plugin or all plugins |
-| `$botquit [msg]` | Shut down the bot |
-| `$raw <irc line>` | Send a raw IRC command |
-| `$botnick <nick>` | Change the bot's nick |
-
-### Admin Commands
-
-| Command | Description |
-|---------|-------------|
-| `$say <target> <msg>` | Make bot say something |
-| `$act <target> <action>` | Make bot do a /me action |
-| `$bjoin #channel [key]` | Join a channel |
-| `$bpart #channel [msg]` | Leave a channel |
-| `$bmode #channel <mode> [nick]` | Set a channel mode |
-| `$bothelp` | List all admin commands |
 
 ---
 
@@ -654,40 +537,6 @@ Track detailed activity per user per channel with leaderboards and per-stat rank
 - 🚪 Joins, 👋 Parts, 💥 Splits, 🚫 Quits, 🔄 Nick changes
 - 🥇🥈🥉 Medal emojis on top-3 leaderboard positions
 - Stats auto-save on an interval and on bot shutdown
-
----
-
-## 🚔 curse — Verbal Morality Statute
-
-*"You are fined one credit for a violation of the Verbal Morality Statute."* — Demolition Man
-
-An automatic profanity fine system inspired by the Demolition Man Verbal Morality Statute. When enabled in a channel, the bot monitors all messages for banned words and issues a randomized §X.X fine citation with a colourful message.
-
-### Features
-- **Disabled by default** — must be explicitly enabled per channel
-- 50 unique fine messages across 6 flavour categories (classic booth, authority, cheerful, bureaucratic, dramatic, robotic, pop-culture)
-- All messages reference a specific Verbal Morality Statute section code
-- Two-tier word matching: short ambiguous words (`ass`, `hell`, etc.) require a word boundary; explicit profanity matches anywhere inside compound words (e.g. `sheepfucker` → `fuck`)
-- Per-channel toggle stored in the bot database — survives restarts
-
-### Commands
-
-| Command | Who | Description |
-|---------|-----|-------------|
-| `$curse on` | Halfop+ / Admin | Enable fining in this channel |
-| `$curse off` | Halfop+ / Admin | Disable fining in this channel |
-| `$curse` | Anyone | Check whether fining is currently enabled |
-
-### Permissions
-- Requires **halfop or above** (`%`, `@`, `&`, `~`) in the channel, **or** bot admin/owner status
-- The bot issues fines automatically when enabled — no trigger command needed
-
-### Example Fine Messages
-```
-[VMS § 2.1] You are hereby fined one credit for a violation of the Verbal Morality Statute. Watch your language, citizen!
-[VMS § 4.7] A fine has been issued for use of language prohibited under Statute § 4.7. Your record has been noted. 📋
-[VMS § 3.14] 🚨 VERBAL MORALITY VIOLATION DETECTED 🚨 Infraction logged under § 3.14. Have a scenic day! ☀️
-```
 
 ---
 
