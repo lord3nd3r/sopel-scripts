@@ -588,10 +588,24 @@ def _load_data(bot):
         return _data
 
 
+def _update_highscore(data):
+    """Scan all users and update the all-time high score record if beaten."""
+    best_nick = data.get("highscore_nick", "")
+    best_amt = int(data.get("highscore_amount", 0))
+    for key, u in data.get("users", {}).items():
+        bal = int(u.get("money", 0))
+        if bal > best_amt:
+            best_amt = bal
+            best_nick = u.get("nick", key)
+    data["highscore_nick"] = best_nick
+    data["highscore_amount"] = best_amt
+
+
 def _save_data(bot):
     with _data_lock:
         if _data is None:
             return
+        _update_highscore(_data)
         bot.db.set_plugin_value(PLUGIN_NAME, 'data', _data)
     # After saving, schedule a voice check for all managed channels
     if VOICE_ENABLED:
@@ -3071,6 +3085,29 @@ def top10(bot, trigger):
     safe_say(bot, f"💰 Top 10 coin legends (6–10): {_format_lb(top[5:10], start_rank=6)}")
 
 
+@module.commands('highscore')
+def highscore(bot, trigger):
+    """$highscore - show the all-time highest balance ever achieved."""
+    if not _plugin_enabled(bot, trigger.sender):
+        _disabled_msg(bot, trigger)
+        return
+    if not trigger.sender.startswith('#'):
+        bot.reply("🏠 Use this in a channel.")
+        return
+    if not _check_global_cooldown(trigger.nick):
+        return
+
+    data = _load_data(bot)
+    hs_nick = data.get("highscore_nick", "")
+    hs_amt = int(data.get("highscore_amount", 0))
+
+    if not hs_nick or hs_amt <= 0:
+        bot.say("📉 No high score recorded yet. Get out there and earn some coins! 💰")
+        return
+
+    bot.say(f"🏆 All-time high score: {hs_nick} with {fmt_coins(hs_amt)} coins! 👑")
+
+
 # ============================================================
 # ===================== PM ADMIN COMMANDS ====================
 # ============================================================
@@ -3624,6 +3661,7 @@ def mughelp(bot, trigger):
         "🏆 Leaderboards:",
         "  • $top5 — Top 5 richest (10-min per-user cooldown, admins exempt)",
         "  • $top10 — Top 10 richest (10-min per-user cooldown, admins exempt)",
+        "  • $highscore — All-time highest balance ever achieved by any player.",
         "",
         "🤖 Bot Player (glitchy):",
         "  • The bot is a mug game participant with its own wallet (seeded at 500k).",
