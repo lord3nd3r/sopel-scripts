@@ -4,6 +4,20 @@ Multi-player trivia with categories, progressive hints, streaks, and stats.
 
 ---
 
+## Setup
+
+**1. Place all required files in the scripts directory:**
+```
+~/.sopel/scripts/trivia.py
+~/.sopel/scripts/trivia_game.py      # game engine
+~/.sopel/scripts/trivia_db.py        # database layer
+~/.sopel/scripts/questions.json      # question bank
+```
+
+**No config section needed.** The trivia database (`trivia_stats.db`) is created automatically in the scripts directory on first use. Questions are loaded from `questions.json`.
+
+---
+
 ## Commands
 
 | Command | Aliases | Description |

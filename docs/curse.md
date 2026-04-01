@@ -4,6 +4,17 @@ Demolition Man-style Verbal Morality Statute. Disabled by default. When enabled,
 
 ---
 
+## Setup
+
+**No config needed.** Just drop the script in place. Fining is **off by default** per channel — use `$curse on` in a channel to enable it.
+
+**1. Place the script:**
+```
+~/.sopel/scripts/curse.py
+```
+
+---
+
 ## Commands
 
 | Command | Who | Description |

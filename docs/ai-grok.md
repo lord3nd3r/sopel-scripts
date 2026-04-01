@@ -4,6 +4,54 @@ Talks to you when mentioned by name. Uses xAI Grok with web search.
 
 ---
 
+## Setup
+
+**1. Install dependencies:**
+```bash
+pip install requests
+```
+
+**2. Add to your Sopel `.cfg` file:**
+```ini
+[grok]
+# Required — your xAI API key (get one from https://console.x.ai)
+api_key = xai-XXXXXXXXXXXXXXXXXXXXXXXX
+
+# Optional — model to use (default: grok-4-1-fast-reasoning)
+# Choices: grok-4-1-fast-reasoning, grok-4-fast-reasoning, grok-3, grok-beta
+model = grok-4-1-fast-reasoning
+
+# Optional — custom system prompt (the bot's personality)
+system_prompt = You are Grok, a witty AI assistant on IRC.
+
+# Optional — channels where the bot will NOT respond
+blocked_channels =
+    #quiet-room
+    #no-bots
+
+# Optional — nicks the bot will completely ignore
+banned_nicks =
+    SpamBot
+    AnnoyingUser
+
+# Optional — nicks ignored in conversation (no replies, but still tracked)
+ignored_nicks =
+    LogBot
+
+# Optional — how to detect if a mention is directed at the bot
+# Choices: heuristic (default), off, model
+intent_check = heuristic
+```
+
+**3. Place the script:**
+```
+~/.sopel/scripts/ai-grok.py
+```
+
+> **Note:** Per-channel system prompts can be set via `grok_channel_prompts.json` in the scripts directory.
+
+---
+
 ## Commands
 
 ### Talk to the Bot

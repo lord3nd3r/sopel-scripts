@@ -4,6 +4,22 @@ Look up stocks by ticker or company name via yfinance.
 
 ---
 
+## Setup
+
+**1. Install dependencies:**
+```bash
+pip install yfinance
+```
+
+**2. Place the script:**
+```
+~/.sopel/scripts/stock.py
+```
+
+**No config section needed.** The script uses the free Yahoo Finance API via the `yfinance` library — no API key required.
+
+---
+
 ## Commands
 
 | Command | Description |

@@ -4,6 +4,17 @@ Play a 4-step table flip animation.
 
 ---
 
+## Setup
+
+**No config needed.** Just drop the script in place and it works.
+
+**1. Place the script:**
+```
+~/.sopel/scripts/tableflip.py
+```
+
+---
+
 ## Commands
 
 | Command | Description |

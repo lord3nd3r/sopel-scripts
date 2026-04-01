@@ -4,6 +4,27 @@ Create timed polls with multiple options. Requires halfop (`%`) or above to crea
 
 ---
 
+## Setup
+
+**1. Place the script:**
+```
+~/.sopel/scripts/voting.py
+```
+
+**2. Add to your Sopel `.cfg` file (optional — all have defaults):**
+```ini
+[voting]
+# Path to the SQLite database for storing votes (default: voting.db)
+db_path = voting.db
+
+# Delay between multi-line messages in seconds (default: 0.5)
+message_delay = 0.5
+```
+
+**Data storage:** Votes are stored in a SQLite database (default: `voting.db` in the working directory). Created automatically on first use.
+
+---
+
 ## Commands
 
 | Command | Description |

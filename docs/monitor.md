@@ -4,6 +4,17 @@ Tracks lines, words, actions, kicks, bans, joins, parts, quits, splits, and nick
 
 ---
 
+## Setup
+
+**1. Place the script:**
+```
+~/.sopel/scripts/monitor.py
+```
+
+**No config section needed.** The stats database (`chanstats.db`) is created automatically in Sopel's `db_dir` (usually `~/.sopel/`). Tracking begins immediately once the script is loaded.
+
+---
+
 ## Commands
 
 | Command | Description |

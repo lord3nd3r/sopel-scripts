@@ -4,6 +4,17 @@ Auto-trigger: when someone does `/me facepalms` or `/me facepalmed`, the bot rep
 
 ---
 
+## Setup
+
+**No config needed.** Just drop the script in place and it works.
+
+**1. Place the script:**
+```
+~/.sopel/scripts/facepalm.py
+```
+
+---
+
 ## Triggers
 
 | Trigger | Description |

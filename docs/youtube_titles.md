@@ -4,6 +4,17 @@ No commands — fully automatic. The bot detects any YouTube URL posted in chat 
 
 ---
 
+## Setup
+
+**No config needed.** Just drop the script in place and it works. No API key required — it scrapes the page metadata.
+
+**1. Place the script:**
+```
+~/.sopel/scripts/youtube_titles.py
+```
+
+---
+
 ## Triggers
 
 | Trigger | Description |

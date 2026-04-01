@@ -4,6 +4,26 @@ IRC economy game with coins, mugging, bounties, a shop, and gambling.
 
 ---
 
+## Setup
+
+**1. Place the script:**
+```
+~/.sopel/scripts/mug.py
+```
+
+**2. Add to your Sopel `.cfg` file (optional):**
+```ini
+[mug_game]
+# Enable or disable the mug game (default: true)
+enabled = true
+```
+
+**Data storage:** Game data (balances, bounties, high scores, etc.) is stored in Sopel's built-in `bot.db` — no extra database setup needed.
+
+> **Auto-Voice:** Users with 500+ coins automatically get `+v` in channels where the bot has ops. This is built-in and requires no extra config.
+
+---
+
 ## Core Commands
 
 | Command | Description |

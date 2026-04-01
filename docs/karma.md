@@ -4,6 +4,23 @@ Inline `++` / `--` karma system with per-channel and global tracking.
 
 ---
 
+## Setup
+
+**1. Install dependencies:**
+```bash
+pip install sqlalchemy
+```
+(Usually already installed with Sopel.)
+
+**2. Place the script:**
+```
+~/.sopel/scripts/karma.py
+```
+
+**No config section needed.** Karma data is stored in Sopel's built-in `bot.db` via SQLAlchemy — no extra database setup required.
+
+---
+
 ## Inline Usage
 
 | Syntax | Effect |

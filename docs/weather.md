@@ -4,6 +4,30 @@ Powered by PirateWeather API. Register your location for quick lookups.
 
 ---
 
+## Setup
+
+**1. Install dependencies:**
+```bash
+pip install requests
+```
+
+**2. Place the script:**
+```
+~/.sopel/scripts/weather.py
+```
+
+**3. Get a PirateWeather API key:**
+- Sign up at [pirateweather.net](https://pirateweather.net)
+- The API key is set as `WEATHER_API_KEY` at the top of `weather.py`
+- Edit the variable directly in the script:
+```python
+WEATHER_API_KEY = "your-api-key-here"
+```
+
+**Data file:** User-registered locations are stored in `~/.sopel/weather_locations.json` (created automatically).
+
+---
+
 ## Commands
 
 | Command | Description |

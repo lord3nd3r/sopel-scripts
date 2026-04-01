@@ -4,6 +4,17 @@ Themed smoke/trip messages. With a target nick = gift message. Without = 3-step 
 
 ---
 
+## Setup
+
+**No config needed.** Just drop the script in place and it works.
+
+**1. Place the script:**
+```
+~/.sopel/scripts/weed.py
+```
+
+---
+
 ## Commands
 
 ### Smoke

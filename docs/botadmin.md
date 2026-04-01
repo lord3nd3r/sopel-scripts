@@ -4,6 +4,28 @@ Owner/admin-only bot management commands.
 
 ---
 
+## Setup
+
+**No config needed** beyond Sopel's built-in `owner` and `admins` settings.
+
+**1. Place the script:**
+```
+~/.sopel/scripts/botadmin.py
+```
+
+**2. Make sure your `.cfg` has an owner and admins defined:**
+```ini
+[core]
+owner = YourNick
+admins =
+    AdminNick1
+    AdminNick2
+```
+
+> Owner commands (restart, quit, reload, raw, botnick) are restricted to `owner`. Admin commands (say, act, join, part, mode) work for both `owner` and `admins`.
+
+---
+
 ## Owner Commands
 
 | Command | Description |

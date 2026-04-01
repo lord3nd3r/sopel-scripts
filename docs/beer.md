@@ -4,6 +4,19 @@ Virtual bartender with a tip economy. Every user gets a $100 daily credit.
 
 ---
 
+## Setup
+
+**No config needed.** Just drop the script in place and it works.
+
+**1. Place the script:**
+```
+~/.sopel/scripts/beer.py
+```
+
+**Data file:** Tip balances are stored in `~/.sopel/bartender_tips.json` (created automatically on first use).
+
+---
+
 ## Menu
 
 | Command | Cost | Description |
