@@ -2,7 +2,7 @@
 
 A collection of custom [Sopel](https://sopel.chat/) IRC bot plugins for fun, utility, and community engagement.
 
-> **Quick reference:** See [commands.md](commands.md) for a concise list of every command across all scripts.
+> **Quick reference:** See [commands.md](commands.md) for per-script command docs with examples.
 
 ---
 

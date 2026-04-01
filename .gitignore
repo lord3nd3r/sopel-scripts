@@ -10,3 +10,4 @@ monitor_repo_tmp/
 trivia_stats.db
 test_trivia.db
 grok_channel_prompts.json
+_update_readme.py
