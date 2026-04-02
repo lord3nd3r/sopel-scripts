@@ -24,6 +24,11 @@ Virtual bartender with a tip economy. Every user gets a $100 daily credit.
 | `$beer [nick]` | $5 | Serve a random beer 🍺 |
 | `$shot [nick]` | $7 | Serve a random shot 🥃 |
 | `$whiskey [nick]` / `$whisky` | $12 | Fine whiskey 🥃 |
+| `$vodka [nick]` | $10 | Vodka 🥃 |
+| `$rum [nick]` | $10 | Rum 🏴‍☠️🥃 |
+| `$tequila [nick]` | $10 | Tequila 🇲🇽🥃 |
+| `$gin [nick]` | $10 | Gin 🌿🥃 |
+| `$brandy [nick]` / `$cognac` | $12 | Brandy / Cognac 🥃 |
 | `$wine [nick]` | $8 | Glass of wine 🍷 |
 | `$magners [nick]` | $6 | Magners cider 🍎 |
 | `$drink [nick]` | $10 | Mixed drink 🍹 |

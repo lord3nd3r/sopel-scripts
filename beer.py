@@ -80,6 +80,11 @@ PRICES = {
     'beer': 5,
     'shot': 7,
     'whiskey': 12,
+    'vodka': 10,
+    'rum': 10,
+    'tequila': 10,
+    'gin': 10,
+    'brandy': 12,
     'mixed_drink': 10,
     'wine': 8,
     'magners': 6,
@@ -222,6 +227,126 @@ WHISKEYS = [
     "a shot of Woodford Reserve 🐴🥃",
     "a dram of Oban 14 🏴🥃",
     "a pour of Buffalo Trace 🦬🥃",
+]
+
+# List of vodkas to give out
+VODKAS = [
+    "a chilled Belvedere on the rocks 🇵🇱🧊🥃",
+    "an ice-cold Grey Goose 🪿🧊🥃",
+    "a smooth Ketel One 🇳🇱🥃",
+    "a crisp Stolichnaya 🇷🇺🥃",
+    "a premium Ciroc 🍇🥃",
+    "a clean Absolut 🇸🇪🥃",
+    "a silky Chopin 🎹🥃",
+    "a refined Beluga Noble 🐋🥃",
+    "a classic Smirnoff 🧊🥃",
+    "a Polish Żubrówka Bison Grass 🦬🌿🥃",
+    "a French Cîroc Pineapple 🍍🥃",
+    "a crystal-clear Reyka from Iceland 🇮🇸🧊🥃",
+    "a handcrafted Tito's 🇺🇸🥃",
+    "a velvety Russian Standard 🇷🇺🥃",
+    "a botanical Hangar 1 🌿🥃",
+    "a crisp Finlandia 🇫🇮🥃",
+    "a smooth Skyy 🔵🥃",
+    "a premium Purity 34 🇸🇪✨🥃",
+    "a fiery Absolut Peppar 🌶️🥃",
+    "a sweet Absolut Vanilia 🍦🥃",
+]
+
+# List of rums to give out
+RUMS = [
+    "a smooth Diplomático Reserva Exclusiva 🇻🇪🥃",
+    "a dark Kraken Black Spiced 🐙🏴🥃",
+    "a golden Appleton Estate 🇯🇲🥃",
+    "a classic Bacardi Superior 🇨🇺🥃",
+    "a rich Ron Zacapa 23 🇬🇹🥃",
+    "a spiced Captain Morgan 🏴‍☠️🥃",
+    "a sipping Mount Gay Eclipse 🇧🇧🥃",
+    "an aged Flor de Caña 18 🇳🇮🥃",
+    "a smooth Havana Club 7 🇨🇺🥃",
+    "a premium Plantation XO 🌴🥃",
+    "a funky Smith & Cross 🇯🇲💪🥃",
+    "a velvety El Dorado 15 🇬🇾✨🥃",
+    "a coconut Malibu 🥥🌴🥃",
+    "a dark Myers's Original 🇯🇲🖤🥃",
+    "a cask-aged Pusser's 🏴‍☠️🥃",
+    "a sipping Doorly's 12 🇧🇧🥃",
+    "a crisp Banks 5 Island 🏝️🥃",
+    "a bold Gosling's Black Seal 🇧🇲🥃",
+    "a tropical Rhum J.M VSOP 🇲🇶🥃",
+    "an overproof Wray & Nephew 🇯🇲🔥🥃",
+]
+
+# List of tequilas to give out
+TEQUILAS = [
+    "a smooth Patrón Silver 💎🥃",
+    "a premium Don Julio 1942 🇲🇽👑🥃",
+    "a crisp Casamigos Blanco 🇲🇽🥃",
+    "a golden Herradura Reposado 🐴🥃",
+    "a rich Clase Azul Reposado 🇲🇽🏺🥃",
+    "a smoky Fortaleza Añejo 🔥🥃",
+    "a classic Jose Cuervo Reserva 🇲🇽🥃",
+    "a sipping El Tesoro Añejo 🏺🥃",
+    "a fiery Espolòn Blanco 🐓🥃",
+    "a velvety Ocho Reposado 🇲🇽✨🥃",
+    "a top-shelf Casa Noble Crystal 💎🥃",
+    "a bold Tapatio 110 🇲🇽💪🥃",
+    "a smooth Avión Silver 🇲🇽✈️🥃",
+    "a premium Tears of Llorona Extra Añejo 💧👑🥃",
+    "a crisp Olmeca Altos Plata 🌵🥃",
+    "a aged Gran Centenario Añejo 🇲🇽🥃",
+    "a crystalline Código 1530 Rosa 🌹🥃",
+    "a artisanal Siete Leguas Blanco 🇲🇽🌿🥃",
+    "a smoky mezcal Del Maguey Vida 🔥🌵🥃",
+    "a legendary Mezcal Vago Elote 🌽🔥🥃",
+]
+
+# List of gins to give out
+GINS = [
+    "a classic Tanqueray 🌿🥃",
+    "a floral Hendrick's 🥒🌸🥃",
+    "a crisp Bombay Sapphire 💎🔵🥃",
+    "a bold Beefeater 🇬🇧🥃",
+    "a smooth Monkey 47 🐒🌿🥃",
+    "a refined Sipsmith London Dry 🇬🇧🥃",
+    "a aromatic The Botanist 🏴󠁧󠁢󠁳󠁣󠁴󠁿🌿🥃",
+    "a premium Aviation 🇺🇸✈️🥃",
+    "a juniper-forward Plymouth 🌲🥃",
+    "a citrusy Malfy Con Limone 🇮🇹🍋🥃",
+    "a Spanish Gin Mare 🇪🇸🫒🥃",
+    "a Japanese Roku 🇯🇵🌸🥃",
+    "a pink Gordon's Pink 🩷🥃",
+    "a barrel-aged Few 🇺🇸🪵🥃",
+    "a summery Whitley Neill Rhubarb & Ginger 🫚🥃",
+    "a classic Bols Genever 🇳🇱🥃",
+    "a herbaceous St. George Terroir 🌿🏔️🥃",
+    "a elegant No. 3 London Dry 🇬🇧👑🥃",
+    "a tropical Tarquin's Cornish Gin 🇬🇧🌊🥃",
+    "a floral Empress 1908 💜🥃",
+]
+
+# List of brandies/cognacs to give out
+BRANDIES = [
+    "a luxurious Hennessy XO 🇫🇷👑🥃",
+    "a smooth Rémy Martin VSOP 🇫🇷🥃",
+    "a refined Courvoisier VS 🇫🇷🥃",
+    "a premium Martell Cordon Bleu 🇫🇷💙🥃",
+    "a aged Hine Rare VSOP 🇫🇷🥃",
+    "a elegant Pierre Ferrand 1840 🇫🇷✨🥃",
+    "a velvety Camus XO 🇫🇷🥃",
+    "a classic Torres 10 🇪🇸🥃",
+    "a German Asbach Uralt 🇩🇪🥃",
+    "a smooth Metaxa 7 Star 🇬🇷⭐🥃",
+    "a fruity calvados Père Magloire VSOP 🍎🇫🇷🥃",
+    "a rich Delamain XO 🇫🇷👑🥃",
+    "a sipping Hardy VSOP 🇫🇷🥃",
+    "a South African KWV 10 🇿🇦🥃",
+    "a Peruvian Pisco Portón 🇵🇪🥃",
+    "a Armenian Ararat 10 Year 🇦🇲🥃",
+    "a Georgian Sarajishvili VS 🇬🇪🥃",
+    "a Italian Vecchia Romagna 🇮🇹🥃",
+    "a warming Brandy de Jerez Solera 🇪🇸🥃",
+    "a exquisite Louis XIII 🇫🇷💎👑🥃",
 ]
 
 # List of fun pizzas to give out
@@ -625,6 +750,76 @@ WHISKEY_MESSAGES = [
     "pours a generous serving of {drink} for {user} 🥃",
 ]
 
+# Vodka giving messages
+VODKA_MESSAGES = [
+    "slides {drink} across the bar to {user} ✨",
+    "pours {drink} ice-cold for {user} 🧊🥃",
+    "serves {user} {drink} - na zdorovie! 🥃",
+    "conjures {drink} out of thin air for {user} ✨🎩",
+    "chills {drink} to perfection and hands it to {user} 🧊",
+    "ceremoniously presents {user} with {drink} 🎊",
+    "teleports {drink} directly into {user}'s hand 🚀✨",
+    "pours a crisp {drink} for {user} 🥃",
+    "pulls {drink} from the freezer for {user} 🧊🥃",
+    "serves {user} {drink} chilled to perfection 🥶🥃",
+]
+
+# Rum giving messages
+RUM_MESSAGES = [
+    "slides {drink} across the bar to {user} ✨",
+    "pours {drink} and hands it to {user} 🏴‍☠️🥃",
+    "serves {user} {drink} - yo ho ho! 🏴‍☠️",
+    "conjures {drink} out of thin air for {user} ✨🎩",
+    "pours {drink} neat for {user} 🥃",
+    "ceremoniously presents {user} with {drink} 🎊",
+    "teleports {drink} directly into {user}'s hand 🚀✨",
+    "pours a generous measure of {drink} for {user} 🥃",
+    "serves {user} {drink} island style 🌴🥃",
+    "sets sail with {drink} for {user} ⛵🥃",
+]
+
+# Tequila giving messages
+TEQUILA_MESSAGES = [
+    "slides {drink} across the bar to {user} ✨",
+    "pours {drink} and hands it to {user} - ¡salud! 🇲🇽🥃",
+    "serves {user} {drink} with salt & lime 🧂🍋🥃",
+    "conjures {drink} out of thin air for {user} ✨🎩",
+    "pours {drink} smooth for {user} 🥃",
+    "ceremoniously presents {user} with {drink} 🎊",
+    "teleports {drink} directly into {user}'s hand 🚀✨",
+    "lines up {drink} for {user} - arriba! 🥃🎉",
+    "carefully pours {drink} for {user} to sip 🥃",
+    "delivers {drink} to {user} - one tequila, two tequila... 🥃🥃",
+]
+
+# Gin giving messages
+GIN_MESSAGES = [
+    "slides {drink} across the bar to {user} ✨",
+    "pours {drink} and hands it to {user} 🌿🥃",
+    "serves {user} {drink} - cheers! 🥃",
+    "conjures {drink} out of thin air for {user} ✨🎩",
+    "pours {drink} with a flourish for {user} 🥃",
+    "ceremoniously presents {user} with {drink} 🎊",
+    "teleports {drink} directly into {user}'s hand 🚀✨",
+    "carefully measures {drink} for {user} 🥃",
+    "serves {user} {drink} botanically blessed 🌿✨",
+    "garnishes {drink} and passes it to {user} 🥒🥃",
+]
+
+# Brandy/Cognac giving messages
+BRANDY_MESSAGES = [
+    "slides {drink} across the bar to {user} ✨",
+    "pours {drink} into a snifter for {user} 🥃",
+    "serves {user} {drink} - santé! 🥃",
+    "conjures {drink} out of thin air for {user} ✨🎩",
+    "warms {drink} gently and hands it to {user} 🥃🔥",
+    "ceremoniously presents {user} with {drink} 🎊",
+    "teleports {drink} directly into {user}'s hand 🚀✨",
+    "pours a generous snifter of {drink} for {user} 🥃",
+    "serves {user} {drink} in fine style 🎩🥃",
+    "presents {drink} to {user} with a knowing nod 🥃😌",
+]
+
 # Shot giving messages (quick, energetic)
 SHOT_MESSAGES = [
     "slides {drink} across the bar to {user} ✨",
@@ -868,6 +1063,121 @@ def whiskey(bot, trigger):
     message = giving_message.format(drink=chosen_drink, user=target_user)
     
     # Send it!
+    bot.action(message)
+    if credited:
+        bot.notice(f"Daily $100 credited! Paid ${price} - Balance: ${new_balance}", trigger.nick)
+    else:
+        bot.notice(f"Paid ${price} - Balance: ${new_balance}", trigger.nick)
+
+
+@module.commands('vodka')
+@module.example('$vodka username', 'Give a user a random vodka')
+def vodka(bot, trigger):
+    """Give someone a fine vodka! 🥃"""
+    if not trigger.group(2):
+        target_user = trigger.nick
+    else:
+        target_user = trigger.group(2).strip()
+    sender = trigger.account or trigger.nick
+    new_balance, credited, price = deduct_price(sender, 'vodka')
+    if new_balance is None:
+        bot.say(f"{trigger.nick}: You don't have enough money! Vodka costs ${price}. Use $barcash to check your funds.")
+        return
+    chosen_drink = random.choice(VODKAS)
+    giving_message = random.choice(VODKA_MESSAGES)
+    message = giving_message.format(drink=chosen_drink, user=target_user)
+    bot.action(message)
+    if credited:
+        bot.notice(f"Daily $100 credited! Paid ${price} - Balance: ${new_balance}", trigger.nick)
+    else:
+        bot.notice(f"Paid ${price} - Balance: ${new_balance}", trigger.nick)
+
+
+@module.commands('rum')
+@module.example('$rum username', 'Give a user a random rum')
+def rum(bot, trigger):
+    """Give someone a fine rum! 🏴‍☠️🥃"""
+    if not trigger.group(2):
+        target_user = trigger.nick
+    else:
+        target_user = trigger.group(2).strip()
+    sender = trigger.account or trigger.nick
+    new_balance, credited, price = deduct_price(sender, 'rum')
+    if new_balance is None:
+        bot.say(f"{trigger.nick}: You don't have enough money! Rum costs ${price}. Use $barcash to check your funds.")
+        return
+    chosen_drink = random.choice(RUMS)
+    giving_message = random.choice(RUM_MESSAGES)
+    message = giving_message.format(drink=chosen_drink, user=target_user)
+    bot.action(message)
+    if credited:
+        bot.notice(f"Daily $100 credited! Paid ${price} - Balance: ${new_balance}", trigger.nick)
+    else:
+        bot.notice(f"Paid ${price} - Balance: ${new_balance}", trigger.nick)
+
+
+@module.commands('tequila')
+@module.example('$tequila username', 'Give a user a random tequila')
+def tequila(bot, trigger):
+    """Give someone a fine tequila! 🇲🇽🥃"""
+    if not trigger.group(2):
+        target_user = trigger.nick
+    else:
+        target_user = trigger.group(2).strip()
+    sender = trigger.account or trigger.nick
+    new_balance, credited, price = deduct_price(sender, 'tequila')
+    if new_balance is None:
+        bot.say(f"{trigger.nick}: You don't have enough money! Tequila costs ${price}. Use $barcash to check your funds.")
+        return
+    chosen_drink = random.choice(TEQUILAS)
+    giving_message = random.choice(TEQUILA_MESSAGES)
+    message = giving_message.format(drink=chosen_drink, user=target_user)
+    bot.action(message)
+    if credited:
+        bot.notice(f"Daily $100 credited! Paid ${price} - Balance: ${new_balance}", trigger.nick)
+    else:
+        bot.notice(f"Paid ${price} - Balance: ${new_balance}", trigger.nick)
+
+
+@module.commands('gin')
+@module.example('$gin username', 'Give a user a random gin')
+def gin(bot, trigger):
+    """Give someone a fine gin! 🌿🥃"""
+    if not trigger.group(2):
+        target_user = trigger.nick
+    else:
+        target_user = trigger.group(2).strip()
+    sender = trigger.account or trigger.nick
+    new_balance, credited, price = deduct_price(sender, 'gin')
+    if new_balance is None:
+        bot.say(f"{trigger.nick}: You don't have enough money! Gin costs ${price}. Use $barcash to check your funds.")
+        return
+    chosen_drink = random.choice(GINS)
+    giving_message = random.choice(GIN_MESSAGES)
+    message = giving_message.format(drink=chosen_drink, user=target_user)
+    bot.action(message)
+    if credited:
+        bot.notice(f"Daily $100 credited! Paid ${price} - Balance: ${new_balance}", trigger.nick)
+    else:
+        bot.notice(f"Paid ${price} - Balance: ${new_balance}", trigger.nick)
+
+
+@module.commands('brandy', 'cognac')
+@module.example('$brandy username', 'Give a user a random brandy/cognac')
+def brandy(bot, trigger):
+    """Give someone a fine brandy or cognac! 🥃"""
+    if not trigger.group(2):
+        target_user = trigger.nick
+    else:
+        target_user = trigger.group(2).strip()
+    sender = trigger.account or trigger.nick
+    new_balance, credited, price = deduct_price(sender, 'brandy')
+    if new_balance is None:
+        bot.say(f"{trigger.nick}: You don't have enough money! Brandy costs ${price}. Use $barcash to check your funds.")
+        return
+    chosen_drink = random.choice(BRANDIES)
+    giving_message = random.choice(BRANDY_MESSAGES)
+    message = giving_message.format(drink=chosen_drink, user=target_user)
     bot.action(message)
     if credited:
         bot.notice(f"Daily $100 credited! Paid ${price} - Balance: ${new_balance}", trigger.nick)
@@ -1164,7 +1474,7 @@ def surprise(bot, trigger):
         target_user = trigger.group(2).strip()
     
     # Combine all drink lists
-    all_drinks = BEERS + SHOTS + MAGNERS + WHISKEYS + MIXED_DRINKS + WINES + MOCKTAILS + COFFEES + TEAS + WATERS
+    all_drinks = BEERS + SHOTS + MAGNERS + WHISKEYS + VODKAS + RUMS + TEQUILAS + GINS + BRANDIES + MIXED_DRINKS + WINES + MOCKTAILS + COFFEES + TEAS + WATERS
     all_foods = PIZZAS + APPETIZERS
     
     # Randomly decide if it's a drink or food
@@ -1186,6 +1496,16 @@ def surprise(bot, trigger):
             giving_message = random.choice(BEER_MESSAGES)
         elif any(word in chosen_item.lower() for word in ['whiskey', 'whisky', 'bourbon']):
             giving_message = random.choice(WHISKEY_MESSAGES)
+        elif any(word in chosen_item.lower() for word in ['vodka', 'belvedere', 'grey goose', 'ketel', 'absolut', 'smirnoff', 'stolichnaya']):
+            giving_message = random.choice(VODKA_MESSAGES)
+        elif any(word in chosen_item.lower() for word in ['rum', 'bacardi', 'captain morgan', 'malibu', 'kraken']):
+            giving_message = random.choice(RUM_MESSAGES)
+        elif any(word in chosen_item.lower() for word in ['tequila', 'mezcal', 'patrón', 'don julio']):
+            giving_message = random.choice(TEQUILA_MESSAGES)
+        elif any(word in chosen_item.lower() for word in ['gin', 'tanqueray', 'hendrick', 'bombay', 'beefeater']):
+            giving_message = random.choice(GIN_MESSAGES)
+        elif any(word in chosen_item.lower() for word in ['brandy', 'cognac', 'hennessy', 'rémy', 'courvoisier', 'calvados', 'pisco']):
+            giving_message = random.choice(BRANDY_MESSAGES)
         else:
             giving_message = random.choice(COCKTAIL_MESSAGES)
         
@@ -1230,6 +1550,11 @@ def barhelp(bot, trigger):
         "  $beer [user] ............ $5",
         "  $shot [user] ............ $7",
         "  $whiskey [user] ......... $12",
+        "  $vodka [user] ........... $10",
+        "  $rum [user] ............. $10",
+        "  $tequila [user] ......... $10",
+        "  $gin [user] ............. $10",
+        "  $brandy [user] .......... $12",
         "  $drink [user] ........... $10",
         "  $wine [user] ............ $8",
         "  $magners [user] ......... $6",
