@@ -767,6 +767,23 @@ def _heuristic_intent_check(bot, trigger, line, bot_nick):
         return False
     if re.search(rf"\b(?:if|when|you|we|they|people|someone)\b(?:\W+\w+){{0,8}}\W+\b(?:say|call|mention|use|type|write|spell|invoke)\b\W+{re.escape(nick)}", lower):
         return False
+    # Third-person pronoun as subject — talking ABOUT the bot, not TO it.
+    # e.g. "He really does go balls deep with that glitchy personality"
+    if re.match(r'^\s*\b(?:he|she|it|they|him|her|its|their)\b', lower):
+        return False
+    # Determiner/adjective immediately before nick — using nick as descriptor.
+    # e.g. "that glitchy personality", "the glitchy thing"
+    if re.search(rf'\b(?:that|this|the|a|an|some|more|very|too|so|really|pretty|quite)\s+{re.escape(nick)}\b', lower):
+        return False
+    # Preposition before nick — talking about the bot in passing.
+    # e.g. "something about glitchy", "deal with glitchy"
+    if re.search(rf'\b(?:about|with|from|like|for|than|of)\s+(?:\w+\s+)*{re.escape(nick)}\b', lower):
+        if not re.match(rf'^\s*{re.escape(nick)}', lower):
+            return False
+    # Nick followed by a noun — used as adjective, not being addressed.
+    # e.g. "glitchy personality", "glitchy bot"
+    if re.search(rf'\b{re.escape(nick)}\s+(?:personality|behavior|behaviour|attitude|thing|stuff|bot|code|feature|bug|issue|problem|vibe|energy|mode|style|way|level)\b', lower):
+        return False
     # IRC /me action directed at the bot — always handle
     if s.startswith('*') and re.search(rf'\b{re.escape(nick)}\b', s, re.IGNORECASE):
         return True
@@ -782,7 +799,9 @@ def _heuristic_intent_check(bot, trigger, line, bot_nick):
     if re.search(r'[,@]|\band\b', s) and re.search(rf'\b{re.escape(bot_nick)}\b', s, re.IGNORECASE):
         if not re.match(rf'^\s*{re.escape(bot_nick)}', s, re.IGNORECASE):
             return False
-    return True
+    # Default: for longer messages where no clear "talking TO the bot" signal
+    # was found, assume it's about the bot, not to it.
+    return False
 
 @plugin.event('PRIVMSG')
 @plugin.rule('.*')
