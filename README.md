@@ -400,6 +400,8 @@ A full IRC economy game with coins, mugging, betting, bounties, a shop, and an i
 
 > **Auto-Voice:** Users with ≥500 coins automatically get +v in configured channels. Dropping below 500 = devoiced. Ops/hops/owners are exempt.
 
+> **High Score Topic:** When the all-time high score is beaten, the bot auto-updates the channel topic in `#mug` with the new record. Self-heals if the marker is removed.
+
 ### Bot Player (glitchy)
 - The bot participates in the mug game with its own wallet (seeded at 500k coins)
 - **Retaliation:** 60% chance to counter-mug you 5–15 seconds after you mug it

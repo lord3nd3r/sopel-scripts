@@ -93,6 +93,12 @@ VOICE_CHANNELS = {'#mug'}         # Channels where auto-mode is active (lowercas
 VOICE_EXEMPT_NICKS = {'end3r', 'glitchy'}  # Nicks to never touch (lowercase)
 
 # ---- Bot Player (Glitchy joins the game!) ----
+# ---- High Score Topic Auto-Update ----
+HIGHSCORE_TOPIC_ENABLED = True              # Master switch for auto-updating topic
+HIGHSCORE_TOPIC_CHANNELS = {'#mug'}         # Channels to update topic in (lowercase)
+HIGHSCORE_TOPIC_MARKER = '┃ 🏆'             # Delimiter that marks start of the HS section
+
+# ---- Bot Player (Glitchy joins the game!) ----
 BOT_PLAYER_ENABLED = True          # Master switch for bot participation
 BOT_SEED_MONEY = 500_000           # Starting balance if bot has no record
 BOT_RETALIATE = True               # Counter-mug when someone mugs the bot
@@ -589,9 +595,12 @@ def _load_data(bot):
 
 
 def _update_highscore(data):
-    """Scan all users and update the all-time high score record if beaten."""
-    best_nick = data.get("highscore_nick", "")
-    best_amt = int(data.get("highscore_amount", 0))
+    """Scan all users and update the all-time high score record if beaten.
+    Returns (changed, nick, amount) where changed is True if a new record was set."""
+    old_nick = data.get("highscore_nick", "")
+    old_amt = int(data.get("highscore_amount", 0))
+    best_nick = old_nick
+    best_amt = old_amt
     for key, u in data.get("users", {}).items():
         bal = int(u.get("money", 0))
         if bal > best_amt:
@@ -599,14 +608,55 @@ def _update_highscore(data):
             best_nick = u.get("nick", key)
     data["highscore_nick"] = best_nick
     data["highscore_amount"] = best_amt
+    changed = (best_amt > old_amt) or (best_nick != old_nick and best_amt > 0)
+    return changed, best_nick, best_amt
+
+
+def _update_topic_highscore(bot, nick, amount):
+    """Update the channel topic with the new high score record."""
+    if not HIGHSCORE_TOPIC_ENABLED:
+        return
+    hs_text = f"{HIGHSCORE_TOPIC_MARKER} High Score: {nick} ({fmt_coins(amount)} coins) 👑"
+    marker_re = re.compile(re.escape(HIGHSCORE_TOPIC_MARKER) + r'.*$')
+    for channel in HIGHSCORE_TOPIC_CHANNELS:
+        try:
+            chan_obj = bot.channels.get(channel)
+            current_topic = getattr(chan_obj, 'topic', '') or '' if chan_obj else ''
+            if marker_re.search(current_topic):
+                new_topic = marker_re.sub(hs_text, current_topic).strip()
+            else:
+                new_topic = f"{current_topic} {hs_text}".strip() if current_topic else hs_text
+            bot.write(['TOPIC', channel], new_topic)
+        except Exception:
+            LOG.exception('highscore_topic: failed to update topic in %s', channel)
 
 
 def _save_data(bot):
     with _data_lock:
         if _data is None:
             return
-        _update_highscore(_data)
+        changed, hs_nick, hs_amt = _update_highscore(_data)
         bot.db.set_plugin_value(PLUGIN_NAME, 'data', _data)
+    # Auto-update channel topic if high score was beaten or marker is missing
+    if hs_nick and hs_amt > 0:
+        needs_update = changed
+        if not needs_update and HIGHSCORE_TOPIC_ENABLED:
+            # Also update if any channel topic is missing the marker
+            marker_re = re.compile(re.escape(HIGHSCORE_TOPIC_MARKER))
+            for channel in HIGHSCORE_TOPIC_CHANNELS:
+                try:
+                    chan_obj = bot.channels.get(channel)
+                    current_topic = getattr(chan_obj, 'topic', '') or '' if chan_obj else ''
+                    if not marker_re.search(current_topic):
+                        needs_update = True
+                        break
+                except Exception:
+                    pass
+        if needs_update:
+            try:
+                _update_topic_highscore(bot, hs_nick, hs_amt)
+            except Exception:
+                LOG.exception('highscore_topic: post-save topic update failed')
     # After saving, schedule a voice check for all managed channels
     if VOICE_ENABLED:
         try:

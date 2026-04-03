@@ -352,3 +352,4 @@ enabled = true
 ## Notes
 
 - **Auto-Voice:** Users with ≥500 coins automatically receive `+v` in configured channels. Drops below 500 = devoiced. Ops/hops/owners are exempt.
+- **High Score Topic:** When a player beats the all-time high score, the bot automatically updates the channel topic in configured channels (default: `#mug`). The high score appears at the end of the topic as `┃ 🏆 High Score: nick (X coins) 👑`. If the marker is missing (e.g. after a manual topic change), it self-heals on the next data save.
