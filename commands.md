@@ -26,3 +26,4 @@ The bot command prefix is **`$`** unless noted otherwise.
 | [🔑 PromoteMe](docs/opme.md) | Promote yourself or a target to channel op |
 | [🚪 Join](docs/join.md) | Make the bot join a channel (owner only) |
 | [🎬 YouTube Titles](docs/youtube_titles.md) | Auto-detect YouTube links and show video info |
+| [🎙️ Auto Voice](docs/autovoice.md) | Activity-based auto-voicing for active chatters |

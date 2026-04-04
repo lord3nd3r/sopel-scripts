@@ -26,6 +26,7 @@ A collection of custom [Sopel](https://sopel.chat/) IRC bot plugins for fun, uti
 - [PromoteMe](docs/opme.md)
 - [Join](docs/join.md)
 - [YouTube Titles](docs/youtube_titles.md)
+- [Auto Voice](docs/autovoice.md)
 - [Installation](#-installation)
 - [Configuration](#-configuration)
 
@@ -460,6 +461,60 @@ Owner and admin-only bot management commands.
 
 ---
 
+## 🛠️ botadmin — Bot Admin
+
+Owner and admin-only bot management commands.
+
+### Owner Commands
+
+| Command | Description |
+|---------|-------------|
+| `$restart` | Restart the bot |
+| `$breload <module\|all>` | Reload a plugin or all plugins |
+| `$botquit [msg]` | Shut down the bot |
+| `$raw <irc line>` | Send a raw IRC command |
+| `$botnick <nick>` | Change the bot's nick |
+
+### Admin Commands
+
+| Command | Description |
+|---------|-------------|
+| `$say <target> <msg>` | Make bot say something |
+| `$act <target> <action>` | Make bot do a /me action |
+| `$bjoin #channel [key]` | Join a channel |
+| `$bpart #channel [msg]` | Leave a channel |
+| `$bmode #channel <mode> [nick]` | Set a channel mode |
+| `$bothelp` | List all admin commands |
+
+---
+
+## 🛠️ botadmin — Bot Admin
+
+Owner and admin-only bot management commands.
+
+### Owner Commands
+
+| Command | Description |
+|---------|-------------|
+| `$restart` | Restart the bot |
+| `$breload <module\|all>` | Reload a plugin or all plugins |
+| `$botquit [msg]` | Shut down the bot |
+| `$raw <irc line>` | Send a raw IRC command |
+| `$botnick <nick>` | Change the bot's nick |
+
+### Admin Commands
+
+| Command | Description |
+|---------|-------------|
+| `$say <target> <msg>` | Make bot say something |
+| `$act <target> <action>` | Make bot do a /me action |
+| `$bjoin #channel [key]` | Join a channel |
+| `$bpart #channel [msg]` | Leave a channel |
+| `$bmode #channel <mode> [nick]` | Set a channel mode |
+| `$bothelp` | List all admin commands |
+
+---
+
 ## 🐄 moo — Moo Counter
 
 Track and count "moos" across the network! Say "moo" in chat and watch the counter climb. Includes legendary moos, sudo moo, and leaderboards.
@@ -792,6 +847,34 @@ Any YouTube URL posted in chat is automatically detected.
 User: check this out https://www.youtube.com/watch?v=dQw4w9WgXcQ
 Bot:  YouTube: Rick Astley - Never Gonna Give You Up — Rick Astley
 ```
+
+---
+
+## 🎙️ autovoice — Activity-Based Auto Voice
+
+Automatically voices active users in a channel. Off by default — enable per-channel with `$autovoice on`. Requires the bot to have halfop (`%`) or higher.
+
+### How It Works
+- Tracks message counts per user per channel
+- After **50 messages**, a user earns `+v` automatically
+- If a voiced user goes **7 days** without talking, the voice is removed
+- Users who already have `+v`, `+h`, `+o`, `+a`, or `+q` are completely ignored
+- Background sweep runs every 15 minutes to sync modes
+
+### Commands
+
+| Command | Description |
+|---------|-------------|
+| `$autovoice on` | Enable autovoice for this channel |
+| `$autovoice off` | Disable autovoice for this channel |
+| `$autovoice status` | Show state, tracked users, and thresholds |
+| `$autovoice reset <nick>` | Clear a user's activity data |
+| `$autovoice threshold` | Show current threshold and idle settings |
+
+> **Requires:** halfop+ or bot admin to manage.
+
+### Data Storage
+Activity data is stored in `~/.sopel/autovoice_data.json`.
 
 ---
 
