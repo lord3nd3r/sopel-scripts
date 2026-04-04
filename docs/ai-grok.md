@@ -75,6 +75,130 @@ intent_check = heuristic
 
 ---
 
+## 🔍 Web Search (Automatic)
+
+The bot **automatically** uses live web search when it detects that your question is about something time-sensitive or factual. There is no special command — just ask naturally and the bot decides whether to search.
+
+**Trigger keywords** (any of these in your message activates search):
+
+| Category | Keywords |
+|----------|----------|
+| News & Events | `news`, `latest`, `recent`, `today`, `yesterday`, `tonight`, `this week`, `this month`, `current events`, `headlines`, `breaking`, `update` |
+| Sports | `score`, `results`, `standings`, `who won`, `who is winning` |
+| Finance | `stock price` |
+| Weather | `weather`, `forecast` |
+| People & Events | `who died`, `is ___ dead`, `did ___ happen`, `election`, `poll` |
+| General | `search`, `whats happening` |
+
+**Examples:**
+```
+Grok: what's the latest news today?
+Grok: who won the NBA game last night?
+Grok: what's the stock price of AAPL?
+Grok: search for the election results
+Grok: what's the weather forecast for tomorrow?
+```
+
+> **Note:** If the web search API fails, the bot automatically falls back to answering from its training data.
+
+### Asking for Sources
+
+You can ask the bot to include source links in its response:
+
+```
+Grok: what's the latest news? show me the links
+Grok: search for election results with sources
+```
+
+**Trigger phrases:** `show me the links`, `sources`, `citations`, `references`, `urls`, `include links`
+
+---
+
+## 🕐 Time & Date Queries
+
+Ask the bot about the current time or date and it responds instantly. Time queries **bypass rate-limiting** so you can always get a fresh answer.
+
+**Trigger phrases:**
+- `what time is it`, `what's the time`, `current time`
+- `what's the date`, `what day is it`, `today's date`
+
+**Examples:**
+```
+Grok: what time is it?
+Grok: what's today's date?
+Grok: what day is it?
+```
+
+### Setting Your Timezone
+
+Tell the bot your timezone and it will remember it for all future time queries:
+
+| Method | Example |
+|--------|---------|
+| Tell the bot | `Grok: I'm in EST` |
+| Explicit set | `Grok: set my timezone to CST` |
+| Natural phrasing | `Grok: I live in Pacific` |
+
+**Supported abbreviations:** `EST` / `EDT` / `ET` / `Eastern`, `CST` / `CDT` / `CT` / `Central`, `MST` / `MDT` / `MT` / `Mountain`, `PST` / `PDT` / `PT` / `Pacific`, `UTC` / `GMT`
+
+### Setting Your Time Format
+
+Prefer 12-hour or 24-hour time? Tell the bot:
+
+```
+Grok: I prefer 12hr
+Grok: use 24 hour
+```
+
+Preferences are saved in the database and persist across restarts.
+
+---
+
+## 💬 Review Mode
+
+Ask the bot to summarize or give its opinion on what's been discussed in the channel. Channel messages are **persisted to the database** so review mode survives bot restarts.
+
+**Trigger phrases:**
+- `thoughts`, `opinion`, `what do you think`
+- `summarize`, `give me your take`, `opine`
+- `what's being discussed`, `what's happening`, `what's going on`
+- `catch me up`, `fill me in`, `what did I miss`
+- `recap`, `tldr`, `tl;dr`, `what happened`
+- `^^` (shorthand)
+
+**Examples:**
+```
+Grok: what do you think?
+Grok: catch me up, what did I miss?
+Grok: tldr
+```
+
+> **Cooldown:** Review mode has a 30-second cooldown per channel to prevent spam.
+
+---
+
+## 🤗 Emote Interactions
+
+The bot reacts to `/me` actions and emote-style messages directed at it. Responses are **generated dynamically by the AI** and vary each time.
+
+| Action | Example Trigger |
+|--------|-----------------|
+| pet / pat | `/me pets Grok` |
+| hug / cuddle / snuggle | `/me hugs Grok` |
+| poke / boop | `/me pokes Grok` |
+| kiss | `/me kisses Grok` |
+| slap / smack | `/me slaps Grok` |
+| highfive | `/me highfives Grok` |
+| wave / wink / dance / twirl | `/me waves at Grok` |
+
+**Trigger formats:**
+```
+/me pets Grok
+* User hugs Grok
+```
+
+---
+
 ## Examples
 
 **Chatting with the bot:**
