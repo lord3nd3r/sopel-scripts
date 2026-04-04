@@ -1,6 +1,6 @@
 # 🚪 Join (join)
 
-Make the bot join a channel. Owner only.
+Make the bot join a channel. **Owner only** — this is restricted to the single configured bot owner, not admins.
 
 ---
 
@@ -19,7 +19,7 @@ Make the bot join a channel. Owner only.
 owner = YourNick
 ```
 
-> Only the configured `owner` can use this command.
+> Only the configured `owner` can use this command. Admins and channel ops **cannot** use it — it is strictly owner-only via Sopel's `@module.require_owner()` decorator.
 
 ---
 
@@ -29,6 +29,13 @@ owner = YourNick
 |---------|-----|-------------|
 | `$join #channel [key]` | Owner only | Make the bot join a channel |
 
+### Parameters
+
+| Parameter | Required | Description |
+|-----------|----------|-------------|
+| `#channel` | Yes | The channel to join (must start with `#`) |
+| `key` | No | Optional channel password/key for +k channels |
+
 ---
 
 ## Examples
@@ -36,9 +43,27 @@ owner = YourNick
 **Join a channel:**
 ```
 /msg Glitchy $join #newchannel
+<Glitchy> Joining #newchannel
+* Glitchy has joined #newchannel
 ```
 
-**Join a channel with a key:**
+**Join a channel with a key (password-protected):**
 ```
-/msg Glitchy $join #secretchannel mypassword
+/msg Glitchy $join #secretroom mypassword
+<Glitchy> Joining #secretroom
+* Glitchy has joined #secretroom
 ```
+
+**Missing channel name:**
+```
+/msg Glitchy $join
+<Glitchy> Usage: $join #channel [key]
+```
+
+**Non-owner tries to use it:**
+```
+<User> $join #somewhere
+(no response — silently ignored for non-owners)
+```
+
+> **Tip:** For admin-level join/part, see [$bjoin / $bpart in Bot Admin](botadmin.md) which allows configured admins.

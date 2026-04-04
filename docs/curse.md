@@ -1,17 +1,19 @@
 # 🚔 Verbal Morality (curse)
 
-Demolition Man-style Verbal Morality Statute. Disabled by default. When enabled, the bot issues fines for profanity with a randomized §X.X citation from the VMS.
+Demolition Man-style Verbal Morality Statute. **Disabled by default.** When enabled, the bot monitors every message in the channel and issues fines for profanity with a randomized §X.X citation from the Verbal Morality Statute.
 
 ---
 
 ## Setup
 
-**No config needed.** Just drop the script in place. Fining is **off by default** per channel — use `$curse on` in a channel to enable it.
+**No config needed.** Just drop the script in place. Fining is **off by default** per channel — use `$curse on` to enable it.
 
 **1. Place the script:**
 ```
 ~/.sopel/scripts/curse.py
 ```
+
+**Data storage:** Channel toggle states are stored in Sopel's built-in `bot.db` and persist across restarts.
 
 ---
 
@@ -27,6 +29,41 @@ Demolition Man-style Verbal Morality Statute. Disabled by default. When enabled,
 
 ---
 
+## How It Works
+
+1. When enabled, **every channel message** is checked against a compiled regex of 50+ banned words.
+2. Short words like "ass", "hell", "damn" use word-boundary matching to avoid false positives (e.g. "classic", "hello").
+3. Longer profane roots match anywhere in a word to catch compounds (e.g. "cluster****", "mother****").
+4. `/me` ACTION messages are **ignored** — only regular text triggers fines.
+5. The bot picks a random fine message from **7 different style categories** (50+ templates total).
+
+### Fine Message Styles
+
+| Style | Example |
+|-------|---------|
+| Classic / Booth | `🚔 User, you have been fined 1 credit for violation of the Verbal Morality Statute §4.7.` |
+| Department / Authority | `📋 CITATION ISSUED — User, pursuant to VMS §2.3, your language has been noted.` |
+| Polite / Sarcastic | `😊 Oh User, such language! That's a fine of 1 credit per VMS §5.1. Have a lovely day!` |
+| Stern / Bureaucratic | `⚠️ NOTICE: User — Infraction logged. VMS §3.9. Further violations will be escalated.` |
+| Theatrical / Dramatic | `🎭 *gasps* User! The Verbal Morality Statute §6.2 weeps at your transgression!` |
+| Robotic / AI Terminal | `🖥️ [VMS v3.7] VIOLATION DETECTED — User — Code §1.4 — Fine: 1 credit — LOGGED.` |
+| Pop-Culture / Demolition Man | `🤖 User doesn't know how to use the three seashells! VMS §7.0 — fined!` |
+
+> Fine section numbers (§X.X) are randomized on each violation.
+
+---
+
+## Permissions
+
+Toggling requires **any** of the following:
+- Bot owner or admin (configured in `.cfg`)
+- Channel op (`+o` / `@`)
+- Channel halfop (`+h` / `%`)
+- Channel admin (`+a` / `&`)
+- Channel owner (`+q` / `~`)
+
+---
+
 ## Examples
 
 **Enable verbal morality:**
@@ -35,10 +72,28 @@ Demolition Man-style Verbal Morality Statute. Disabled by default. When enabled,
 <Glitchy> 🚔 Verbal Morality Statute is now ACTIVE in #channel.
 ```
 
-**Someone swears:**
+**Someone swears (classic style):**
 ```
 <User> What the f***!
 <Glitchy> 🚔 User, you have been fined 1 credit for violation of the Verbal Morality Statute §4.7.
+```
+
+**Someone swears (robotic style):**
+```
+<User> That's bs and you know it
+<Glitchy> 🖥️ [VMS v3.7] VIOLATION DETECTED — User — Code §1.4 — Fine: 1 credit — LOGGED.
+```
+
+**Someone swears (sarcastic style):**
+```
+<User> Go to hell
+<Glitchy> 😊 Oh User, such language! That's a fine of 1 credit per VMS §5.1. Have a lovely day!
+```
+
+**Emotes are safe:**
+```
+* User says something profane
+(no response — /me actions are ignored)
 ```
 
 **Check status:**

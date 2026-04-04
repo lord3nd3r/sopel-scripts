@@ -1,6 +1,6 @@
 # 🔑 PromoteMe (opme)
 
-Promote yourself (or a target) to channel operator.
+Promote yourself (or a target) to channel operator. Supports configurable modes, temporary promotions, channel restrictions, and cooldowns.
 
 ---
 
@@ -38,7 +38,7 @@ success_message = Promoted {nick} to operator in {channel}.
 # Make promotions temporary (default: false)
 temporary_promotion = false
 
-# Duration of temporary promotions in seconds (default: 300)
+# Duration of temporary promotions in seconds (default: 300 = 5 minutes)
 promotion_duration = 300
 ```
 
@@ -48,9 +48,46 @@ promotion_duration = 300
 
 | Command | Description |
 |---------|-------------|
-| `$promoteme [nick]` | Promote yourself (or target) to channel op |
+| `$promoteme` | Promote yourself to channel op |
+| `$promoteme <nick>` | Promote another user to channel op |
 
-> Requires bot to have op. Admin-only by default (configurable).
+---
+
+## How It Works
+
+1. User runs `$promoteme` (or `$promoteme Friend`).
+2. Bot checks permissions: is the user an admin? Is the bot opped?
+3. Bot applies the configured mode (default `+o`) to the target.
+4. If **temporary promotion** is enabled, a timer automatically removes the mode after the configured duration.
+
+### Cooldowns
+
+| Type | Default | Configurable |
+|------|---------|-------------|
+| **Per-user** | 60 seconds | Yes (`cooldown_seconds`) |
+| **Per-channel** | 300 seconds (5 min) | No (hardcoded) |
+
+The per-channel cooldown blocks **all users** in that channel, not just the one who last used it. This prevents mode-change flooding.
+
+### Temporary Promotions
+
+When enabled (`temporary_promotion = true`), the bot automatically reverses the mode after `promotion_duration` seconds.
+
+For example, with `modes = +o` and `promotion_duration = 300`:
+- User gets `+o` immediately
+- After 5 minutes, bot automatically sets `-o` on the user
+
+---
+
+## Permissions
+
+| Check | Default | Description |
+|-------|---------|-------------|
+| `require_admin` | true | Only bot admins/owner can use the command |
+| `require_bot_op` | true | Bot must have `+o` in the channel |
+| `allow_in_all_channels` | true | Set to false + `allowed_channels` to restrict |
+
+> The command **only works in channels** — it does nothing in private messages.
 
 ---
 
@@ -60,10 +97,57 @@ promotion_duration = 300
 ```
 <Admin> $promoteme
 * Glitchy sets mode +o Admin
+<Glitchy> Promoted Admin to operator in #channel.
 ```
 
 **Promote another user:**
 ```
 <Admin> $promoteme Friend
 * Glitchy sets mode +o Friend
+<Glitchy> Promoted Friend to operator in #channel.
+```
+
+**Bot doesn't have op:**
+```
+<Admin> $promoteme
+<Glitchy> I need operator status to promote users!
+```
+
+**User cooldown:**
+```
+<Admin> $promoteme
+<Glitchy> Please wait 60 seconds between uses.
+```
+
+**Channel cooldown:**
+```
+<OtherAdmin> $promoteme
+<Glitchy> This command is on cooldown in this channel.
+```
+
+**Non-admin tries to use it:**
+```
+<User> $promoteme
+<Glitchy> You don't have permission to use this command.
+```
+
+**Channel not in allowed list:**
+```
+<Admin> $promoteme
+<Glitchy> This command is not allowed in this channel.
+```
+
+**In a private message:**
+```
+/msg Glitchy $promoteme
+<Glitchy> This command can only be used in a channel.
+```
+
+**Temporary promotion (auto-reverts):**
+```
+<Admin> $promoteme
+* Glitchy sets mode +o Admin
+<Glitchy> Promoted Admin to operator in #channel.
+  (5 minutes later...)
+* Glitchy sets mode -o Admin
 ```
