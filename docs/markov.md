@@ -43,7 +43,7 @@ Each time the same trigram appears, its frequency increases — making common ph
 ~/.sopel/scripts/markov.py
 ```
 
-**2. No config file changes needed.** The plugin stores all data in Sopel's built-in database (`bot.db`) using a `markov` table created automatically on first load.
+**2. No config file changes needed.** Trigram data is stored in its own SQLite database at `~/.sopel/markov.db` (created automatically on first load). Channel settings (enabled, chance) use Sopel's built-in `bot.db`.
 
 **3. Load the plugin:**
 ```
@@ -149,7 +149,7 @@ When `markov-chance` is set to a value greater than 0, the bot has that percenta
 
 ## Data Storage
 
-All trigram data is stored in a `markov` table in Sopel's built-in SQLite database. The table schema:
+All trigram data is stored in a separate SQLite database at `~/.sopel/markov.db`, keeping it isolated from Sopel's main database. The file is created automatically on first load. WAL journal mode is used for better concurrent read/write performance.
 
 | Column | Type | Description |
 |--------|------|-------------|

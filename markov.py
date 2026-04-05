@@ -1,12 +1,14 @@
 # markov.py — Markov chain bot plugin for Sopel
 # Originally by ComputerTech, updated by End3r
 # Learns from channel chat and generates random sentences from word trigrams.
+# Trigram data is stored in its own SQLite database (~/.sopel/markov.db).
+import os
 import random
 import re
+import sqlite3
 import threading
 
 import requests
-from sqlalchemy import text
 from sopel import plugin
 
 URL_REGEX = re.compile(r"https?://\S+")
@@ -15,25 +17,35 @@ MAX_OUTPUT_LEN = 440  # stay within IRC message limits
 NO_MARKOV = "Markov chains are not enabled in this channel."
 
 _load_thread = None
-_engine = None
+_db_path = None
+_db_lock = threading.Lock()
+
+
+def _get_db():
+    """Return a sqlite3 connection to the markov database."""
+    conn = sqlite3.connect(_db_path, check_same_thread=False)
+    conn.execute("PRAGMA journal_mode=WAL")
+    return conn
 
 
 def setup(bot):
-    global _engine
-    _engine = bot.db.engine
-    with _engine.begin() as conn:
-        conn.execute(text(
-            """
-            CREATE TABLE IF NOT EXISTS markov (
-                channel     TEXT    NOT NULL,
-                first_word  TEXT,
-                second_word TEXT,
-                third_word  TEXT,
-                frequency   INTEGER NOT NULL DEFAULT 1,
-                PRIMARY KEY (channel, first_word, second_word, third_word)
-            )
-            """
-        ))
+    global _db_path
+    _db_path = os.path.join(bot.config.core.homedir, 'markov.db')
+    conn = _get_db()
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS markov (
+            channel     TEXT    NOT NULL,
+            first_word  TEXT,
+            second_word TEXT,
+            third_word  TEXT,
+            frequency   INTEGER NOT NULL DEFAULT 1,
+            PRIMARY KEY (channel, first_word, second_word, third_word)
+        )
+        """
+    )
+    conn.commit()
+    conn.close()
 
 
 @plugin.command("markovon")
@@ -151,11 +163,11 @@ def cmd_markovfor(bot, trigger):
 def cmd_clearmarkov(bot, trigger):
     channel = str(trigger.sender)
 
-    with _engine.begin() as conn:
-        conn.execute(
-            text("DELETE FROM markov WHERE channel = :channel"),
-            {"channel": channel},
-        )
+    with _db_lock:
+        conn = _get_db()
+        conn.execute("DELETE FROM markov WHERE channel = ?", (channel,))
+        conn.commit()
+        conn.close()
 
     bot.reply("Cleared the Markov chain for %s." % channel)
 
@@ -221,25 +233,21 @@ def _create(bot, channel, line):
         inserts.append(tuple(words[i : i + 3]))
     inserts.append((words[-2], words[-1], None))
 
-    with _engine.begin() as conn:
+    with _db_lock:
+        conn = _get_db()
         for first, second, third in inserts:
             conn.execute(
-                text(
-                    """
-                    INSERT INTO markov
-                        (channel, first_word, second_word, third_word, frequency)
-                    VALUES (:channel, :first, :second, :third, 1)
-                    ON CONFLICT (channel, first_word, second_word, third_word)
-                    DO UPDATE SET frequency = frequency + 1
-                    """
-                ),
-                {
-                    "channel": channel,
-                    "first": first,
-                    "second": second,
-                    "third": third,
-                },
+                """
+                INSERT INTO markov
+                    (channel, first_word, second_word, third_word, frequency)
+                VALUES (?, ?, ?, ?, 1)
+                ON CONFLICT (channel, first_word, second_word, third_word)
+                DO UPDATE SET frequency = frequency + 1
+                """,
+                (channel, first, second, third),
             )
+        conn.commit()
+        conn.close()
 
 
 def _choose(pairs):
@@ -248,35 +256,32 @@ def _choose(pairs):
 
 
 def _generate(bot, channel, first_words):
-    with _engine.connect() as conn:
+    conn = _get_db()
+    try:
         if not first_words:
             rows = conn.execute(
-                text(
-                    """
-                    SELECT third_word, frequency FROM markov
-                     WHERE channel     = :channel
-                       AND first_word  IS NULL
-                       AND second_word IS NULL
-                       AND third_word  IS NOT NULL
-                    """
-                ),
-                {"channel": channel},
+                """
+                SELECT third_word, frequency FROM markov
+                 WHERE channel     = ?
+                   AND first_word  IS NULL
+                   AND second_word IS NULL
+                   AND third_word  IS NOT NULL
+                """,
+                (channel,),
             ).fetchall()
             if not rows:
                 return None
             first_word = _choose(rows)
 
             rows = conn.execute(
-                text(
-                    """
-                    SELECT third_word, frequency FROM markov
-                     WHERE channel     = :channel
-                       AND first_word  IS NULL
-                       AND second_word = :second
-                       AND third_word  IS NOT NULL
-                    """
-                ),
-                {"channel": channel, "second": first_word},
+                """
+                SELECT third_word, frequency FROM markov
+                 WHERE channel     = ?
+                   AND first_word  IS NULL
+                   AND second_word = ?
+                   AND third_word  IS NOT NULL
+                """,
+                (channel, first_word),
             ).fetchall()
             if not rows:
                 return None
@@ -287,16 +292,14 @@ def _generate(bot, channel, first_words):
         elif len(first_words) == 1:
             first_word = first_words[0].lower()
             rows = conn.execute(
-                text(
-                    """
-                    SELECT second_word, third_word, frequency FROM markov
-                     WHERE channel     = :channel
-                       AND first_word  = :first
-                       AND second_word IS NOT NULL
-                       AND third_word  IS NOT NULL
-                    """
-                ),
-                {"channel": channel, "first": first_word},
+                """
+                SELECT second_word, third_word, frequency FROM markov
+                 WHERE channel     = ?
+                   AND first_word  = ?
+                   AND second_word IS NOT NULL
+                   AND third_word  IS NOT NULL
+                """,
+                (channel, first_word),
             ).fetchall()
             if not rows:
                 return None
@@ -311,15 +314,13 @@ def _generate(bot, channel, first_words):
 
         for _ in range(30):
             rows = conn.execute(
-                text(
-                    """
-                    SELECT third_word, frequency FROM markov
-                     WHERE channel     = :channel
-                       AND first_word  = :first
-                       AND second_word = :second
-                    """
-                ),
-                {"channel": channel, "first": words[-2], "second": words[-1]},
+                """
+                SELECT third_word, frequency FROM markov
+                 WHERE channel     = ?
+                   AND first_word  = ?
+                   AND second_word = ?
+                """,
+                (channel, words[-2], words[-1]),
             ).fetchall()
             if not rows:
                 break
@@ -333,6 +334,8 @@ def _generate(bot, channel, first_words):
             # Cap output length to stay within IRC limits
             if len(" ".join(words)) >= MAX_OUTPUT_LEN:
                 break
+    finally:
+        conn.close()
 
     if words == first_words:
         return None
