@@ -27,6 +27,7 @@ A collection of custom [Sopel](https://sopel.chat/) IRC bot plugins for fun, uti
 - [Join](docs/join.md)
 - [YouTube Titles](docs/youtube_titles.md)
 - [Auto Voice](docs/autovoice.md)
+- [Markov Chain](docs/markov.md)
 - [Installation](#-installation)
 - [Configuration](#-configuration)
 
@@ -897,7 +898,45 @@ python3 demo_trivia.py
 
 ---
 
-## 📦 Installation
+## � markov — Markov Chain Chatbot
+
+Markov chain chatbot that learns from channel messages and generates random sentences by chaining word trigrams with weighted probabilities. Originally by **ComputerTech**, updated by **End3r**.
+
+### Features
+- Learns silently from all channel messages, building a per-channel "brain"
+- Generates sentences by walking trigram chains weighted by frequency
+- Auto-trigger mode — bot randomly speaks based on a configurable percentage
+- Seed word support — start generation from a specific word
+- Cross-channel generation — use one channel's brain in another
+- Bulk log import to bootstrap the brain
+- Output capped at 440 characters for IRC safety
+- URLs and very short messages are automatically filtered from learning
+
+### Admin Commands (Channel Op)
+
+| Command | Description |
+|---------|-------------|
+| `$markovon` | Enable Markov learning in the channel |
+| `$markovon <0-100>` | Enable + set auto-trigger chance |
+| `$markovoff` | Disable Markov entirely |
+| `$markovchance <0-100>` | Set auto-trigger percentage |
+| `$clearmarkov` | Wipe the brain for this channel (owner only) |
+| `$markovlog <url>` | Import a text log to seed the brain |
+
+### User Commands
+
+| Command | Description |
+|---------|-------------|
+| `$markov` | Generate a random sentence |
+| `$markov <word>` | Generate starting from a seed word |
+| `$markovfor <#channel>` | Generate using another channel's brain |
+| `$markovfor <#channel> <word>` | Same, with a seed word |
+
+📖 **Full docs:** [docs/markov.md](docs/markov.md)
+
+---
+
+## �📦 Installation
 
 1. **Clone the repository:**
    ```bash
@@ -934,6 +973,7 @@ Most scripts work out of the box. Scripts with required configuration:
 | `weather.py` | — | API key is hardcoded (PirateWeather) |
 | `opme.py` | `[promoteme]` | Various options (see script section) |
 | `mug.py` | `[mug_game]` | `enabled = true` |
+| `markov.py` | — | No config needed — uses `bot.db` |
 | `moo.py` | `[moo]` | Optional tuning params |
 | `monitor.py` | `[channelstats]` | `channels`, `db_path` |
 | `voting.py` | `[voting]` | `db_path` (optional) |
