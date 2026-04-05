@@ -1,4 +1,4 @@
-# grok.py — FINAL v5.1: fixed Responses API parsing + background truncation + busy flag
+# grok.py — v5.2: all requests via Responses API + added grok-4-20 model
 from sopel import plugin
 from sopel.config import types
 from collections import deque
@@ -56,7 +56,7 @@ class GrokSection(types.StaticSection):
     api_key = types.SecretAttribute('api_key')
     model = types.ChoiceAttribute(
         'model',
-        choices=['grok-4-1-fast-reasoning', 'grok-4-fast-reasoning', 'grok-3', 'grok-beta'],
+        choices=['grok-4-1-fast-reasoning', 'grok-4-fast-reasoning', 'grok-4-20', 'grok-3', 'grok-beta'],
         default='grok-4-1-fast-reasoning',
     )
     system_prompt = types.ValidatedAttribute(
@@ -390,7 +390,7 @@ _FMT_SET_RE = re.compile(
     re.IGNORECASE,
 )
 
-def _call_responses_api(bot, messages, model, temp, max_toks):
+def _call_responses_api(bot, messages, model, temp, max_toks, search_mode=False):
     instructions_parts = []
     input_messages = []
     for msg in messages:
@@ -401,10 +401,11 @@ def _call_responses_api(bot, messages, model, temp, max_toks):
     payload = {
         "model": model,
         "input": input_messages,
-        "tools": [{"type": "web_search"}],
         "temperature": temp,
         "max_output_tokens": max_toks,
     }
+    if search_mode:
+        payload["tools"] = [{"type": "web_search"}]
     if instructions_parts:
         payload["instructions"] = " ".join(instructions_parts)
 
@@ -423,34 +424,13 @@ def _call_responses_api(bot, messages, model, temp, max_toks):
         if item.get('type') == 'message' and item.get('role') == 'assistant':
             for content_part in (item.get('content') or []):
                 ctype = content_part.get('type')
-                if ctype in ('text', 'output_text'):  # FIXED: accept both known variants
+                if ctype in ('text', 'output_text'):  # accept both known variants
                     reply += content_part.get('text', '')
                 for ann in (content_part.get('annotations') or []):
                     url = ann.get('url')
                     if url:
                         citations.append(url)
     return reply.strip(), citations
-
-def _call_chat_completions_api(bot, messages, model, temp, max_toks):
-    payload = {
-        "model": model,
-        "messages": messages,
-        "temperature": temp,
-        "max_tokens": max_toks,
-    }
-    r = requests.post(
-        "https://api.x.ai/v1/chat/completions",
-        headers=bot.memory['grok_headers'],
-        json=payload,
-        timeout=(5, 90),
-    )
-    r.raise_for_status()
-    data = r.json()
-    choices = (data.get('choices') if isinstance(data, dict) else []) or []
-    if not choices:
-        return '', None
-    reply = (choices[0].get('message', {}).get('content', '') or '').strip()
-    return reply, None
 
 def _api_worker(bot, trigger, messages, review_mode, is_pm, bot_nick, chan_lock, search_mode=False, wants_sources=False):
     try:
@@ -464,14 +444,10 @@ def _api_worker(bot, trigger, messages, review_mode, is_pm, bot_nick, chan_lock,
 
         for attempt in range(1, attempts + 1):
             try:
-                if search_mode:
-                    reply, citations = _call_responses_api(
-                        bot, messages, model, temp, max_toks,
-                    )
-                else:
-                    reply, citations = _call_chat_completions_api(
-                        bot, messages, model, temp, max_toks,
-                    )
+                reply, citations = _call_responses_api(
+                    bot, messages, model, temp, max_toks,
+                    search_mode=search_mode,
+                )
                 break
             except requests.exceptions.Timeout:
                 if attempt < attempts:
@@ -484,11 +460,7 @@ def _api_worker(bot, trigger, messages, review_mode, is_pm, bot_nick, chan_lock,
                     except Exception:
                         pass
                     return
-            except requests.exceptions.HTTPError as exc:
-                if search_mode:
-                    _log(bot).warning('Responses API failed, falling back to chat completions')
-                    search_mode = False
-                    continue
+            except requests.exceptions.HTTPError:
                 if attempt < attempts:
                     time.sleep(backoff + random.random() * 0.5)
                     backoff *= 2
@@ -500,10 +472,6 @@ def _api_worker(bot, trigger, messages, review_mode, is_pm, bot_nick, chan_lock,
                         pass
                     return
             except Exception:
-                if search_mode:
-                    _log(bot).warning('Responses API exception, falling back to chat completions')
-                    search_mode = False
-                    continue
                 if attempt < attempts:
                     time.sleep(backoff + random.random() * 0.5)
                     backoff *= 2

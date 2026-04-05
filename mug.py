@@ -627,6 +627,8 @@ def _update_topic_highscore(bot, nick, amount):
             else:
                 new_topic = f"{current_topic} {hs_text}".strip() if current_topic else hs_text
             bot.write(['TOPIC', channel], new_topic)
+        except RuntimeError:
+            LOG.warning('highscore_topic: bot not connected, skipping topic update in %s', channel)
         except Exception:
             LOG.exception('highscore_topic: failed to update topic in %s', channel)
 
