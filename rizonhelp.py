@@ -108,7 +108,7 @@ TOPICS = {
     # ---- Channel Management 101 ----
     "xop": {
         "title": "Channel Access — xOP System",
-        "aliases": ["xop", "vop", "hop", "aop", "sop", "channel access", "access list", "op"],
+        "aliases": ["xop", "vop", "hop", "aop", "sop", "channel access", "op"],
         "content": [
             "VOP (+v voice) | HOP (% halfop) | AOP (@ op) | SOP (& protect)",
             "Add: /msg ChanServ VOP #chan ADD nick  (same for HOP, AOP, SOP)",
@@ -126,6 +126,20 @@ TOPICS = {
             "Each user gets a list of flags (e.g. KICK, TOPIC, BAN, etc.).",
             "Use: /msg ChanServ HELP FLAGS for full details.",
             "More: https://wiki.rizon.net/index.php?title=Channel_Management_101#FLAGS",
+        ],
+    },
+    "access": {
+        "title": "Channel Access — ACCESS (Numerical Levels)",
+        "aliases": ["access", "access list", "numerical access", "levels"],
+        "content": [
+            "ACCESS gives each user a number (1-9999). Higher numbers dominate lower ones.",
+            "You can specify what each level can do (e.g., level 3+ can KICK).",
+            "To use ACCESS instead of xOP: /msg ChanServ SET #channel XOP OFF",
+            "Add user: /msg ChanServ ACCESS #channel ADD nick level",
+            "Del user: /msg ChanServ ACCESS #channel DEL nick",
+            "View list: /msg ChanServ ACCESS #channel LIST",
+            "To auto-voice ALL joining users, you must use ACCESS (not xOP).",
+            "More: https://wiki.rizon.net/index.php?title=Channel_Management_101#ACCESS",
         ],
     },
     "ownermode": {
