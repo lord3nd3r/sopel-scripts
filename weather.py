@@ -110,6 +110,17 @@ def wind_direction(deg):
     return dirs[ix]
 
 
+def country_code_to_flag(country_code: str) -> str:
+    """Convert 2-letter country code (ISO 3166-1 alpha-2) to flag emoji."""
+    if not country_code or len(country_code) != 2:
+        return "🌍"  # Fallback to globe
+    try:
+        # Convert country code to regional indicators (flag emoji)
+        return "".join(chr(0x1F1E6 + ord(c.upper()) - ord('A')) for c in country_code)
+    except (ValueError, OverflowError):
+        return "🌍"  # Fallback to globe
+
+
 def shorten_location_name(display_name: str) -> str:
     if not display_name:
         return "Unknown location"
@@ -134,21 +145,25 @@ def get_coordinates(location):
             # Validate response has required fields
             if "lat" not in result or "lon" not in result or "display_name" not in result:
                 LOG.warning("Nominatim response missing required fields for location: %s", location)
-                return None, None, None
+                return None, None, None, None
             lat = float(result["lat"])
             lon = float(result["lon"])
             # Validate geographic bounds
             if not (-90 <= lat <= 90 and -180 <= lon <= 180):
                 LOG.warning("Nominatim returned invalid coordinates for location: %s (lat=%s, lon=%s)", location, lat, lon)
-                return None, None, None
+                return None, None, None, None
             display_name = shorten_location_name(result["display_name"])
-            return lat, lon, display_name
+            # Extract country code from address (optional, fallback to globe emoji if missing)
+            country_code = None
+            if "address" in result and isinstance(result["address"], dict):
+                country_code = result["address"].get("country_code", "").upper()
+            return lat, lon, display_name, country_code
         else:
             LOG.debug("No geocoding results for location: %s", location)
-            return None, None, None
+            return None, None, None, None
     except (IOError, OSError, ValueError, TypeError) as e:
         LOG.warning("Geocoding failed for location '%s': %s", location, e)
-        return None, None, None
+        return None, None, None, None
 
 
 def resolve_location(nick, args):
@@ -157,17 +172,17 @@ def resolve_location(nick, args):
         target_nick = args.strip().lower()
         if target_nick in user_locations:
             loc = user_locations[target_nick]
-            return loc["lat"], loc["lon"], loc["name"]
+            return loc["lat"], loc["lon"], loc["name"], loc.get("country_code")
 
         # If not a user, try to geocode it as a location
-        lat, lon, display_name = get_coordinates(sanitize_input(args))
+        lat, lon, display_name, country_code = get_coordinates(sanitize_input(args))
         if not lat:
-            return None, None, None
-        return lat, lon, display_name
+            return None, None, None, None
+        return lat, lon, display_name, country_code
     elif nick.lower() in user_locations:
         loc = user_locations[nick.lower()]
-        return loc["lat"], loc["lon"], loc["name"]
-    return None, None, None
+        return loc["lat"], loc["lon"], loc["name"], loc.get("country_code")
+    return None, None, None, None
 
 
 def parse_nick_flag(args):
@@ -266,7 +281,7 @@ def register_location(bot, trigger):
         bot.say(f"Usage: {get_prefix(bot)}register_location <location>")
         return
     location = sanitize_input(args)
-    lat, lon, display_name = get_coordinates(location)
+    lat, lon, display_name, country_code = get_coordinates(location)
     if not lat:
         bot.say(f"Location '{location}' not found.")
         return
@@ -274,6 +289,7 @@ def register_location(bot, trigger):
         "lat": lat,
         "lon": lon,
         "name": display_name,
+        "country_code": country_code,
     }
     _save_locations(bot)
     bot.say(f"Location for {trigger.nick} registered as: {display_name}")
@@ -291,7 +307,7 @@ def change_location(bot, trigger):
         bot.say(f"Usage: {get_prefix(bot)}change_location <new location>")
         return
     location = sanitize_input(args)
-    lat, lon, display_name = get_coordinates(location)
+    lat, lon, display_name, country_code = get_coordinates(location)
     if not lat:
         bot.say(f"Location '{location}' not found.")
         return
@@ -299,6 +315,7 @@ def change_location(bot, trigger):
         "lat": lat,
         "lon": lon,
         "name": display_name,
+        "country_code": country_code,
     }
     _save_locations(bot)
     bot.say(f"Your location has been updated to: {display_name}")
@@ -341,9 +358,9 @@ def current_weather(bot, trigger):
             )
             return
         loc = user_locations[target_nick]
-        lat, lon, display_name = loc["lat"], loc["lon"], loc["name"]
+        lat, lon, display_name, country_code = loc["lat"], loc["lon"], loc["name"], loc.get("country_code")
     else:
-        lat, lon, display_name = resolve_location(trigger.nick, remaining_args)
+        lat, lon, display_name, country_code = resolve_location(trigger.nick, remaining_args)
         if not lat:
             bot.say(f"No location found. Use {prefix}w <location> or {prefix}register_location <location>")
             return
@@ -387,9 +404,12 @@ def current_weather(bot, trigger):
     arrow_map = {"N": "↑", "NE": "↗", "E": "→", "SE": "↘", "S": "↓", "SW": "↙", "W": "←", "NW": "↖"}
     wind_arrow = arrow_map.get(wind_dir, "")
 
+    # Use country flag or globe emoji
+    location_emoji = country_code_to_flag(country_code) if country_code else "🌍"
+
     sep = "\x0314 · \x03"
     output = (
-        f"🌍 \x02{display_name}\x02{sep}"
+        f"{location_emoji} \x02{display_name}\x02{sep}"
         f"{emoji} \x02{summary}\x02{sep}"
         f"🌡️ {color_temp}{sep}"
         f"💧 \x02{humidity:.0f}%\x02 humidity{sep}"
@@ -438,12 +458,12 @@ def weather_alerts(bot, trigger):
             )
             return
         loc = user_locations[target_nick]
-        lat, lon, display_name = loc["lat"], loc["lon"], loc["name"]
+        lat, lon, display_name, country_code = loc["lat"], loc["lon"], loc["name"], loc.get("country_code")
     else:
         # No -n flag — resolve_location handles:
         #   remaining_args = "arlington, va"  → geocode it
         #   remaining_args = None and caller has a saved location → use it
-        lat, lon, display_name = resolve_location(requester, remaining_args)
+        lat, lon, display_name, country_code = resolve_location(requester, remaining_args)
         if not lat:
             bot.say(
                 f"No location found. Use {prefix}wa <location> or "
@@ -488,6 +508,11 @@ def weather_alerts(bot, trigger):
 
 @sopel.plugin.command("f")
 def forecast_weather(bot, trigger):
+    try:
+        _load_locations(bot)
+    except Exception as e:
+        LOG.warning("Failed to load locations before forecast_weather: %s", e)
+    
     args = trigger.group(2)
     target_nick, remaining_args = parse_nick_flag(args)
     prefix = get_prefix(bot)
@@ -501,9 +526,9 @@ def forecast_weather(bot, trigger):
             )
             return
         loc = user_locations[target_nick]
-        lat, lon, display_name = loc["lat"], loc["lon"], loc["name"]
+        lat, lon, display_name, country_code = loc["lat"], loc["lon"], loc["name"], loc.get("country_code")
     else:
-        lat, lon, display_name = resolve_location(trigger.nick, remaining_args)
+        lat, lon, display_name, country_code = resolve_location(trigger.nick, remaining_args)
         if not lat:
             bot.say(f"No location found. Use {prefix}f <location> or {prefix}register_location <location>")
             return
@@ -512,11 +537,13 @@ def forecast_weather(bot, trigger):
     try:
         r = requests.get(url, timeout=10)
         data = r.json()
-    except Exception as e:
+    except (IOError, OSError, ValueError) as e:
+        LOG.error("Error retrieving forecast for %s (%s, %s): %s", display_name, lat, lon, e)
         bot.say(f"Error retrieving forecast: {e}")
         return
 
     if "daily" not in data or "data" not in data["daily"]:
+        LOG.warning("Forecast API response missing 'daily.data' field for %s", display_name)
         bot.say("No forecast data available.")
         return
 
@@ -687,9 +714,9 @@ def extended_forecast(bot, trigger):
             )
             return
         loc = user_locations[target_nick]
-        lat, lon, display_name = loc["lat"], loc["lon"], loc["name"]
+        lat, lon, display_name, country_code = loc["lat"], loc["lon"], loc["name"], loc.get("country_code")
     else:
-        lat, lon, display_name = resolve_location(requester, remaining_args)
+        lat, lon, display_name, country_code = resolve_location(requester, remaining_args)
         if not lat:
             bot.say(
                 f"No location found. Use {prefix}ef <location> or "
@@ -756,9 +783,9 @@ def space_weather(bot, trigger):
             )
             return
         loc = user_locations[target_nick]
-        lat, lon, display_name = loc["lat"], loc["lon"], loc["name"]
+        lat, lon, display_name, country_code = loc["lat"], loc["lon"], loc["name"], loc.get("country_code")
     else:
-        lat, lon, display_name = resolve_location(trigger.nick, remaining_args)
+        lat, lon, display_name, country_code = resolve_location(trigger.nick, remaining_args)
 
     # We proceed even if no location is found, to show global stats.
 
