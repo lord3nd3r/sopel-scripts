@@ -2,14 +2,15 @@ import time
 import random
 import threading
 import logging
+import atexit
 from sopel import module, formatting
 
 """weed.py — Sopel command to share lighthearted "weed" messages.
 
 Features:
-- Commands: weed, bong, joint, keef, kief
+- Commands: weed, bong, joint, keef, kief, trip, shrooms, acid, peyote
 - Channel-level and per-user-per-channel cooldowns (thread-safe)
-- Non-blocking countdown via background thread
+- Non-blocking countdown via background thread with graceful shutdown
 - Module-level constants for easy editing
 """
 
@@ -24,6 +25,11 @@ PER_USER_COOLDOWN = 30
 LAST_USED = {}
 PER_USER_LAST = {}
 LOCK = threading.Lock()
+
+# Thread management: track active countdown threads
+_ACTIVE_THREADS = set()
+_SHUTDOWN_EVENT = threading.Event()
+_THREAD_LOCK = threading.Lock()
 
 # =======================
 # WEED Content
@@ -371,18 +377,73 @@ def _format_remaining(seconds):
     return f"{secs}s"
 
 
-def _countdown_and_final(bot, channel, countdown_msgs, final_messages):
+def _countdown_and_final(bot, channel, cmd, countdown_msgs, final_messages, current_thread):
+    """Run countdown and final message in a background thread.
+    
+    Args:
+        bot: Sopel bot instance
+        channel: IRC channel name
+        cmd: Command name (for logging context)
+        countdown_msgs: List of countdown messages
+        final_messages: List of final messages
+        current_thread: Reference to this thread (for tracking)
+    """
     try:
+        # Register this thread
+        with _THREAD_LOCK:
+            _ACTIVE_THREADS.add(current_thread)
+        
+        # Run countdown with shutdown signal checking
         if len(countdown_msgs) == 3:
-            bot.say(countdown_msgs[0], channel)
-            time.sleep(6)
-            bot.say(countdown_msgs[1], channel)
-            time.sleep(6)
-            bot.say(countdown_msgs[2], channel)
-            time.sleep(6)
+            for i, msg in enumerate(countdown_msgs):
+                # Check if shutdown was requested
+                if _SHUTDOWN_EVENT.is_set():
+                    LOG.debug(f"Countdown interrupted for ${ cmd} in {channel} (shutdown)")
+                    return
+                
+                bot.say(msg, channel)
+                
+                # Sleep in small increments to check shutdown signal
+                if i < len(countdown_msgs) - 1:
+                    for _ in range(6):  # 6 seconds total (12 per message = ~18 seconds total)
+                        if _SHUTDOWN_EVENT.is_set():
+                            LOG.debug(f"Countdown sleep interrupted for ${cmd} in {channel}")
+                            return
+                        time.sleep(1)
+        
+        # Check once more before final message
+        if _SHUTDOWN_EVENT.is_set():
+            LOG.debug(f"Final message skipped for ${cmd} in {channel} (shutdown)")
+            return
+        
         bot.say(random.choice(final_messages), channel)
-    except Exception:
-        LOG.exception("Error during countdown in %s", channel)
+        LOG.debug(f"Completed countdown for ${cmd} in {channel}")
+    
+    except (IOError, OSError) as e:
+        LOG.warning(f"Network error during ${cmd} countdown in {channel}: {e}")
+    except Exception as e:
+        LOG.error(f"Unexpected error in ${cmd} countdown for {channel}: {e}", exc_info=True)
+    finally:
+        # Deregister this thread
+        with _THREAD_LOCK:
+            _ACTIVE_THREADS.discard(current_thread)
+
+
+def _cleanup_threads():
+    """Signal all active threads to stop and wait for them to finish."""
+    LOG.debug(f"Cleaning up {len(_ACTIVE_THREADS)} active countdown threads")
+    _SHUTDOWN_EVENT.set()
+    
+    # Wait up to 5 seconds for all threads to finish
+    timeout = 5
+    start_time = time.time()
+    while _ACTIVE_THREADS and (time.time() - start_time) < timeout:
+        time.sleep(0.1)
+    
+    if _ACTIVE_THREADS:
+        LOG.warning(f"{len(_ACTIVE_THREADS)} threads did not complete within {timeout}s")
+    else:
+        LOG.debug("All countdown threads completed gracefully")
 
 
 @module.commands('weed', 'bong', 'joint', 'keef', 'kief', 'trip', 'shrooms', 'mushrooms', 'acid', 'lsd', 'peyote', 'mescaline')
@@ -411,42 +472,71 @@ def weed_commands(bot, trigger):
 
     if is_valid_target:
         # Per-user cooldown check (only for give action)
-        with LOCK:
-            last_user = PER_USER_LAST.get(key)
-            if last_user:
-                elapsed_user = now - last_user
-                if elapsed_user < PER_USER_COOLDOWN:
-                    remaining = PER_USER_COOLDOWN - elapsed_user
-                    bot.notice(f"You must wait {_format_remaining(remaining)} before giving {cmd} again in {channel}.", trigger.nick)
-                    return
+        try:
+            with LOCK:
+                last_user = PER_USER_LAST.get(key)
+                if last_user:
+                    elapsed_user = now - last_user
+                    if elapsed_user < PER_USER_COOLDOWN:
+                        remaining = PER_USER_COOLDOWN - elapsed_user
+                        bot.notice(f"You must wait {_format_remaining(remaining)} before giving {cmd} again in {channel}.", trigger.nick)
+                        return
+        except (AttributeError, TypeError) as e:
+            LOG.warning(f"Error checking per-user cooldown for ${cmd}: {e}")
+            return
         
         # Update per-user cooldown
-        with LOCK:
-            PER_USER_LAST[key] = now
+        try:
+            with LOCK:
+                PER_USER_LAST[key] = now
+        except (AttributeError, TypeError) as e:
+            LOG.error(f"Error updating per-user cooldown for ${cmd}: {e}")
+            return
         
-        target_user = trigger.group(2).strip()
-        gift = random.choice(gifts)
-        template = random.choice(action_msgs)
-        bot.action(template.format(target=target_user, gift=gift))
+        try:
+            target_user = trigger.group(2).strip()
+            gift = random.choice(gifts)
+            template = random.choice(action_msgs)
+            bot.action(template.format(target=target_user, gift=gift))
+            LOG.debug(f"${cmd} gift to {target_user} in {channel} by {user_id}")
+        except Exception as e:
+            LOG.error(f"Error formatting action for ${cmd}: {e}")
         return
 
     # Channel cooldown check (only for countdown action)
-    with LOCK:
-        last_chan = LAST_USED.get(channel)
-        if last_chan:
-            elapsed = now - last_chan
-            if elapsed < COOLDOWN:
-                remaining = COOLDOWN - elapsed
-                bot.notice(f"The countdown is on cooldown for {_format_remaining(remaining)} in {channel}.", trigger.nick)
-                return
+    try:
+        with LOCK:
+            last_chan = LAST_USED.get(channel)
+            if last_chan:
+                elapsed = now - last_chan
+                if elapsed < COOLDOWN:
+                    remaining = COOLDOWN - elapsed
+                    bot.notice(f"The countdown is on cooldown for {_format_remaining(remaining)} in {channel}.", trigger.nick)
+                    return
+    except (AttributeError, TypeError) as e:
+        LOG.warning(f"Error checking channel cooldown for ${cmd}: {e}")
+        return
 
     # Update channel timestamp for countdown action
-    with LOCK:
-        LAST_USED[channel] = now
+    try:
+        with LOCK:
+            LAST_USED[channel] = now
+    except (AttributeError, TypeError) as e:
+        LOG.error(f"Error updating channel cooldown for ${cmd}: {e}")
+        return
 
     # Start countdown+final message in a background thread to avoid blocking the bot
-    t = threading.Thread(target=_countdown_and_final, args=(bot, channel, countdown_msgs, final_msgs), daemon=True)
-    t.start()
+    try:
+        t = threading.Thread(
+            target=_countdown_and_final,
+            args=(bot, channel, cmd, countdown_msgs, final_msgs, threading.current_thread()),
+            daemon=True,
+            name=f"weed_countdown_{cmd}_{channel}"
+        )
+        t.start()
+        LOG.debug(f"Started countdown thread for ${cmd} in {channel} by {user_id}")
+    except Exception as e:
+        LOG.error(f"Error starting countdown thread for ${cmd}: {e}")
 
 
 # Trigger when $command appears anywhere mid-sentence (not at the start, which @module.commands already handles)
@@ -461,18 +551,37 @@ def weed_inline(bot, trigger):
     cmd = trigger.match.group('incmd').lower()
     channel = trigger.sender
     now = time.time()
+    user_id = trigger.account or trigger.nick
 
     gifts, action_msgs, final_msgs, countdown_msgs = DATA.get(cmd, DATA['weed'])
 
-    with LOCK:
-        last_chan = LAST_USED.get(channel)
-        if last_chan and (now - last_chan) < COOLDOWN:
-            remaining = COOLDOWN - (now - last_chan)
-            bot.notice(f"The {cmd} countdown is on cooldown for {_format_remaining(remaining)} in {channel}.", trigger.nick)
-            return
+    try:
+        with LOCK:
+            last_chan = LAST_USED.get(channel)
+            if last_chan and (now - last_chan) < COOLDOWN:
+                remaining = COOLDOWN - (now - last_chan)
+                bot.notice(f"The {cmd} countdown is on cooldown for {_format_remaining(remaining)} in {channel}.", trigger.nick)
+                return
 
-    with LOCK:
         LAST_USED[channel] = now
+    except (AttributeError, TypeError) as e:
+        LOG.warning(f"Error checking cooldown for inline ${cmd}: {e}")
+        return
 
-    t = threading.Thread(target=_countdown_and_final, args=(bot, channel, countdown_msgs, final_msgs), daemon=True)
-    t.start()
+    # Start countdown thread with proper error handling
+    try:
+        t = threading.Thread(
+            target=_countdown_and_final,
+            args=(bot, channel, cmd, countdown_msgs, final_msgs, threading.current_thread()),
+            daemon=True,
+            name=f"weed_inline_{cmd}_{channel}"
+        )
+        t.start()
+        LOG.debug(f"Started inline countdown thread for ${cmd} in {channel} by {user_id}")
+    except Exception as e:
+        LOG.error(f"Error starting inline countdown thread for ${cmd}: {e}")
+
+
+# Register cleanup handler for graceful shutdown
+atexit.register(_cleanup_threads)
+
