@@ -144,6 +144,30 @@ def country_code_to_flag(country_code: str) -> str:
         return "🌍"  # Fallback to globe
 
 
+def weather_emoji(summary: str) -> str:
+    """Select emoji based on weather summary text."""
+    if not summary:
+        return "🌤️"  # Default neutral emoji
+    s = summary.lower()
+    # Check in order of specificity
+    if any(word in s for word in ["thunderstorm", "thunder", "lightning"]):
+        return "⛈️"
+    elif any(word in s for word in ["snow", "sleet", "flurry"]):
+        return "❄️"
+    elif any(word in s for word in ["rain", "shower", "drizzle"]):
+        return "🌧️"
+    elif any(word in s for word in ["fog", "mist"]):
+        return "🌫️"
+    elif any(word in s for word in ["overcast", "mostly cloudy"]):
+        return "☁️"
+    elif any(word in s for word in ["partly cloudy", "scattered"]):
+        return "⛅"
+    elif any(word in s for word in ["clear", "sunny", "fair", "mostly clear"]):
+        return "☀️"
+    else:
+        return "🌤️"  # Default to sun behind small cloud (neutral)
+
+
 def shorten_location_name(display_name: str) -> str:
     if not display_name:
         return "Unknown location"
@@ -416,7 +440,7 @@ def current_weather(bot, trigger):
     clouds = c.get("cloudCover", 0.0) * 100
     precipitation = c.get("precipIntensity", 0.0)
     summary = c.get("summary", "Unknown")
-    emoji = "☀️" if "Clear" in summary else "⛅" if "Cloud" in summary else "🌧️" if "Rain" in summary else "🌦️"
+    emoji = weather_emoji(summary)
 
     wind_speed_kmh = wind_speed * 3.6
     wind_speed_mph = wind_speed * 2.23694
@@ -584,8 +608,7 @@ def forecast_weather(bot, trigger):
         summary = day.get("summary", "Unknown")
         temp_min = day.get("temperatureMin", 0.0)
         temp_max = day.get("temperatureMax", 0.0)
-
-        emoji = "☀️" if "Clear" in summary else "⛅" if "Cloud" in summary else "🌧️" if "Rain" in summary else "🌦️"
+        emoji = weather_emoji(summary)
         max_temp_str = colorize_temperature(temp_max)
         min_temp_str = colorize_temperature(temp_min)
 
