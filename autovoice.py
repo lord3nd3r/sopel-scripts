@@ -179,14 +179,23 @@ def _sweep(bot):
             if has_higher:
                 continue
 
-            if count >= MSG_THRESHOLD and not has_voice:
+            idle = (now - last) > IDLE_SECONDS
+
+            if count >= MSG_THRESHOLD and not has_voice and not idle:
                 to_voice.append(nick_lower)
-            elif has_voice and (now - last) > IDLE_SECONDS:
+            elif has_voice and idle:
                 to_devoice.append(nick_lower)
 
         # batch MODE changes (up to 4 per command to stay safe)
         _batch_mode(bot, channel, '+v', to_voice)
         _batch_mode(bot, channel, '-v', to_devoice)
+
+        # reset count for devoiced users so they must re-earn +v
+        with _data_lock:
+            chan_data = _data.get(channel, {})
+            for nick_lower in to_devoice:
+                if nick_lower in chan_data and isinstance(chan_data[nick_lower], dict):
+                    chan_data[nick_lower]['count'] = 0
 
         # clean out idle entries from data so file doesn't grow forever
         with _data_lock:

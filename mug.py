@@ -7,6 +7,7 @@ import json
 import random
 import threading
 import time
+import atexit
 from contextlib import contextmanager
 import unicodedata
 import re
@@ -58,6 +59,15 @@ def shutdown(bot):
     """Called by Sopel when the plugin is unloaded/reloaded."""
     _bot_proactive_stop.set()
     _voice_sweep_stop.set()
+    # Clear global caches to avoid state leaks across reloads
+    global _channel_toggles, _godmode, _flood_lockout, _flood_history, _last_cmd, _give_history_loaded, _data
+    _channel_toggles = None
+    _godmode.clear()
+    _flood_lockout.clear()
+    _flood_history.clear()
+    _last_cmd.clear()
+    _give_history_loaded = False
+    _data = None
 
 
 # ============================================================
@@ -430,6 +440,7 @@ _voice_sweep_stop = threading.Event()    # signal to stop the voice sweep thread
 
 # Re-entrant lock: safe if helpers call helpers while locked
 _data_lock = threading.RLock()
+_topic_lock = threading.Lock()  # Serialize topic updates to prevent mirror writes
 _data = None
 
 # Conservative payload limit so we don't hit IRC's ~512 byte ceiling after prefixes.
@@ -583,10 +594,10 @@ def _load_data(bot):
                         u["inv"] = norm
 
                 bot.db.set_plugin_value(PLUGIN_NAME, 'data', data)
-        except Exception:
-            # Use Sopel's logger instead of print
+        except (IOError, json.JSONDecodeError, ValueError) as e:
+            # JSON is malformed, or file doesn't exist, or old format mismatch
             try:
-                bot.logger.exception("mug_game: JSON merge failed")
+                bot.logger.warning("mug_game: JSON merge skipped (%s)", type(e).__name__)
             except Exception:
                 pass
 
@@ -613,24 +624,36 @@ def _update_highscore(data):
 
 
 def _update_topic_highscore(bot, nick, amount):
-    """Update the channel topic with the new high score record."""
+    """Update the channel topic with the new high score record (with lock and retry)."""
     if not HIGHSCORE_TOPIC_ENABLED:
         return
     hs_text = f"{HIGHSCORE_TOPIC_MARKER} High Score: {nick} ({fmt_coins(amount)} coins) 👑"
     marker_re = re.compile(re.escape(HIGHSCORE_TOPIC_MARKER) + r'.*$')
-    for channel in HIGHSCORE_TOPIC_CHANNELS:
-        try:
-            chan_obj = bot.channels.get(channel)
-            current_topic = getattr(chan_obj, 'topic', '') or '' if chan_obj else ''
-            if marker_re.search(current_topic):
-                new_topic = marker_re.sub(hs_text, current_topic).strip()
-            else:
-                new_topic = f"{current_topic} {hs_text}".strip() if current_topic else hs_text
-            bot.write(['TOPIC', channel], new_topic)
-        except RuntimeError:
-            LOG.warning('highscore_topic: bot not connected, skipping topic update in %s', channel)
-        except Exception:
-            LOG.exception('highscore_topic: failed to update topic in %s', channel)
+    
+    with _topic_lock:
+        for channel in HIGHSCORE_TOPIC_CHANNELS:
+            for attempt in range(1, 3):  # 2 attempts max
+                try:
+                    chan_obj = bot.channels.get(channel)
+                    current_topic = getattr(chan_obj, 'topic', '') or '' if chan_obj else ''
+                    if marker_re.search(current_topic):
+                        new_topic = marker_re.sub(hs_text, current_topic).strip()
+                    else:
+                        new_topic = f"{current_topic} {hs_text}".strip() if current_topic else hs_text
+                    bot.write(['TOPIC', channel], new_topic)
+                    break  # success, exit retry loop
+                except RuntimeError:
+                    if attempt == 1:
+                        LOG.warning('highscore_topic: bot not connected attempt %d in %s', attempt, channel)
+                        time.sleep(0.5)  # brief delay before retry
+                    else:
+                        LOG.warning('highscore_topic: bot not connected, giving up for %s', channel)
+                except Exception:
+                    if attempt == 1:
+                        LOG.exception('highscore_topic: failed attempt %d, retrying %s', attempt, channel)
+                        time.sleep(0.5)
+                    else:
+                        LOG.exception('highscore_topic: failed attempt %d (final), skipping %s', attempt, channel)
 
 
 def _save_data(bot):
@@ -638,7 +661,11 @@ def _save_data(bot):
         if _data is None:
             return
         changed, hs_nick, hs_amt = _update_highscore(_data)
-        bot.db.set_plugin_value(PLUGIN_NAME, 'data', _data)
+        try:
+            bot.db.set_plugin_value(PLUGIN_NAME, 'data', _data)
+        except (AttributeError, TypeError) as e:
+            LOG.warning("mug_game: save_data failed (%s)", type(e).__name__)
+            return
     # Auto-update channel topic if high score was beaten or marker is missing
     if hs_nick and hs_amt > 0:
         needs_update = changed
@@ -652,7 +679,7 @@ def _save_data(bot):
                     if not marker_re.search(current_topic):
                         needs_update = True
                         break
-                except Exception:
+                except (AttributeError, KeyError):
                     pass
         if needs_update:
             try:
@@ -698,9 +725,10 @@ def get_user_record(bot, nick):
     
     # Normalize inventory keys to lowercase to avoid casing mismatches
     # Also cap each item at 3 max (migration for legacy users with 100+ stacks)
+    # Only do this if the inventory hasn't been marked as normalized yet
     try:
         inv = u.get("inv", {})
-        if isinstance(inv, dict):
+        if isinstance(inv, dict) and not u.get("_inv_normalized"):
             norm = {}
             for k, v in inv.items():
                 if not k:
@@ -709,9 +737,10 @@ def get_user_record(bot, nick):
                 count = norm.get(lk, 0) + int(v)
                 norm[lk] = min(count, 3)  # cap each item at 3
             u["inv"] = norm
-    except Exception:
+            u["_inv_normalized"] = True  # mark as done to avoid re-normalizing
+    except (KeyError, ValueError, AttributeError):
         # Best-effort normalization; don't fail record access
-        pass
+        u["_inv_normalized"] = True
     return users[key]
 
 
@@ -806,7 +835,13 @@ def _check_identified(bot, trigger) -> bool:
       1. trigger.account  (IRCv3 account-tag on each PRIVMSG)
       2. bot.users[nick].account  (Sopel's WHO/WHOIS-based tracking)
       3. bot.channels[chan].privileges  (has channel privs → must be identified)
-    If none of the above yield data, allow the command (no false lockouts).
+
+    Fallback behavior (when no account data exists):
+      If the server doesn't support IRCv3 account-tag or WHOIS tracking, we 
+      cannot reliably detect identification. Returning True allows commands to
+      proceed rather than locking everyone out. This is a deliberate choice to
+      maximize compat with older IRC networks that don't support identification
+      queries. Change REQUIRE_IDENTIFIED=False to disable all ident checks.
     """
     if not REQUIRE_IDENTIFIED:
         return True
@@ -814,9 +849,12 @@ def _check_identified(bot, trigger) -> bool:
     nick = trigger.nick
 
     # 1) IRCv3 account-tag (best case)
-    account = getattr(trigger, 'account', None)
-    if account and account != '*':
-        return True
+    try:
+        account = getattr(trigger, 'account', None)
+        if account and account != '*':
+            return True
+    except AttributeError:
+        pass
 
     # 2) Sopel's internal user tracking (populated via WHO on join)
     try:
@@ -828,7 +866,7 @@ def _check_identified(bot, trigger) -> bool:
             # If Sopel explicitly recorded None/'*', user is NOT identified
             if acct is not None:
                 return False
-    except Exception:
+    except (AttributeError, KeyError):
         pass
 
     # 3) Channel privilege heuristic: if the user has any channel privileges
@@ -848,23 +886,19 @@ def _check_identified(bot, trigger) -> bool:
                                 break
                     if v and (isinstance(v, int) and v > 0):
                         return True
-    except Exception:
+    except (AttributeError, KeyError):
         pass
 
-    # 4) If we have no account data at all (server doesn't support account
-    #    tracking), allow the command rather than locking out everyone.
-    #    This means the check is effectively a no-op on networks without
-    #    IRCv3 account-tag or WHOX, but that's better than a full lockout.
-    if account is None:
-        try:
-            user = bot.users.get(nick)
-            if user and getattr(user, 'account', 'UNSET') == 'UNSET':
-                # Sopel has no account info at all → server doesn't track accounts
-                return True
-        except Exception:
-            pass
-        # Final fallback: no data available, allow through
-        return True
+    # 4) If we have no account data at all (server doesn't support account tracking),
+    #    allow the command rather than locking out everyone (fallback compat mode).
+    try:
+        user = bot.users.get(nick)
+        account_attr = getattr(user, 'account', 'UNSET') if user else 'UNSET'
+        if account_attr == 'UNSET':
+            # Sopel has no account info → server doesn't track accounts
+            return True
+    except (AttributeError, KeyError):
+        pass
 
     # account is explicitly '*' (not identified) and no privileges
     return False
@@ -936,18 +970,23 @@ def _load_give_history(bot):
             cutoff = now - GIVE_DAILY_WINDOW
             for k, entries in saved.items():
                 if isinstance(entries, list):
-                    _give_history[k] = [(t, a) for t, a in entries if t > cutoff]
-    except Exception:
-        pass
-    _give_history_loaded = True
+                    try:
+                        _give_history[k] = [(float(t), int(a)) for t, a in entries if float(t) > cutoff]
+                    except (ValueError, TypeError):
+                        # Skip malformed entries
+                        continue
+    except (AttributeError, TypeError) as e:
+        LOG.warning("mug_game: give_history load skipped (%s)", type(e).__name__)
+    finally:
+        _give_history_loaded = True
 
 
 def _save_give_history(bot):
     """Persist give history to bot.db."""
     try:
         bot.db.set_plugin_value(PLUGIN_NAME, 'give_history', _give_history)
-    except Exception:
-        pass
+    except (AttributeError, TypeError) as e:
+        LOG.warning("mug_game: give_history save failed (%s)", type(e).__name__)
 
 
 def _check_give_daily(bot, nick: str, amount: int, now: float) -> tuple[bool, int]:
@@ -990,8 +1029,11 @@ def _load_channel_toggles(bot) -> dict[str, bool]:
     """Lazily load per-channel toggles from bot.db."""
     global _channel_toggles
     if _channel_toggles is None:
-        val = bot.db.get_plugin_value(PLUGIN_NAME, 'channel_toggles')
-        _channel_toggles = val if isinstance(val, dict) else {}
+        try:
+            val = bot.db.get_plugin_value(PLUGIN_NAME, 'channel_toggles')
+            _channel_toggles = val if isinstance(val, dict) else {}
+        except (AttributeError, TypeError):
+            _channel_toggles = {}
     return _channel_toggles
 
 
@@ -3913,6 +3955,20 @@ def voice_on_join(bot, trigger):
         rec = data.get('users', {}).get(nick_key, {})
         coins = rec.get('money', 0) if isinstance(rec, dict) else 0
         _mode_sync_nick(bot, trigger.sender, trigger.nick, coins)
-    except Exception:
+    except (AttributeError, KeyError, TypeError):
         pass
+
+
+# ============================================================
+# ============== PLUGIN LIFECYCLE HANDLER =====================
+# ============================================================
+
+def _cleanup_on_exit():
+    """Graceful cleanup when the process exits."""
+    _bot_proactive_stop.set()
+    _voice_sweep_stop.set()
+
+
+# Register cleanup handler for graceful shutdown
+atexit.register(_cleanup_on_exit)
 

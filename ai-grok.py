@@ -13,6 +13,7 @@ import random
 import logging
 import queue
 import json
+import atexit
 
 # Tunables / constants
 MAX_SEND_LEN = 440
@@ -32,13 +33,76 @@ MAX_REPLY_LENGTH = 1400
 TRUNCATED_REPLY_LENGTH = 1390
 BG_CHAR_BUDGET = 6000          # background context budget — includes bot output & commands
 
+# Module-level regex patterns (compiled once at import time)
+_SEARCH_INTENT_RE = re.compile(
+    r'\b(search|news|latest|recent|today|yesterday|tonight|this week|this month|'
+    r'current events?|whats? happening|headlines?|score|results?|standings?|'
+    r'stock price|weather|forecast|breaking|update|election|poll|'
+    r'who won|who died|who is winning|is .+ dead|did .+ happen)\b',
+    re.IGNORECASE,
+)
+
+_WANTS_SOURCES_RE = re.compile(
+    r'\b(show\s+(me\s+)?(the\s+)?(links?|sources?|citations?|refs?|references?|urls?)'
+    r'|give\s+(me\s+)?(the\s+)?(links?|sources?|citations?|refs?|references?|urls?)'
+    r'|i\s+want\s+(the\s+)?(links?|sources?|citations?|refs?|references?|urls?)'
+    r'|include\s+(the\s+)?(links?|sources?|citations?|refs?|references?|urls?)'
+    r'|with\s+(the\s+)?(links?|sources?|citations?|refs?|references?|urls?)'
+    r'|\bsources?\s*\??\s*$'
+    r'|\blinks?\s*\??\s*$)\b',
+    re.IGNORECASE,
+)
+
+_TIME_INTENT_RE = re.compile(
+    r'\b(what(?:\s+is|s|\u2019s)?\s+(the\s+)?(time|date|day)|'
+    r'current\s+(time|date)|what\s+time|what\s+day|today(?:\s+is|\s+date)?|'
+    r'whats?\s+today|day\s+is\s+it|time\s+is\s+it|date\s+is\s+it)\b',
+    re.IGNORECASE,
+)
+
+_REVIEW_INTENT_RE = re.compile(
+    r"\b(thoughts?|opinion|what do you think|summarize|give (me )?(your )?(take|opinion)|opine|"
+    r"what(?:'s| is) (being |going )?(?:talked|discussed|happening|going on)|"
+    r"what(?:'s| was| is) (?:being )?said|what(?:'s| is) up|"
+    r"what(?:'s| are) they (talking|saying|discussing)|"
+    r"catch me up|fill me in|what did i miss|what('s| is) above|"
+    r"what(?:'s| is) the topic|recap|tldr|tl;dr|what happened)\b",
+    re.IGNORECASE,
+)
+
+_TZ_ABBR_MAP = {
+    'EST': 'America/New_York', 'EDT': 'America/New_York',
+    'ET': 'America/New_York', 'EASTERN': 'America/New_York',
+    'CST': 'America/Chicago', 'CDT': 'America/Chicago',
+    'CT': 'America/Chicago', 'CENTRAL': 'America/Chicago',
+    'MST': 'America/Denver', 'MDT': 'America/Denver',
+    'MT': 'America/Denver', 'MOUNTAIN': 'America/Denver',
+    'PST': 'America/Los_Angeles','PDT': 'America/Los_Angeles',
+    'PT': 'America/Los_Angeles','PACIFIC': 'America/Los_Angeles',
+    'UTC': 'UTC', 'GMT': 'UTC',
+}
+
+_TZ_SET_RE = re.compile(
+    r'\b(?:i(?:\'m| am)(?:\s+in)?|my\s+(?:tz|timezone|time\s*zone)\s+is|'
+    r'set\s+(?:my\s+)?(?:tz|timezone|time\s*zone)\s+to|i\s+live\s+in|'
+    r'i(?:\'m| am)\s+in)\b'
+    r'.*?\b(EST|EDT|CST|CDT|MST|MDT|PST|PDT|ET|CT|MT|PT|UTC|GMT|eastern|central|mountain|pacific)\b',
+    re.IGNORECASE,
+)
+
+_FMT_SET_RE = re.compile(
+    r'\b(?:i\s+prefer|prefer|use|set|like)\b.*?\b(12[\s\-]?h(?:r|our)?|24[\s\-]?h(?:r|our)?)\b',
+    re.IGNORECASE,
+)
+
 # Bounded queue and worker threads to process API requests without unbounded threads
 API_TASK_QUEUE = queue.Queue(maxsize=API_QUEUE_MAXSIZE)
+API_WORKER_SHUTDOWN = False
 
 def _api_worker_loop():
-    while True:
+    while not API_WORKER_SHUTDOWN:
         try:
-            task = API_TASK_QUEUE.get()
+            task = API_TASK_QUEUE.get(timeout=0.5)
             if task is None:
                 break
             try:
@@ -47,6 +111,8 @@ def _api_worker_loop():
                 logging.getLogger('Grok').exception('API worker loop task failed')
             finally:
                 API_TASK_QUEUE.task_done()
+        except queue.Empty:
+            continue
         except Exception:
             logging.getLogger('Grok').exception('API worker loop crashed')
 
@@ -88,18 +154,28 @@ class GrokSection(types.StaticSection):
 
 # Path to the per-channel system prompts file (lives next to this script).
 _CHANNEL_PROMPTS_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'grok_channel_prompts.json')
+_CHANNEL_PROMPTS_CACHE = {}
+_CHANNEL_PROMPTS_CACHE_TIME = 0
+_CHANNEL_PROMPTS_CACHE_TTL = 300  # 5 minutes
 
 def _load_channel_prompts():
     """Read grok_channel_prompts.json and return a {"#channel": "prompt"} dict.
-    Keys are lower-cased. Returns an empty dict on any error so the bot keeps running.
+    Keys are lower-cased. Returns cached result if fresh, otherwise reads from disk.
+    Returns an empty dict on any error so the bot keeps running.
     """
+    global _CHANNEL_PROMPTS_CACHE, _CHANNEL_PROMPTS_CACHE_TIME
+    now = time.time()
+    if now - _CHANNEL_PROMPTS_CACHE_TIME < _CHANNEL_PROMPTS_CACHE_TTL:
+        return _CHANNEL_PROMPTS_CACHE
     try:
         with open(_CHANNEL_PROMPTS_FILE, 'r', encoding='utf-8') as fh:
             data = json.load(fh)
-        return {k.lower(): v for k, v in data.items() if isinstance(v, str)}
+        _CHANNEL_PROMPTS_CACHE = {k.lower(): v for k, v in data.items() if isinstance(v, str)}
+        _CHANNEL_PROMPTS_CACHE_TIME = now
+        return _CHANNEL_PROMPTS_CACHE
     except Exception:
         logging.getLogger('Grok').exception('Failed to load grok_channel_prompts.json')
-        return {}
+        return _CHANNEL_PROMPTS_CACHE
 
 def setup(bot):
     bot.config.define_section('grok', GrokSection)
@@ -114,21 +190,25 @@ def setup(bot):
     bot.memory['grok_last'] = {}
     bot.memory['grok_locks'] = {}
     bot.memory['grok_locks_lock'] = threading.Lock()
-    bot.memory['grok_busy'] = {}  # NEW: per-channel busy flag to reduce spam
+    bot.memory['grok_busy'] = {}  # per-channel busy flag to reduce spam
     bot.memory['grok_channel_log'] = {}  # per-channel chronological message log
+    bot.memory['grok_say_lock'] = threading.Lock()  # thread-safe say wrapper lock
+    bot.memory['grok_api_failures'] = {}  # circuit breaker: channel -> failure count
 
     # Wrap bot.say so ALL bot output (from every plugin) is captured in channel log.
     # This lets the AI see game results, mug outcomes, bet payouts, etc.
+    # Use a lock to ensure thread-safe access to memory structures.
     _original_say = bot.say
     def _grok_say_wrapper(text, target=None, *args, **kwargs):
         _original_say(text, target, *args, **kwargs)
         try:
             t = target or ''
             if isinstance(t, str) and t.startswith('#'):
-                chan_log = bot.memory.get('grok_channel_log')
-                if chan_log is not None:
-                    dq = chan_log.setdefault(t.lower(), deque(maxlen=300))
-                    dq.append((bot.nick, str(text)))
+                with bot.memory['grok_say_lock']:
+                    chan_log = bot.memory.get('grok_channel_log')
+                    if chan_log is not None:
+                        dq = chan_log.setdefault(t.lower(), deque(maxlen=300))
+                        dq.append((bot.nick, str(text)))
         except Exception:
             pass
     bot.say = _grok_say_wrapper
@@ -147,6 +227,20 @@ def setup(bot):
     for _ in range(API_WORKER_COUNT):
         t = threading.Thread(target=_api_worker_loop, daemon=True)
         t.start()
+    
+    # Register shutdown handler for graceful worker shutdown
+    def _shutdown_handler():
+        global API_WORKER_SHUTDOWN
+        API_WORKER_SHUTDOWN = True
+        # Drain the queue
+        try:
+            while not API_TASK_QUEUE.empty():
+                API_TASK_QUEUE.get_nowait()
+                API_TASK_QUEUE.task_done()
+        except queue.Empty:
+            pass
+    
+    atexit.register(_shutdown_handler)
 
 def send(bot, channel, text):
     max_len = MAX_SEND_LEN
@@ -297,16 +391,35 @@ def _db_conn(bot):
         raise RuntimeError('DB path not set')
     return sqlite3.connect(path, check_same_thread=False)
 
+class _DBContext:
+    """Context manager for database connections."""
+    def __init__(self, bot):
+        self.bot = bot
+        self.conn = None
+    
+    def __enter__(self):
+        self.conn = _db_conn(self.bot)
+        return self.conn
+    
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        if self.conn:
+            try:
+                if exc_type is None:
+                    self.conn.commit()
+                else:
+                    self.conn.rollback()
+            finally:
+                self.conn.close()
+        return False
+
 def _db_add_turn(bot, nick, role, text, source=None):
     try:
-        conn = _db_conn(bot)
-        c = conn.cursor()
-        c.execute(
-            'INSERT INTO grok_user_history (nick, source, role, text, ts) VALUES (?, ?, ?, ?, ?)',
-            (nick.lower(), source or '', role, text, datetime.datetime.utcnow().isoformat()),
-        )
-        conn.commit()
-        conn.close()
+        with _DBContext(bot) as conn:
+            c = conn.cursor()
+            c.execute(
+                'INSERT INTO grok_user_history (nick, source, role, text, ts) VALUES (?, ?, ?, ?, ?)',
+                (nick.lower(), source or '', role, text, datetime.datetime.utcnow().isoformat()),
+            )
     except Exception:
         _log(bot).exception('Failed to write grok DB entry')
 
@@ -338,66 +451,28 @@ def sanitize_reply(bot, trigger, reply):
 
     return reply
 
-_SEARCH_INTENT_RE = re.compile(
-    r'\b(search|news|latest|recent|today|yesterday|tonight|this week|this month|'
-    r'current events?|whats? happening|headlines?|score|results?|standings?|'
-    r'stock price|weather|forecast|breaking|update|election|poll|'
-    r'who won|who died|who is winning|is .+ dead|did .+ happen)\b',
-    re.IGNORECASE,
-)
-
-# Detect when user explicitly asks for source links / citations
-_WANTS_SOURCES_RE = re.compile(
-    r'\b(show\s+(me\s+)?(the\s+)?(links?|sources?|citations?|refs?|references?|urls?)'
-    r'|give\s+(me\s+)?(the\s+)?(links?|sources?|citations?|refs?|references?|urls?)'
-    r'|i\s+want\s+(the\s+)?(links?|sources?|citations?|refs?|references?|urls?)'
-    r'|include\s+(the\s+)?(links?|sources?|citations?|refs?|references?|urls?)'
-    r'|with\s+(the\s+)?(links?|sources?|citations?|refs?|references?|urls?)'
-    r'|\bsources?\s*\??\s*$'
-    r'|\blinks?\s*\??\s*$)\b',
-    re.IGNORECASE,
-)
-
-_TIME_INTENT_RE = re.compile(
-    r'\b(what(?:\s+is|s|\u2019s)?\s+(the\s+)?(time|date|day)|'
-    r'current\s+(time|date)|what\s+time|what\s+day|today(?:\s+is|\s+date)?|'
-    r'whats?\s+today|day\s+is\s+it|time\s+is\s+it|date\s+is\s+it)\b',
-    re.IGNORECASE,
-)
-
-_TZ_ABBR_MAP = {
-    'EST': 'America/New_York', 'EDT': 'America/New_York',
-    'ET': 'America/New_York', 'EASTERN': 'America/New_York',
-    'CST': 'America/Chicago', 'CDT': 'America/Chicago',
-    'CT': 'America/Chicago', 'CENTRAL': 'America/Chicago',
-    'MST': 'America/Denver', 'MDT': 'America/Denver',
-    'MT': 'America/Denver', 'MOUNTAIN': 'America/Denver',
-    'PST': 'America/Los_Angeles','PDT': 'America/Los_Angeles',
-    'PT': 'America/Los_Angeles','PACIFIC': 'America/Los_Angeles',
-    'UTC': 'UTC', 'GMT': 'UTC',
-}
-
-_TZ_SET_RE = re.compile(
-    r'\b(?:i(?:\'m| am)(?:\s+in)?|my\s+(?:tz|timezone|time\s*zone)\s+is|'
-    r'set\s+(?:my\s+)?(?:tz|timezone|time\s*zone)\s+to|i\s+live\s+in|'
-    r'i(?:\'m| am)\s+in)\b'
-    r'.*?\b(EST|EDT|CST|CDT|MST|MDT|PST|PDT|ET|CT|MT|PT|UTC|GMT|eastern|central|mountain|pacific)\b',
-    re.IGNORECASE,
-)
-
-_FMT_SET_RE = re.compile(
-    r'\b(?:i\s+prefer|prefer|use|set|like)\b.*?\b(12[\s\-]?h(?:r|our)?|24[\s\-]?h(?:r|our)?)\b',
-    re.IGNORECASE,
-)
-
 def _call_responses_api(bot, messages, model, temp, max_toks, search_mode=False):
+    """Call Responses API with request validation and response schema validation."""
+    if not messages or not isinstance(messages, list):
+        raise ValueError('messages must be a non-empty list')
+    if not isinstance(model, str) or not model.strip():
+        raise ValueError('model must be a non-empty string')
+    
     instructions_parts = []
     input_messages = []
     for msg in messages:
+        if not isinstance(msg, dict):
+            continue
         if msg.get('role') == 'system':
-            instructions_parts.append(msg['content'])
+            content = msg.get('content', '')
+            if content:
+                instructions_parts.append(content)
         else:
             input_messages.append(msg)
+    
+    if not input_messages:
+        raise ValueError('No valid input messages found')
+    
     payload = {
         "model": model,
         "input": input_messages,
@@ -417,23 +492,50 @@ def _call_responses_api(bot, messages, model, temp, max_toks, search_mode=False)
     )
     r.raise_for_status()
     data = r.json()
+    
+    # Validate response schema
+    if not isinstance(data, dict):
+        raise ValueError('API response is not a dict')
 
     reply = ''
     citations = []
-    for item in (data.get('output') or []):
-        if item.get('type') == 'message' and item.get('role') == 'assistant':
-            for content_part in (item.get('content') or []):
-                ctype = content_part.get('type')
-                if ctype in ('text', 'output_text'):  # accept both known variants
-                    reply += content_part.get('text', '')
-                for ann in (content_part.get('annotations') or []):
-                    url = ann.get('url')
-                    if url:
-                        citations.append(url)
+    output_items = data.get('output')
+    if output_items and isinstance(output_items, list):
+        for item in output_items:
+            if not isinstance(item, dict):
+                continue
+            if item.get('type') == 'message' and item.get('role') == 'assistant':
+                content_list = item.get('content')
+                if content_list and isinstance(content_list, list):
+                    for content_part in content_list:
+                        if not isinstance(content_part, dict):
+                            continue
+                        ctype = content_part.get('type')
+                        if ctype in ('text', 'output_text'):
+                            text = content_part.get('text')
+                            if text:
+                                reply += text
+                        annotations = content_part.get('annotations')
+                        if annotations and isinstance(annotations, list):
+                            for ann in annotations:
+                                if isinstance(ann, dict):
+                                    url = ann.get('url')
+                                    if url:
+                                        citations.append(url)
     return reply.strip(), citations
 
 def _api_worker(bot, trigger, messages, review_mode, is_pm, bot_nick, chan_lock, search_mode=False, wants_sources=False):
     try:
+        # Circuit breaker: check if channel has too many failures
+        channel = trigger.sender
+        api_failures = bot.memory.get('grok_api_failures', {})
+        if api_failures.get(channel, 0) >= 5:
+            try:
+                bot.say("Grok API is having persistent issues; try again in a moment.", channel)
+            except Exception:
+                pass
+            return
+        
         attempts = 3
         backoff = 1.0
         reply = None
@@ -448,6 +550,9 @@ def _api_worker(bot, trigger, messages, review_mode, is_pm, bot_nick, chan_lock,
                     bot, messages, model, temp, max_toks,
                     search_mode=search_mode,
                 )
+                # Reset failure count on success
+                if channel in api_failures:
+                    api_failures[channel] = 0
                 break
             except requests.exceptions.Timeout:
                 if attempt < attempts:
@@ -455,6 +560,7 @@ def _api_worker(bot, trigger, messages, review_mode, is_pm, bot_nick, chan_lock,
                     backoff *= 2
                 else:
                     _log(bot).exception('Grok API final attempt timed out')
+                    api_failures[channel] = api_failures.get(channel, 0) + 1
                     try:
                         bot.say("Grok is timing out right now; please try again later.", trigger.sender)
                     except Exception:
@@ -466,6 +572,7 @@ def _api_worker(bot, trigger, messages, review_mode, is_pm, bot_nick, chan_lock,
                     backoff *= 2
                 else:
                     _log(bot).exception('Grok API final attempt failed (HTTP error)')
+                    api_failures[channel] = api_failures.get(channel, 0) + 1
                     try:
                         bot.say("Grok is having trouble right now; please try again later.", trigger.sender)
                     except Exception:
@@ -542,59 +649,51 @@ def _api_worker(bot, trigger, messages, review_mode, is_pm, bot_nick, chan_lock,
 
 def _db_get_recent(bot, nick, limit=MAX_HISTORY_PER_USER):
     try:
-        conn = _db_conn(bot)
-        c = conn.cursor()
-        c.execute(
-            'SELECT role, text FROM grok_user_history WHERE nick = ? ORDER BY id DESC LIMIT ?',
-            (nick.lower(), limit),
-        )
-        rows = c.fetchall()
-        conn.close()
-        return list(reversed([(r[0], r[1]) for r in rows]))
+        with _DBContext(bot) as conn:
+            c = conn.cursor()
+            c.execute(
+                'SELECT role, text FROM grok_user_history WHERE nick = ? ORDER BY id DESC LIMIT ?',
+                (nick.lower(), limit),
+            )
+            rows = c.fetchall()
+            return list(reversed([(r[0], r[1]) for r in rows]))
     except Exception:
         return []
 
 def _db_clear_user(bot, nick):
     try:
-        conn = _db_conn(bot)
-        c = conn.cursor()
-        c.execute('DELETE FROM grok_user_history WHERE nick = ?', (nick.lower(),))
-        conn.commit()
-        conn.close()
+        with _DBContext(bot) as conn:
+            c = conn.cursor()
+            c.execute('DELETE FROM grok_user_history WHERE nick = ?', (nick.lower(),))
     except Exception:
         _log(bot).exception('Failed to clear grok DB for %s', nick)
 
 def _db_get_admin_ignored(bot):
     try:
-        conn = _db_conn(bot)
-        c = conn.cursor()
-        c.execute('SELECT nick FROM grok_admin_ignored_nicks')
-        rows = c.fetchall()
-        conn.close()
-        return {r[0].lower() for r in rows if r and r[0]}
+        with _DBContext(bot) as conn:
+            c = conn.cursor()
+            c.execute('SELECT nick FROM grok_admin_ignored_nicks')
+            rows = c.fetchall()
+            return {r[0].lower() for r in rows if r and r[0]}
     except Exception:
         return set()
 
 def _db_add_admin_ignored(bot, nick, added_by=None):
     try:
-        conn = _db_conn(bot)
-        c = conn.cursor()
-        c.execute(
-            'INSERT OR REPLACE INTO grok_admin_ignored_nicks (nick, added_by, ts) VALUES (?, ?, ?)',
-            (nick.lower(), (added_by or '').lower(), datetime.datetime.utcnow().isoformat()),
-        )
-        conn.commit()
-        conn.close()
+        with _DBContext(bot) as conn:
+            c = conn.cursor()
+            c.execute(
+                'INSERT OR REPLACE INTO grok_admin_ignored_nicks (nick, added_by, ts) VALUES (?, ?, ?)',
+                (nick.lower(), (added_by or '').lower(), datetime.datetime.utcnow().isoformat()),
+            )
     except Exception:
         _log(bot).exception('Failed to add ignored nick: %s', nick)
 
 def _db_remove_admin_ignored(bot, nick):
     try:
-        conn = _db_conn(bot)
-        c = conn.cursor()
-        c.execute('DELETE FROM grok_admin_ignored_nicks WHERE nick = ?', (nick.lower(),))
-        conn.commit()
-        conn.close()
+        with _DBContext(bot) as conn:
+            c = conn.cursor()
+            c.execute('DELETE FROM grok_admin_ignored_nicks WHERE nick = ?', (nick.lower(),))
     except Exception:
         _log(bot).exception('Failed to remove ignored nick: %s', nick)
 
@@ -603,41 +702,38 @@ def _load_admin_ignored_into_memory(bot):
 
 def _db_get_user_pref(bot, nick):
     try:
-        conn = _db_conn(bot)
-        c = conn.cursor()
-        c.execute(
-            'SELECT tz_iana, tz_label, time_fmt FROM grok_user_prefs WHERE nick = ?',
-            (nick.lower(),),
-        )
-        row = c.fetchone()
-        conn.close()
-        if row:
-            return {'tz_iana': row[0], 'tz_label': row[1], 'time_fmt': row[2]}
-        return {}
+        with _DBContext(bot) as conn:
+            c = conn.cursor()
+            c.execute(
+                'SELECT tz_iana, tz_label, time_fmt FROM grok_user_prefs WHERE nick = ?',
+                (nick.lower(),),
+            )
+            row = c.fetchone()
+            if row:
+                return {'tz_iana': row[0], 'tz_label': row[1], 'time_fmt': row[2]}
+            return {}
     except Exception:
         return {}
 
 def _db_set_user_pref(bot, nick, tz=None, fmt=None):
     try:
-        conn = _db_conn(bot)
-        c = conn.cursor()
-        c.execute(
-            'SELECT tz_iana, tz_label, time_fmt FROM grok_user_prefs WHERE nick = ?',
-            (nick.lower(),),
-        )
-        row = c.fetchone()
-        cur_iana = row[0] if row else None
-        cur_label = row[1] if row else None
-        cur_fmt = row[2] if row else None
-        new_iana = tz if tz is not None else cur_iana
-        new_fmt = fmt if fmt is not None else cur_fmt
-        new_label = new_iana
-        c.execute(
-            'INSERT OR REPLACE INTO grok_user_prefs (nick, tz_iana, tz_label, time_fmt) VALUES (?, ?, ?, ?)',
-            (nick.lower(), new_iana, new_label, new_fmt),
-        )
-        conn.commit()
-        conn.close()
+        with _DBContext(bot) as conn:
+            c = conn.cursor()
+            c.execute(
+                'SELECT tz_iana, tz_label, time_fmt FROM grok_user_prefs WHERE nick = ?',
+                (nick.lower(),),
+            )
+            row = c.fetchone()
+            cur_iana = row[0] if row else None
+            cur_label = row[1] if row else None
+            cur_fmt = row[2] if row else None
+            new_iana = tz if tz is not None else cur_iana
+            new_fmt = fmt if fmt is not None else cur_fmt
+            new_label = new_iana
+            c.execute(
+                'INSERT OR REPLACE INTO grok_user_prefs (nick, tz_iana, tz_label, time_fmt) VALUES (?, ?, ?, ?)',
+                (nick.lower(), new_iana, new_label, new_fmt),
+            )
     except Exception:
         _log(bot).exception('Failed to set user pref for %s', nick)
 
@@ -988,16 +1084,7 @@ def handle(bot, trigger):
     except Exception:
         pass
 
-    review_re = re.compile(
-        r"\b(thoughts?|opinion|what do you think|summarize|give (me )?(your )?(take|opinion)|opine|"
-        r"what(?:'s| is) (being |going )?(?:talked|discussed|happening|going on)|"
-        r"what(?:'s| was| is) (?:being )?said|what(?:'s| is) up|"
-        r"what(?:'s| are) they (talking|saying|discussing)|"
-        r"catch me up|fill me in|what did i miss|what('s| is) above|"
-        r"what(?:'s| is) the topic|recap|tldr|tl;dr|what happened)\b",
-        re.IGNORECASE,
-    )
-    review_mode = bool(review_re.search(user_message)) or (user_message.strip() == '^^')
+    review_mode = bool(_REVIEW_INTENT_RE.search(user_message)) or (user_message.strip() == '^^')
 
     if not user_message:
         return
