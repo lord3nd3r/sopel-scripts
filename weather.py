@@ -34,6 +34,29 @@ def _load_locations(bot):
         if not isinstance(user_locations, dict):
             user_locations = {}
         LOG.debug("Loaded %d user locations from bot.db", len(user_locations))
+        
+        # Migrate old locations missing country_code via reverse geocoding
+        needs_save = False
+        for nick, loc in user_locations.items():
+            if isinstance(loc, dict) and "lat" in loc and "lon" in loc and "country_code" not in loc:
+                try:
+                    # Do a reverse geocode to get country code
+                    url = "https://nominatim.openstreetmap.org/reverse"
+                    params = {"format": "json", "lat": loc["lat"], "lon": loc["lon"]}
+                    headers = {"User-Agent": "SopelWeatherBot/1.0"}
+                    response = requests.get(url, params=params, headers=headers, timeout=5)
+                    data = response.json()
+                    if data and "address" in data and isinstance(data["address"], dict):
+                        country_code = data["address"].get("country_code", "").upper()
+                        if country_code:
+                            user_locations[nick]["country_code"] = country_code
+                            needs_save = True
+                            LOG.debug("Migrated location for %s: added country_code %s", nick, country_code)
+                except (IOError, OSError, ValueError, TypeError) as e:
+                    LOG.warning("Could not migrate location for %s: %s", nick, e)
+        
+        if needs_save:
+            _save_locations(bot)
     except (IOError, OSError, AttributeError, TypeError) as e:
         LOG.warning("Failed to load locations from bot.db: %s", e)
         user_locations = {}
