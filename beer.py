@@ -1,31 +1,18 @@
 """
 Sopel Bartender Module - Your friendly virtual bartender!
 Serves up random beers, shots, whiskeys, cocktails, and pizza.
+Uses unified bot.db for persistence (same as mug.py).
 """
 import random
-import json
-import os
 import time
-import fcntl
-from datetime import datetime, timedelta
+import logging
+import atexit
 from sopel import module
 import re
 
 
-# Tip system data file
-TIP_DATA_FILE = os.path.expanduser('~/.sopel/bartender_tips.json')
-
-
-def load_tip_data():
-    """Load tip data from file with file locking"""
-    if os.path.exists(TIP_DATA_FILE):
-        with open(TIP_DATA_FILE, 'r') as f:
-            fcntl.flock(f.fileno(), fcntl.LOCK_SH)  # Shared lock for reading
-            try:
-                return json.load(f)
-            finally:
-                fcntl.flock(f.fileno(), fcntl.LOCK_UN)
-    return {'balances': {}, 'last_credit': {}, 'tips_received': {}}
+LOG = logging.getLogger(__name__)
+PLUGIN_NAME = 'beer'
 
 
 def _user_key(user):
@@ -33,26 +20,29 @@ def _user_key(user):
     return str(user).lower()
 
 
-def save_tip_data(data):
-    """Save tip data to file with file locking"""
+def _load_tip_data(bot):
+    """Load tip data from bot.db with fallback to empty structure."""
     try:
-        os.makedirs(os.path.dirname(TIP_DATA_FILE), exist_ok=True)
-        with open(TIP_DATA_FILE, 'w') as f:
-            fcntl.flock(f.fileno(), fcntl.LOCK_EX)  # Exclusive lock for writing
-            try:
-                json.dump(data, f, indent=2)
-                f.flush()
-                os.fsync(f.fileno())  # Force write to disk
-            finally:
-                fcntl.flock(f.fileno(), fcntl.LOCK_UN)
-    except Exception as e:
-        print(f"ERROR saving tip data: {e}")
+        data = bot.db.get_plugin_value(PLUGIN_NAME, 'tips')
+        if data and isinstance(data, dict):
+            return data
+    except (AttributeError, KeyError, TypeError) as e:
+        LOG.warning(f"Failed to load tip data: {e}")
+    return {'balances': {}, 'last_credit': {}, 'tips_received': {}}
+
+
+def _save_tip_data(bot, data):
+    """Save tip data to bot.db atomically."""
+    try:
+        bot.db.set_plugin_value(PLUGIN_NAME, 'tips', data)
+    except (AttributeError, TypeError, ValueError) as e:
+        LOG.error(f"ERROR saving tip data: {e}")
         raise
 
 
-def check_and_credit_user(user):
+def check_and_credit_user(bot, user):
     """Check if user needs daily credit and give it if needed"""
-    data = load_tip_data()
+    data = _load_tip_data(bot)
     current_time = time.time()
     key = _user_key(user)
 
@@ -61,7 +51,7 @@ def check_and_credit_user(user):
         data['balances'][key] = 100
         data['last_credit'][key] = current_time
         data['tips_received'][key] = 0
-        save_tip_data(data)
+        _save_tip_data(bot, data)
         return data['balances'][key], True
 
     # Check if 24 hours have passed
@@ -69,7 +59,7 @@ def check_and_credit_user(user):
     if current_time - last_credit >= 86400:  # 24 hours in seconds
         data['balances'][key] += 100
         data['last_credit'][key] = current_time
-        save_tip_data(data)
+        _save_tip_data(bot, data)
         return data['balances'][key], True
 
     return data['balances'][key], False
@@ -97,13 +87,13 @@ PRICES = {
 }
 
 
-def deduct_price(user, item_type):
+def deduct_price(bot, user, item_type):
     """Deduct price from user's balance and return new balance, or None if insufficient funds"""
     user = _user_key(user)
     price = PRICES.get(item_type, 0)
     
     # Load data once and do all operations
-    data = load_tip_data()
+    data = _load_tip_data(bot)
     current_time = time.time()
     
     credited = False
@@ -113,7 +103,7 @@ def deduct_price(user, item_type):
         data['balances'][user] = 100
         data['last_credit'][user] = current_time
         data['tips_received'][user] = 0
-        save_tip_data(data)
+        _save_tip_data(bot, data)
         # Don't set credited=True for initialization, it's not a daily credit
     else:
         # Check if 24 hours have passed for credit
@@ -127,7 +117,7 @@ def deduct_price(user, item_type):
     
     # If it's free, just return
     if price == 0:
-        save_tip_data(data)
+        _save_tip_data(bot, data)
         return balance, credited, price
     
     # Check if user has enough
@@ -136,12 +126,61 @@ def deduct_price(user, item_type):
     
     # Deduct the price
     data['balances'][user] -= price
-    save_tip_data(data)
+    _save_tip_data(bot, data)
     
     return data['balances'][user], credited, price
 
 
+# Item lookup: maps item type to (item_list, message_template_list, placeholder_key)
+DRINK_REGISTRY = {}
 
+
+def _serve_item(bot, trigger, item_type, item_list, message_list, placeholder_key='drink'):
+    """Generic handler for serving any drink or food item.
+    
+    Args:
+        bot: Sopel bot
+        trigger: IRC trigger
+        item_type: Key in PRICES dict
+        item_list: List of drink/food options
+        message_list: List of message templates
+        placeholder_key: 'drink' or 'food' for message formatting
+    """
+    try:
+        # Parse target user (may be empty)
+        if not trigger.group(2):
+            target_user = trigger.nick
+        else:
+            target_user = trigger.group(2).strip()
+        
+        # Deduct price
+        sender = trigger.account or trigger.nick
+        new_balance, credited, price = deduct_price(bot, sender, item_type)
+        
+        if new_balance is None:
+            bot.say(f"{trigger.nick}: You don't have enough money! {item_type.capitalize()} costs ${price}. Use $barcash to check your funds.")
+            return
+        
+        # Select random item and message
+        chosen_item = random.choice(item_list)
+        giving_message = random.choice(message_list)
+        
+        # Format and send message
+        message = giving_message.format(**{placeholder_key: chosen_item, 'user': target_user})
+        bot.action(message)
+        
+        # Send balance update via PM
+        if credited:
+            bot.notice(f"Daily $100 credited! Paid ${price} - Balance: ${new_balance}", trigger.nick)
+        else:
+            bot.notice(f"Paid ${price} - Balance: ${new_balance}", trigger.nick)
+    
+    except Exception as e:
+        LOG.error(f"Error in _serve_item for {item_type}: {e}")
+        try:
+            bot.say(f"{trigger.nick}: An error occurred. Sorry!")
+        except Exception:
+            pass
 
 # List of fun beers to give out
 BEERS = [
@@ -939,250 +978,63 @@ PIZZA_MESSAGES = [
 @module.example('$beer username', 'Give a user a random beer')
 def beer(bot, trigger):
     """Give someone a refreshing beer! 🍺"""
-    
-    # Use sender's nick if no user specified
-    if not trigger.group(2):
-        target_user = trigger.nick
-    else:
-        target_user = trigger.group(2).strip()
-    
-    # Deduct price from sender's balance (use account or nick as stable ID)
-    sender = trigger.account or trigger.nick
-    new_balance, credited, price = deduct_price(sender, 'beer')
-    
-    if new_balance is None:
-        bot.say(f"{trigger.nick}: You don't have enough money! A beer costs ${price}. Use $barcash to check your funds.")
-        return
-    
-    # Select random beer and message
-    chosen_drink = random.choice(BEERS)
-    giving_message = random.choice(BEER_MESSAGES)
-    
-    # Format the message
-    message = giving_message.format(drink=chosen_drink, user=target_user)
-    
-    # Send it!
-    bot.action(message)
-    if credited:
-        bot.notice(f"Daily $100 credited! Paid ${price} - Balance: ${new_balance}", trigger.nick)
-    else:
-        bot.notice(f"Paid ${price} - Balance: ${new_balance}", trigger.nick)
+    _serve_item(bot, trigger, 'beer', BEERS, BEER_MESSAGES)
+
 
 @module.commands('shot')
 @module.example('$shot username', 'Give a user a random shot')
 def shot(bot, trigger):
     """Give someone a shot! 🥃"""
-    
-    # Use sender's nick if no user specified
-    if not trigger.group(2):
-        target_user = trigger.nick
-    else:
-        target_user = trigger.group(2).strip()
-    
-    # Deduct price from sender's balance
-    sender = trigger.account or trigger.nick
-    new_balance, credited, price = deduct_price(sender, 'shot')
-    
-    if new_balance is None:
-        bot.say(f"{trigger.nick}: You don't have enough money! A shot costs ${price}. Use $barcash to check your funds.")
-        return
-    
-    # Select random shot and message
-    chosen_drink = random.choice(SHOTS)
-    giving_message = random.choice(SHOT_MESSAGES)
-    
-    # Format the message
-    message = giving_message.format(drink=chosen_drink, user=target_user)
-    
-    # Send it!
-    bot.action(message)
-    if credited:
-        bot.notice(f"Daily $100 credited! Paid ${price} - Balance: ${new_balance}", trigger.nick)
-    else:
-        bot.notice(f"Paid ${price} - Balance: ${new_balance}", trigger.nick)
+    _serve_item(bot, trigger, 'shot', SHOTS, SHOT_MESSAGES)
 
 
 @module.commands('magners')
 @module.example('$magners username', 'Give a user a random Magners cider')
 def magners(bot, trigger):
     """Give someone a refreshing Magners! 🍎🍺"""
-    
-    # Use sender's nick if no user specified
-    if not trigger.group(2):
-        target_user = trigger.nick
-    else:
-        target_user = trigger.group(2).strip()
-    
-    # Deduct price from sender's balance
-    sender = trigger.account or trigger.nick
-    new_balance, credited, price = deduct_price(sender, 'magners')
-    
-    if new_balance is None:
-        bot.say(f"{trigger.nick}: You don't have enough money! Magners costs ${price}. Use $barcash to check your funds.")
-        return
-    
-    # Select random Magners and message
-    chosen_drink = random.choice(MAGNERS)
-    giving_message = random.choice(BEER_MESSAGES)
-    
-    # Format the message
-    message = giving_message.format(drink=chosen_drink, user=target_user)
-    
-    # Send it!
-    bot.action(message)
-    if credited:
-        bot.notice(f"Daily $100 credited! Paid ${price} - Balance: ${new_balance}", trigger.nick)
-    else:
-        bot.notice(f"Paid ${price} - Balance: ${new_balance}", trigger.nick)
+    _serve_item(bot, trigger, 'magners', MAGNERS, BEER_MESSAGES)
 
 
 @module.commands('whiskey', 'whisky')
 @module.example('$whiskey username', 'Give a user a random whiskey')
 def whiskey(bot, trigger):
     """Give someone a fine whiskey! 🥃"""
-    
-    # Use sender's nick if no user specified
-    if not trigger.group(2):
-        target_user = trigger.nick
-    else:
-        target_user = trigger.group(2).strip()
-    
-    # Deduct price from sender's balance
-    sender = trigger.account or trigger.nick
-    new_balance, credited, price = deduct_price(sender, 'whiskey')
-    
-    if new_balance is None:
-        bot.say(f"{trigger.nick}: You don't have enough money! Whiskey costs ${price}. Use $barcash to check your funds.")
-        return
-    
-    # Select random whiskey and message
-    chosen_drink = random.choice(WHISKEYS)
-    giving_message = random.choice(WHISKEY_MESSAGES)
-    
-    # Format the message
-    message = giving_message.format(drink=chosen_drink, user=target_user)
-    
-    # Send it!
-    bot.action(message)
-    if credited:
-        bot.notice(f"Daily $100 credited! Paid ${price} - Balance: ${new_balance}", trigger.nick)
-    else:
-        bot.notice(f"Paid ${price} - Balance: ${new_balance}", trigger.nick)
+    _serve_item(bot, trigger, 'whiskey', WHISKEYS, WHISKEY_MESSAGES)
 
 
 @module.commands('vodka')
 @module.example('$vodka username', 'Give a user a random vodka')
 def vodka(bot, trigger):
     """Give someone a fine vodka! 🥃"""
-    if not trigger.group(2):
-        target_user = trigger.nick
-    else:
-        target_user = trigger.group(2).strip()
-    sender = trigger.account or trigger.nick
-    new_balance, credited, price = deduct_price(sender, 'vodka')
-    if new_balance is None:
-        bot.say(f"{trigger.nick}: You don't have enough money! Vodka costs ${price}. Use $barcash to check your funds.")
-        return
-    chosen_drink = random.choice(VODKAS)
-    giving_message = random.choice(VODKA_MESSAGES)
-    message = giving_message.format(drink=chosen_drink, user=target_user)
-    bot.action(message)
-    if credited:
-        bot.notice(f"Daily $100 credited! Paid ${price} - Balance: ${new_balance}", trigger.nick)
-    else:
-        bot.notice(f"Paid ${price} - Balance: ${new_balance}", trigger.nick)
+    _serve_item(bot, trigger, 'vodka', VODKAS, VODKA_MESSAGES)
 
 
 @module.commands('rum')
 @module.example('$rum username', 'Give a user a random rum')
 def rum(bot, trigger):
     """Give someone a fine rum! 🏴‍☠️🥃"""
-    if not trigger.group(2):
-        target_user = trigger.nick
-    else:
-        target_user = trigger.group(2).strip()
-    sender = trigger.account or trigger.nick
-    new_balance, credited, price = deduct_price(sender, 'rum')
-    if new_balance is None:
-        bot.say(f"{trigger.nick}: You don't have enough money! Rum costs ${price}. Use $barcash to check your funds.")
-        return
-    chosen_drink = random.choice(RUMS)
-    giving_message = random.choice(RUM_MESSAGES)
-    message = giving_message.format(drink=chosen_drink, user=target_user)
-    bot.action(message)
-    if credited:
-        bot.notice(f"Daily $100 credited! Paid ${price} - Balance: ${new_balance}", trigger.nick)
-    else:
-        bot.notice(f"Paid ${price} - Balance: ${new_balance}", trigger.nick)
+    _serve_item(bot, trigger, 'rum', RUMS, RUM_MESSAGES)
 
 
 @module.commands('tequila')
 @module.example('$tequila username', 'Give a user a random tequila')
 def tequila(bot, trigger):
     """Give someone a fine tequila! 🇲🇽🥃"""
-    if not trigger.group(2):
-        target_user = trigger.nick
-    else:
-        target_user = trigger.group(2).strip()
-    sender = trigger.account or trigger.nick
-    new_balance, credited, price = deduct_price(sender, 'tequila')
-    if new_balance is None:
-        bot.say(f"{trigger.nick}: You don't have enough money! Tequila costs ${price}. Use $barcash to check your funds.")
-        return
-    chosen_drink = random.choice(TEQUILAS)
-    giving_message = random.choice(TEQUILA_MESSAGES)
-    message = giving_message.format(drink=chosen_drink, user=target_user)
-    bot.action(message)
-    if credited:
-        bot.notice(f"Daily $100 credited! Paid ${price} - Balance: ${new_balance}", trigger.nick)
-    else:
-        bot.notice(f"Paid ${price} - Balance: ${new_balance}", trigger.nick)
+    _serve_item(bot, trigger, 'tequila', TEQUILAS, TEQUILA_MESSAGES)
 
 
 @module.commands('gin')
 @module.example('$gin username', 'Give a user a random gin')
 def gin(bot, trigger):
     """Give someone a fine gin! 🌿🥃"""
-    if not trigger.group(2):
-        target_user = trigger.nick
-    else:
-        target_user = trigger.group(2).strip()
-    sender = trigger.account or trigger.nick
-    new_balance, credited, price = deduct_price(sender, 'gin')
-    if new_balance is None:
-        bot.say(f"{trigger.nick}: You don't have enough money! Gin costs ${price}. Use $barcash to check your funds.")
-        return
-    chosen_drink = random.choice(GINS)
-    giving_message = random.choice(GIN_MESSAGES)
-    message = giving_message.format(drink=chosen_drink, user=target_user)
-    bot.action(message)
-    if credited:
-        bot.notice(f"Daily $100 credited! Paid ${price} - Balance: ${new_balance}", trigger.nick)
-    else:
-        bot.notice(f"Paid ${price} - Balance: ${new_balance}", trigger.nick)
+    _serve_item(bot, trigger, 'gin', GINS, GIN_MESSAGES)
 
 
 @module.commands('brandy', 'cognac')
 @module.example('$brandy username', 'Give a user a random brandy/cognac')
 def brandy(bot, trigger):
     """Give someone a fine brandy or cognac! 🥃"""
-    if not trigger.group(2):
-        target_user = trigger.nick
-    else:
-        target_user = trigger.group(2).strip()
-    sender = trigger.account or trigger.nick
-    new_balance, credited, price = deduct_price(sender, 'brandy')
-    if new_balance is None:
-        bot.say(f"{trigger.nick}: You don't have enough money! Brandy costs ${price}. Use $barcash to check your funds.")
-        return
-    chosen_drink = random.choice(BRANDIES)
-    giving_message = random.choice(BRANDY_MESSAGES)
-    message = giving_message.format(drink=chosen_drink, user=target_user)
-    bot.action(message)
-    if credited:
-        bot.notice(f"Daily $100 credited! Paid ${price} - Balance: ${new_balance}", trigger.nick)
-    else:
-        bot.notice(f"Paid ${price} - Balance: ${new_balance}", trigger.nick)
+    _serve_item(bot, trigger, 'brandy', BRANDIES, BRANDY_MESSAGES)
 
 
 @module.commands('pizza')
@@ -1190,34 +1042,7 @@ def brandy(bot, trigger):
 @module.example('$pizza username', 'Give a user a random pizza')
 def pizza(bot, trigger):
     """Give someone a delicious pizza! 🍕"""
-    
-    # Use sender's nick if no user specified
-    if not trigger.group(2):
-        target_user = trigger.nick
-    else:
-        target_user = trigger.group(2).strip()
-    
-    # Deduct price from sender's balance
-    sender = trigger.account or trigger.nick
-    new_balance, credited, price = deduct_price(sender, 'pizza')
-    
-    if new_balance is None:
-        bot.say(f"{trigger.nick}: You don't have enough money! Pizza costs ${price}. Use $barcash to check your funds.")
-        return
-    
-    # Select random pizza and message
-    chosen_pizza = random.choice(PIZZAS)
-    giving_message = random.choice(PIZZA_MESSAGES)
-    
-    # Format the message
-    message = giving_message.format(food=chosen_pizza, user=target_user)
-    
-    # Send it!
-    bot.action(message)
-    if credited:
-        bot.notice(f"Daily $100 credited! Paid ${price} - Balance: ${new_balance}", trigger.nick)
-    else:
-        bot.notice(f"Paid ${price} - Balance: ${new_balance}", trigger.nick)
+    _serve_item(bot, trigger, 'pizza', PIZZAS, PIZZA_MESSAGES, placeholder_key='food')
 
 
 @module.commands('drink')
@@ -1225,34 +1050,7 @@ def pizza(bot, trigger):
 @module.example('$drink username', 'Give a user a random mixed drink')
 def drink(bot, trigger):
     """Give someone a delicious mixed drink! 🍹"""
-    
-    # Use sender's nick if no user specified
-    if not trigger.group(2):
-        target_user = trigger.nick
-    else:
-        target_user = trigger.group(2).strip()
-    
-    # Deduct price from sender's balance
-    sender = trigger.account or trigger.nick
-    new_balance, credited, price = deduct_price(sender, 'mixed_drink')
-    
-    if new_balance is None:
-        bot.say(f"{trigger.nick}: You don't have enough money! A mixed drink costs ${price}. Use $barcash to check your funds.")
-        return
-    
-    # Select random cocktail and message
-    chosen_drink = random.choice(MIXED_DRINKS)
-    giving_message = random.choice(COCKTAIL_MESSAGES)
-    
-    # Format the message
-    message = giving_message.format(drink=chosen_drink, user=target_user)
-    
-    # Send it!
-    bot.action(message)
-    if credited:
-        bot.notice(f"Daily $100 credited! Paid ${price} - Balance: ${new_balance}", trigger.nick)
-    else:
-        bot.notice(f"Paid ${price} - Balance: ${new_balance}", trigger.nick)
+    _serve_item(bot, trigger, 'mixed_drink', MIXED_DRINKS, COCKTAIL_MESSAGES)
 
 
 @module.commands('wine')
@@ -1260,34 +1058,7 @@ def drink(bot, trigger):
 @module.example('$wine username', 'Give a user a random wine')
 def wine(bot, trigger):
     """Give someone a fine wine! 🍷"""
-    
-    # Use sender's nick if no user specified
-    if not trigger.group(2):
-        target_user = trigger.nick
-    else:
-        target_user = trigger.group(2).strip()
-    
-    # Deduct price from sender's balance
-    sender = trigger.account or trigger.nick
-    new_balance, credited, price = deduct_price(sender, 'wine')
-    
-    if new_balance is None:
-        bot.say(f"{trigger.nick}: You don't have enough money! Wine costs ${price}. Use $barcash to check your funds.")
-        return
-    
-    # Select random wine and message
-    chosen_drink = random.choice(WINES)
-    giving_message = random.choice(WINE_MESSAGES)
-    
-    # Format the message
-    message = giving_message.format(drink=chosen_drink, user=target_user)
-    
-    # Send it!
-    bot.action(message)
-    if credited:
-        bot.notice(f"Daily $100 credited! Paid ${price} - Balance: ${new_balance}", trigger.nick)
-    else:
-        bot.notice(f"Paid ${price} - Balance: ${new_balance}", trigger.nick)
+    _serve_item(bot, trigger, 'wine', WINES, WINE_MESSAGES)
 
 
 @module.commands('mocktail', 'virgin')
@@ -1295,34 +1066,7 @@ def wine(bot, trigger):
 @module.example('$mocktail username', 'Give a user a random non-alcoholic drink')
 def mocktail(bot, trigger):
     """Give someone a refreshing mocktail! 🍹"""
-    
-    # Use sender's nick if no user specified
-    if not trigger.group(2):
-        target_user = trigger.nick
-    else:
-        target_user = trigger.group(2).strip()
-    
-    # Deduct price from sender's balance
-    sender = trigger.account or trigger.nick
-    new_balance, credited, price = deduct_price(sender, 'mocktail')
-    
-    if new_balance is None:
-        bot.say(f"{trigger.nick}: You don't have enough money! A mocktail costs ${price}. Use $barcash to check your funds.")
-        return
-    
-    # Select random mocktail and message
-    chosen_drink = random.choice(MOCKTAILS)
-    giving_message = random.choice(COCKTAIL_MESSAGES)
-    
-    # Format the message
-    message = giving_message.format(drink=chosen_drink, user=target_user)
-    
-    # Send it!
-    bot.action(message)
-    if credited:
-        bot.notice(f"Daily $100 credited! Paid ${price} - Balance: ${new_balance}", trigger.nick)
-    else:
-        bot.notice(f"Paid ${price} - Balance: ${new_balance}", trigger.nick)
+    _serve_item(bot, trigger, 'mocktail', MOCKTAILS, COCKTAIL_MESSAGES)
 
 
 @module.commands('coffee', 'caffeine')
@@ -1330,34 +1074,7 @@ def mocktail(bot, trigger):
 @module.example('$coffee username', 'Give a user a random coffee')
 def coffee(bot, trigger):
     """Give someone a energizing coffee! ☕"""
-    
-    # Use sender's nick if no user specified
-    if not trigger.group(2):
-        target_user = trigger.nick
-    else:
-        target_user = trigger.group(2).strip()
-    
-    # Deduct price from sender's balance
-    sender = trigger.account or trigger.nick
-    new_balance, credited, price = deduct_price(sender, 'coffee')
-    
-    if new_balance is None:
-        bot.say(f"{trigger.nick}: You don't have enough money! Coffee costs ${price}. Use $barcash to check your funds.")
-        return
-    
-    # Select random coffee and message
-    chosen_drink = random.choice(COFFEES)
-    giving_message = random.choice(COFFEE_MESSAGES)
-    
-    # Format the message
-    message = giving_message.format(drink=chosen_drink, user=target_user)
-    
-    # Send it!
-    bot.action(message)
-    if credited:
-        bot.notice(f"Daily $100 credited! Paid ${price} - Balance: ${new_balance}", trigger.nick)
-    else:
-        bot.notice(f"Paid ${price} - Balance: ${new_balance}", trigger.nick)
+    _serve_item(bot, trigger, 'coffee', COFFEES, COFFEE_MESSAGES)
 
 
 @module.commands('tea', 'cuppa')
@@ -1365,34 +1082,7 @@ def coffee(bot, trigger):
 @module.example('$tea username', 'Give a user a random tea')
 def tea(bot, trigger):
     """Give someone a soothing tea! 🍵"""
-
-    # Use sender's nick if no user specified
-    if not trigger.group(2):
-        target_user = trigger.nick
-    else:
-        target_user = trigger.group(2).strip()
-
-    # Deduct price from sender's balance
-    sender = trigger.account or trigger.nick
-    new_balance, credited, price = deduct_price(sender, 'tea')
-
-    if new_balance is None:
-        bot.say(f"{trigger.nick}: You don't have enough money! Tea costs ${price}. Use $barcash to check your funds.")
-        return
-
-    # Select random tea and message
-    chosen_drink = random.choice(TEAS)
-    giving_message = random.choice(TEA_MESSAGES)
-
-    # Format the message
-    message = giving_message.format(drink=chosen_drink, user=target_user)
-
-    # Send it!
-    bot.action(message)
-    if credited:
-        bot.notice(f"Daily $100 credited! Paid ${price} - Balance: ${new_balance}", trigger.nick)
-    else:
-        bot.notice(f"Paid ${price} - Balance: ${new_balance}", trigger.nick)
+    _serve_item(bot, trigger, 'tea', TEAS, TEA_MESSAGES)
 
 
 @module.commands('water', 'hydrate')
@@ -1400,30 +1090,7 @@ def tea(bot, trigger):
 @module.example('$water username', 'Give a user water - stay hydrated!')
 def water(bot, trigger):
     """Give someone water! Stay hydrated! 💧"""
-    
-    # Use sender's nick if no user specified
-    if not trigger.group(2):
-        target_user = trigger.nick
-    else:
-        target_user = trigger.group(2).strip()
-    
-    # Water is free! But still check for daily credit
-    sender = trigger.account or trigger.nick
-    new_balance, credited, price = deduct_price(sender, 'water')
-    
-    # Select random water and message
-    chosen_drink = random.choice(WATERS)
-    giving_message = random.choice(WATER_MESSAGES)
-    
-    # Format the message
-    message = giving_message.format(drink=chosen_drink, user=target_user)
-    
-    # Send it!
-    bot.action(message)
-    if credited:
-        bot.notice(f"Daily $100 credited! Water is FREE! Balance: ${new_balance}", trigger.nick)
-    else:
-        bot.notice(f"Water is FREE! 💧", trigger.nick)
+    _serve_item(bot, trigger, 'water', WATERS, WATER_MESSAGES)
 
 
 @module.commands('appetizer', 'snack', 'food')
@@ -1431,34 +1098,7 @@ def water(bot, trigger):
 @module.example('$appetizer username', 'Give a user a random appetizer')
 def appetizer(bot, trigger):
     """Give someone a tasty appetizer! 🍽️"""
-    
-    # Use sender's nick if no user specified
-    if not trigger.group(2):
-        target_user = trigger.nick
-    else:
-        target_user = trigger.group(2).strip()
-    
-    # Deduct price from sender's balance
-    sender = trigger.account or trigger.nick
-    new_balance, credited, price = deduct_price(sender, 'appetizer')
-    
-    if new_balance is None:
-        bot.say(f"{trigger.nick}: You don't have enough money! An appetizer costs ${price}. Use $barcash to check your funds.")
-        return
-    
-    # Select random appetizer and message
-    chosen_food = random.choice(APPETIZERS)
-    giving_message = random.choice(FOOD_MESSAGES)
-    
-    # Format the message
-    message = giving_message.format(food=chosen_food, user=target_user)
-    
-    # Send it!
-    bot.action(message)
-    if credited:
-        bot.notice(f"Daily $100 credited! Paid ${price} - Balance: ${new_balance}", trigger.nick)
-    else:
-        bot.notice(f"Paid ${price} - Balance: ${new_balance}", trigger.nick)
+    _serve_item(bot, trigger, 'appetizer', APPETIZERS, FOOD_MESSAGES, placeholder_key='food')
 
 
 @module.commands('surprise', 'random')
@@ -1624,7 +1264,7 @@ def tip_user(bot, trigger):
         return
     
     # Load data and check balance
-    data = load_tip_data()
+    data = _load_tip_data(bot)
 
     tipper_key = _user_key(tipper)
     recipient_key = _user_key(recipient)
@@ -1653,7 +1293,7 @@ def tip_user(bot, trigger):
     data['balances'][recipient_key] += amount
     data['tips_received'][recipient_key] += amount
 
-    save_tip_data(data)
+    _save_tip_data(bot, data)
 
     bot.say(f"{tipper_display} tips {recipient} ${amount}! 💰✨")
     bot.notice(f"New balance: ${data['balances'][tipper_key]}", tipper_display)
@@ -1667,7 +1307,7 @@ def barcash(bot, trigger):
     user = str(trigger.account or trigger.nick)
     user_display = trigger.nick
     
-    data = load_tip_data()
+    data = _load_tip_data(bot)
     current_time = time.time()
     user_key = _user_key(user)
 
@@ -1675,7 +1315,7 @@ def barcash(bot, trigger):
         data['balances'][user_key] = 100
         data['last_credit'][user_key] = current_time
         data['tips_received'][user_key] = 0
-        save_tip_data(data)
+        _save_tip_data(bot, data)
         bot.notice(f"You received your daily $100! Current balance: $100 💵", user_display)
         return
 
@@ -1683,7 +1323,7 @@ def barcash(bot, trigger):
     if current_time - last_credit >= 86400:
         data['balances'][user_key] += 100
         data['last_credit'][user_key] = current_time
-        save_tip_data(data)
+        _save_tip_data(bot, data)
         bot.notice(f"You received your daily $100! Current balance: ${data['balances'][user_key]} 💵", user_display)
     else:
         bot.notice(f"Your balance is ${data['balances'][user_key]} 💵", user_display)
@@ -1694,7 +1334,7 @@ def barcash(bot, trigger):
 def toptip(bot, trigger):
     """See the top 5 most tipped bartenders! 🏆"""
     
-    data = load_tip_data()
+    data = _load_tip_data(bot)
     tips = data.get('tips_received', {})
     
     if not tips:
@@ -1770,7 +1410,7 @@ def adjbal(bot, trigger):
         bot.reply('Amount must be an integer like +100 or -50.')
         return
 
-    data = load_tip_data()
+    data = _load_tip_data(bot)
     # Normalize target nick/account
     nick_key = _user_key(nick)
     # Initialize user if missing
@@ -1786,7 +1426,7 @@ def adjbal(bot, trigger):
         return
 
     data['balances'][nick_key] = new
-    save_tip_data(data)
+    _save_tip_data(bot, data)
 
     bot.reply(f"Adjusted {nick}'s balance: ${old} -> ${new}")
 
@@ -1838,7 +1478,7 @@ def barreset(bot, trigger):
     parts = trigger.group(2).strip().split()
     target = parts[0]
 
-    data = load_tip_data()
+    data = _load_tip_data(bot)
 
     if target.lower() == 'all':
         # require explicit confirmation to prevent accidents
@@ -1855,7 +1495,7 @@ def barreset(bot, trigger):
         for k in list(data.get('tips_received', {}).keys()):
             data['tips_received'][k] = 0
 
-        save_tip_data(data)
+        _save_tip_data(bot, data)
         bot.reply('All balances reset to $100 and all tips cleared.')
         return
 
@@ -1866,13 +1506,20 @@ def barreset(bot, trigger):
         data['balances'][nick_key] = 100
         data['last_credit'][nick_key] = time.time()
         data['tips_received'][nick_key] = 0
-        save_tip_data(data)
+        _save_tip_data(bot, data)
         bot.reply(f"{nick} did not have an account; initialized to $100.")
         return
 
     data['balances'][nick_key] = 100
     data['last_credit'][nick_key] = time.time()
     data['tips_received'][nick_key] = 0
-    save_tip_data(data)
+    _save_tip_data(bot, data)
     bot.reply(f"Reset {nick}'s balance to $100 and cleared tips.")
 
+
+def _cleanup():
+    """Cleanup on shutdown (empty for bot.db approach)."""
+    pass
+
+
+atexit.register(_cleanup)
