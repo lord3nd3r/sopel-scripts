@@ -2,22 +2,64 @@
 Sopel Bartender Module - Your friendly virtual bartender!
 Serves up random beers, shots, whiskeys, cocktails, and pizza.
 Uses unified bot.db for persistence (same as mug.py).
+Deducts from mug game coins instead of maintaining separate balance.
 """
 import random
 import time
 import logging
 import atexit
+import unicodedata
 from sopel import module
 import re
 
 
 LOG = logging.getLogger(__name__)
 PLUGIN_NAME = 'beer'
+MUG_GAME_PLUGIN = 'mug_game'
+
+# IRC format/control regex patterns (from mug.py)
+_MIRC_COLOR_RE = re.compile(r'\x03(?:\d{1,2})?(?:,\d{1,2})?')
+_IRC_FORMAT_RE = re.compile(r'[\x02\x1d\x1f\x11\x16]')
+_IRC_CTRL_RE = re.compile(r'[\x00-\x08\x0b-\x0c\x0e-\x1a]')
+
+
+def _normalize_nick(nick: str) -> str:
+    """Normalize nickname following mug.py standards."""
+    if not nick:
+        return ""
+    s = str(nick)
+    s = unicodedata.normalize('NFKC', s)
+    s = _MIRC_COLOR_RE.sub('', s)
+    s = _IRC_FORMAT_RE.sub('', s)
+    s = _IRC_CTRL_RE.sub('', s)
+    return s.strip()
 
 
 def _user_key(user):
     """Normalize user identifier for storage (use lowercase strings)."""
-    return str(user).lower()
+    return _normalize_nick(user).lower()
+
+
+
+def _load_mug_data(bot):
+    """Load mug game data from bot.db."""
+    try:
+        data = bot.db.get_plugin_value(MUG_GAME_PLUGIN, 'data')
+        if isinstance(data, dict):
+            return data
+    except (AttributeError, KeyError, TypeError) as e:
+        LOG.warning(f"Failed to load mug game data: {e}")
+    return {'users': {}}
+
+
+def _save_mug_data(bot, data):
+    """Save mug game data to bot.db atomically."""
+    try:
+        bot.db.set_plugin_value(MUG_GAME_PLUGIN, 'data', data)
+    except (AttributeError, TypeError, ValueError) as e:
+        LOG.error(f"ERROR saving mug game data: {e}")
+        return False
+    return True
 
 
 def _load_tip_data(bot):
@@ -37,35 +79,57 @@ def _save_tip_data(bot, data):
         bot.db.set_plugin_value(PLUGIN_NAME, 'tips', data)
     except (AttributeError, TypeError, ValueError) as e:
         LOG.error(f"ERROR saving tip data: {e}")
-        raise
+        return False
+    return True
 
 
-def check_and_credit_user(bot, user):
-    """Check if user needs daily credit and give it if needed"""
-    data = _load_tip_data(bot)
-    current_time = time.time()
-    key = _user_key(user)
+def _get_user_coins(bot, user):
+    """Get user's current mug game coin balance."""
+    data = _load_mug_data(bot)
+    users = data.get('users', {})
+    user_key = _user_key(user)
+    
+    if user_key in users and isinstance(users[user_key], dict):
+        return int(users[user_key].get('money', 0))
+    return 0
 
-    # Initialize user if they don't exist
-    if key not in data['balances']:
-        data['balances'][key] = 100
-        data['last_credit'][key] = current_time
-        data['tips_received'][key] = 0
-        _save_tip_data(bot, data)
-        return data['balances'][key], True
 
-    # Check if 24 hours have passed
-    last_credit = data['last_credit'].get(key, 0)
-    if current_time - last_credit >= 86400:  # 24 hours in seconds
-        data['balances'][key] += 100
-        data['last_credit'][key] = current_time
-        _save_tip_data(bot, data)
-        return data['balances'][key], True
-
-    return data['balances'][key], False
-
+def _deduct_mug_coins(bot, user, amount):
+    """Deduct coins from user's mug game balance.
+    Returns (new_balance, success) where success is True if deduction succeeded."""
+    if amount <= 0:
+        balance = _get_user_coins(bot, user)
+        return balance, True
+    
+    data = _load_mug_data(bot)
+    users = data.get('users', {})
+    user_key = _user_key(user)
+    
+    # Get or initialize user record
+    if user_key not in users or not isinstance(users[user_key], dict):
+        users[user_key] = {'nick': user, 'money': 0, 'inv': {}}
+    
+    user_rec = users[user_key]
+    current_balance = int(user_rec.get('money', 0))
+    
+    # Check if user has enough
+    if current_balance < amount:
+        return None, False  # Insufficient funds
+    
+    # Deduct the amount
+    new_balance = current_balance - amount
+    user_rec['money'] = new_balance
+    
+    # Save back to bot.db
+    if _save_mug_data(bot, data):
+        LOG.debug(f"Deducted {amount} coins from {user_key}: {current_balance} -> {new_balance}")
+        return new_balance, True
+    
+    LOG.error(f"Failed to save mug data after deducting {amount} from {user_key}")
+    return None, False
 
 # Prices for items
+
 PRICES = {
     'beer': 5,
     'shot': 7,
@@ -88,47 +152,23 @@ PRICES = {
 
 
 def deduct_price(bot, user, item_type):
-    """Deduct price from user's balance and return new balance, or None if insufficient funds"""
-    user = _user_key(user)
+    """Deduct price from user's mug game coins.
+    Returns (new_balance, price) where new_balance is None if insufficient funds.
+    """
     price = PRICES.get(item_type, 0)
     
-    # Load data once and do all operations
-    data = _load_tip_data(bot)
-    current_time = time.time()
+    # Free items don't require deduction
+    if price <= 0:
+        balance = _get_user_coins(bot, user)
+        return balance, price
     
-    credited = False
+    # Deduct from mug game coins
+    new_balance, success = _deduct_mug_coins(bot, user, price)
     
-    # Initialize user if they don't exist
-    if user not in data['balances']:
-        data['balances'][user] = 100
-        data['last_credit'][user] = current_time
-        data['tips_received'][user] = 0
-        _save_tip_data(bot, data)
-        # Don't set credited=True for initialization, it's not a daily credit
-    else:
-        # Check if 24 hours have passed for credit
-        last_credit = data['last_credit'].get(user, 0)
-        if current_time - last_credit >= 86400:  # 24 hours in seconds
-            data['balances'][user] += 100
-            data['last_credit'][user] = current_time
-            credited = True
+    if not success:
+        return None, price
     
-    balance = data['balances'][user]
-    
-    # If it's free, just return
-    if price == 0:
-        _save_tip_data(bot, data)
-        return balance, credited, price
-    
-    # Check if user has enough
-    if balance < price:
-        return None, credited, price
-    
-    # Deduct the price
-    data['balances'][user] -= price
-    _save_tip_data(bot, data)
-    
-    return data['balances'][user], credited, price
+    return new_balance, price
 
 
 # Item lookup: maps item type to (item_list, message_template_list, placeholder_key)
@@ -155,10 +195,11 @@ def _serve_item(bot, trigger, item_type, item_list, message_list, placeholder_ke
         
         # Deduct price
         sender = trigger.account or trigger.nick
-        new_balance, credited, price = deduct_price(bot, sender, item_type)
+        new_balance, price = deduct_price(bot, sender, item_type)
         
         if new_balance is None:
-            bot.say(f"{trigger.nick}: You don't have enough money! {item_type.capitalize()} costs ${price}. Use $barcash to check your funds.")
+            current_balance = _get_user_coins(bot, sender)
+            bot.say(f"{trigger.nick}: You don't have enough coins! {item_type.capitalize()} costs {price} coins. You have {current_balance} coins.")
             return
         
         # Select random item and message
@@ -170,10 +211,8 @@ def _serve_item(bot, trigger, item_type, item_list, message_list, placeholder_ke
         bot.action(message)
         
         # Send balance update via PM
-        if credited:
-            bot.notice(f"Daily $100 credited! Paid ${price} - Balance: ${new_balance}", trigger.nick)
-        else:
-            bot.notice(f"Paid ${price} - Balance: ${new_balance}", trigger.nick)
+        if price > 0:
+            bot.notice(f"Paid {price} coins - Remaining balance: {new_balance} coins 🪙", trigger.nick)
     
     except Exception as e:
         LOG.error(f"Error in _serve_item for {item_type}: {e}")
