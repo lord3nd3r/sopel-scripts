@@ -17,6 +17,7 @@ LOG = logging.getLogger(__name__)
 PLUGIN_NAME = 'beer'
 MUG_GAME_PLUGIN = 'mug_game'
 NEW_USER_STARTING_COINS = 1000  # Starting coins for users on first drink purchase
+DAILY_BONUS_COINS = 100  # Bonus coins given once per 24 hours
 
 # IRC format/control regex patterns (from mug.py)
 _MIRC_COLOR_RE = re.compile(r'\x03(?:\d{1,2})?(?:,\d{1,2})?')
@@ -97,20 +98,23 @@ def _get_user_coins(bot, user):
 
 def _deduct_mug_coins(bot, user, amount):
     """Deduct coins from user's mug game balance.
-    Returns (new_balance, success, was_new_user) where:
+    Returns (new_balance, success, was_new_user, got_daily_bonus) where:
     - new_balance: resulting balance or None if insufficient
     - success: True if deduction succeeded
     - was_new_user: True if this was their first time (got starting coins)
+    - got_daily_bonus: True if they received daily bonus coins
     """
     if amount <= 0:
         balance = _get_user_coins(bot, user)
-        return balance, True, False
+        return balance, True, False, False
     
     data = _load_mug_data(bot)
     users = data.get('users', {})
     user_key = _user_key(user)
+    current_time = time.time()
     
     was_new = False
+    got_daily = False
     
     # Get or initialize user record
     if user_key not in users or not isinstance(users[user_key], dict):
@@ -118,7 +122,8 @@ def _deduct_mug_coins(bot, user, amount):
         users[user_key] = {
             'nick': user,
             'money': NEW_USER_STARTING_COINS,
-            'inv': {}
+            'inv': {},
+            'last_bar_credit': current_time
         }
         was_new = True
         LOG.debug(f"New user {user_key} initialized with {NEW_USER_STARTING_COINS} starting coins")
@@ -126,9 +131,21 @@ def _deduct_mug_coins(bot, user, amount):
     user_rec = users[user_key]
     current_balance = int(user_rec.get('money', 0))
     
+    # Check for daily bonus (24 hour cooldown)
+    last_credit = user_rec.get('last_bar_credit', 0)
+    if current_time - last_credit >= 86400:  # 24 hours in seconds
+        current_balance += DAILY_BONUS_COINS
+        user_rec['money'] = current_balance
+        user_rec['last_bar_credit'] = current_time
+        got_daily = True
+        LOG.debug(f"User {user_key} received daily bonus of {DAILY_BONUS_COINS} coins")
+    
     # Check if user has enough
     if current_balance < amount:
-        return None, False, was_new  # Insufficient funds
+        # Save any daily bonus that was just added
+        if got_daily:
+            _save_mug_data(bot, data)
+        return None, False, was_new, got_daily  # Insufficient funds
     
     # Deduct the amount
     new_balance = current_balance - amount
@@ -137,10 +154,10 @@ def _deduct_mug_coins(bot, user, amount):
     # Save back to bot.db
     if _save_mug_data(bot, data):
         LOG.debug(f"Deducted {amount} coins from {user_key}: {current_balance} -> {new_balance}")
-        return new_balance, True, was_new
+        return new_balance, True, was_new, got_daily
     
     LOG.error(f"Failed to save mug data after deducting {amount} from {user_key}")
-    return None, False, was_new
+    return None, False, was_new, got_daily
 
 # Prices for items
 
@@ -167,25 +184,22 @@ PRICES = {
 
 def deduct_price(bot, user, item_type):
     """Deduct price from user's mug game coins.
-    Returns (new_balance, price, was_new_user) where:
-    - new_balance: None if insufficient funds
-    - price: the item price
-    - was_new_user: True if this was their first purchase (got starting coins)
+    Returns (new_balance, price, was_new_user, got_daily_bonus)
     """
     price = PRICES.get(item_type, 0)
     
     # Free items don't require deduction
     if price <= 0:
         balance = _get_user_coins(bot, user)
-        return balance, price, False
+        return balance, price, False, False
     
     # Deduct from mug game coins
-    new_balance, success, was_new = _deduct_mug_coins(bot, user, price)
+    new_balance, success, was_new, got_daily = _deduct_mug_coins(bot, user, price)
     
     if not success:
-        return None, price, was_new
+        return None, price, was_new, got_daily
     
-    return new_balance, price, was_new
+    return new_balance, price, was_new, got_daily
 
 
 # Item lookup: maps item type to (item_list, message_template_list, placeholder_key)
@@ -212,7 +226,7 @@ def _serve_item(bot, trigger, item_type, item_list, message_list, placeholder_ke
         
         # Deduct price
         sender = trigger.account or trigger.nick
-        new_balance, price, was_new_user = deduct_price(bot, sender, item_type)
+        new_balance, price, was_new_user, got_daily_bonus = deduct_price(bot, sender, item_type)
         
         if new_balance is None:
             current_balance = _get_user_coins(bot, sender)
@@ -231,6 +245,8 @@ def _serve_item(bot, trigger, item_type, item_list, message_list, placeholder_ke
         if price > 0:
             if was_new_user:
                 bot.notice(f"Welcome to the bar! 🍺 You received {NEW_USER_STARTING_COINS} starting coins.\nPaid {price} coins - Remaining balance: {new_balance} coins 🪙", trigger.nick)
+            elif got_daily_bonus:
+                bot.notice(f"Daily bonus! +{DAILY_BONUS_COINS} coins 💰\nPaid {price} coins - Remaining balance: {new_balance} coins 🪙", trigger.nick)
             else:
                 bot.notice(f"Paid {price} coins - Remaining balance: {new_balance} coins 🪙", trigger.nick)
     
