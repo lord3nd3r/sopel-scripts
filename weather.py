@@ -3,9 +3,13 @@ import re
 import time
 import threading
 import json
+import logging
+import atexit
 import sopel.plugin
 import requests
 import datetime
+
+LOG = logging.getLogger(__name__)
 
 # PirateWeather API key (get one from https://pirateweather.net)
 WEATHER_API_KEY = "fXtRFXuZcV09an28DXIK2Z47RaATecNa"
@@ -14,30 +18,60 @@ WEATHER_API_KEY = "fXtRFXuZcV09an28DXIK2Z47RaATecNa"
 # useful but high enough to avoid flood kicks
 ALERT_PM_DELAY = 1.5
 
-# File to store user registered locations
-LOCATION_FILE = os.path.expanduser("~/.sopel/weather_locations.json")
+# Thread tracking for graceful shutdown
+_ACTIVE_THREADS = set()
+_SHUTDOWN_EVENT = threading.Event()
+_THREAD_LOCK = threading.Lock()
+
 user_locations = {}
 
 
-def load_locations():
+def _load_locations(bot):
+    """Load user locations from bot.db (thread-safe)."""
     global user_locations
-    if os.path.exists(LOCATION_FILE):
-        try:
-            with open(LOCATION_FILE, "r", encoding="utf-8") as f:
-                user_locations = json.load(f)
-        except Exception:
+    try:
+        user_locations = bot.db.get_plugin_value("weather", "locations", {})
+        if not isinstance(user_locations, dict):
             user_locations = {}
-    else:
+        LOG.debug("Loaded %d user locations from bot.db", len(user_locations))
+    except (IOError, OSError, AttributeError, TypeError) as e:
+        LOG.warning("Failed to load locations from bot.db: %s", e)
         user_locations = {}
 
 
-def save_locations():
-    with open(LOCATION_FILE, "w", encoding="utf-8") as f:
-        json.dump(user_locations, f, ensure_ascii=False)
+def _save_locations(bot):
+    """Save user locations to bot.db (atomic, thread-safe)."""
+    try:
+        bot.db.set_plugin_value("weather", "locations", user_locations)
+        LOG.debug("Saved %d user locations to bot.db", len(user_locations))
+    except (IOError, OSError, AttributeError, TypeError) as e:
+        LOG.error("Failed to save locations to bot.db: %s", e)
 
 
-# Load registered locations on module load
-load_locations()
+def _cleanup_threads():
+    """Called on module shutdown/reload to gracefully terminate background threads."""
+    LOG.debug("Initiating weather thread cleanup (timeout: 5s)")
+    _SHUTDOWN_EVENT.set()
+    
+    # Wait up to 5 seconds for threads to finish
+    join_timeout = 5
+    threads_to_join = []
+    with _THREAD_LOCK:
+        threads_to_join = list(_ACTIVE_THREADS)
+    
+    for thread in threads_to_join:
+        if thread.is_alive():
+            thread.join(timeout=join_timeout)
+            if thread.is_alive():
+                LOG.warning("Weather thread %s did not complete within %ds", thread.name, join_timeout)
+            else:
+                with _THREAD_LOCK:
+                    _ACTIVE_THREADS.discard(thread)
+    
+    LOG.debug("Weather thread cleanup complete")
+
+
+atexit.register(_cleanup_threads)
 
 
 def get_prefix(bot):
@@ -97,13 +131,23 @@ def get_coordinates(location):
         data = response.json()
         if data:
             result = data[0]
+            # Validate response has required fields
+            if "lat" not in result or "lon" not in result or "display_name" not in result:
+                LOG.warning("Nominatim response missing required fields for location: %s", location)
+                return None, None, None
             lat = float(result["lat"])
             lon = float(result["lon"])
+            # Validate geographic bounds
+            if not (-90 <= lat <= 90 and -180 <= lon <= 180):
+                LOG.warning("Nominatim returned invalid coordinates for location: %s (lat=%s, lon=%s)", location, lat, lon)
+                return None, None, None
             display_name = shorten_location_name(result["display_name"])
             return lat, lon, display_name
         else:
+            LOG.debug("No geocoding results for location: %s", location)
             return None, None, None
-    except Exception:
+    except (IOError, OSError, ValueError, TypeError) as e:
+        LOG.warning("Geocoding failed for location '%s': %s", location, e)
         return None, None, None
 
 
@@ -141,62 +185,82 @@ def parse_nick_flag(args):
     return None, args.strip() or None
 
 
-def send_alerts_pm(bot, nick, alerts, display_name):
+def send_alerts_pm(bot, nick, alerts, display_name, current_thread):
     """Send weather alerts to a user via PM, spaced to avoid flood kicks.
 
     Runs in a background thread. Each alert gets a header line, then its
     description chunked into IRC-safe pieces, then a link if available.
     ALERT_PM_DELAY seconds are inserted between every send.
+    Checks shutdown signal every send to enable graceful termination.
     """
     IRC_SAFE_LEN = 380  # conservative max chars per message
 
     def pm(text):
+        if _SHUTDOWN_EVENT.is_set():
+            LOG.debug("Weather alerts interrupted by shutdown signal for %s", nick)
+            return
         bot.say(text, nick)
         time.sleep(ALERT_PM_DELAY)
 
-    pm(f"⚠️ \x02Weather Alerts for {display_name}\x02 ({len(alerts)} alert(s)):")
+    try:
+        pm(f"⚠️ \x02Weather Alerts for {display_name}\x02 ({len(alerts)} alert(s)):")
 
-    for i, alert in enumerate(alerts, 1):
-        title = alert.get("title", "Unknown Alert")
-        severity = alert.get("severity", "unknown").capitalize()
-        expires = alert.get("expires")
-        description = alert.get("description", "No details available.").strip()
-        uri = alert.get("uri", "")
+        for i, alert in enumerate(alerts, 1):
+            if _SHUTDOWN_EVENT.is_set():
+                LOG.debug("Weather alerts interrupted by shutdown signal for %s", nick)
+                break
+            
+            title = alert.get("title", "Unknown Alert")
+            severity = alert.get("severity", "unknown").capitalize()
+            expires = alert.get("expires")
+            description = alert.get("description", "No details available.").strip()
+            uri = alert.get("uri", "")
 
-        expires_str = ""
-        if expires:
-            try:
-                dt = datetime.datetime.fromtimestamp(expires)
-                expires_str = f"  |  Expires: {dt.strftime('%a %b %d %I:%M %p')}"
-            except Exception:
-                pass
+            expires_str = ""
+            if expires:
+                try:
+                    dt = datetime.datetime.fromtimestamp(expires)
+                    expires_str = f"  |  Expires: {dt.strftime('%a %b %d %I:%M %p')}"
+                except (ValueError, OSError, TypeError):
+                    pass
 
-        # Severity colour: red=warning, orange=watch, yellow=advisory
-        sev_lower = severity.lower()
-        if "warning" in sev_lower:
-            sev_color = "\x0304"   # red
-        elif "watch" in sev_lower:
-            sev_color = "\x0307"   # orange
-        else:
-            sev_color = "\x0308"   # yellow
+            # Severity colour: red=warning, orange=watch, yellow=advisory
+            sev_lower = severity.lower()
+            if "warning" in sev_lower:
+                sev_color = "\x0304"   # red
+            elif "watch" in sev_lower:
+                sev_color = "\x0307"   # orange
+            else:
+                sev_color = "\x0308"   # yellow
 
-        pm(
-            f"── Alert {i}/{len(alerts)}: "
-            f"{sev_color}\x02[{severity}]\x02\x03 \x02{title}\x02{expires_str}"
-        )
+            pm(
+                f"── Alert {i}/{len(alerts)}: "
+                f"{sev_color}\x02[{severity}]\x02\x03 \x02{title}\x02{expires_str}"
+            )
 
-        # Send description in chunks so we don't hit IRC line limits
-        for pos in range(0, len(description), IRC_SAFE_LEN):
-            pm(description[pos:pos + IRC_SAFE_LEN])
+            # Send description in chunks so we don't hit IRC line limits
+            for pos in range(0, len(description), IRC_SAFE_LEN):
+                pm(description[pos:pos + IRC_SAFE_LEN])
 
-        if uri:
-            pm(f"🔗 More info: {uri}")
+            if uri:
+                pm(f"🔗 More info: {uri}")
 
-    pm(f"── End of alerts for {display_name} ──")
+        pm(f"── End of alerts for {display_name} ──")
+        LOG.debug("Weather alerts PM completed for %s", nick)
+    except (IOError, AttributeError, TypeError) as e:
+        LOG.error("Error sending alerts PM to %s: %s", nick, e)
+    finally:
+        with _THREAD_LOCK:
+            _ACTIVE_THREADS.discard(current_thread)
 
 
 @sopel.plugin.command("register_location")
 def register_location(bot, trigger):
+    try:
+        _load_locations(bot)
+    except Exception as e:
+        LOG.warning("Failed to load locations before register_location: %s", e)
+    
     args = trigger.group(2)
     if not args:
         bot.say(f"Usage: {get_prefix(bot)}register_location <location>")
@@ -211,12 +275,17 @@ def register_location(bot, trigger):
         "lon": lon,
         "name": display_name,
     }
-    save_locations()
+    _save_locations(bot)
     bot.say(f"Location for {trigger.nick} registered as: {display_name}")
 
 
 @sopel.plugin.command("change_location")
 def change_location(bot, trigger):
+    try:
+        _load_locations(bot)
+    except Exception as e:
+        LOG.warning("Failed to load locations before change_location: %s", e)
+    
     args = trigger.group(2)
     if not args:
         bot.say(f"Usage: {get_prefix(bot)}change_location <new location>")
@@ -231,16 +300,22 @@ def change_location(bot, trigger):
         "lon": lon,
         "name": display_name,
     }
-    save_locations()
+    _save_locations(bot)
     bot.say(f"Your location has been updated to: {display_name}")
 
 
 @sopel.plugin.command("unregister_location")
 def unregister_location(bot, trigger):
+    try:
+        _load_locations(bot)
+    except Exception as e:
+        LOG.warning("Failed to load locations before unregister_location: %s", e)
+    
     nick = trigger.nick.lower()
     if nick in user_locations:
         del user_locations[nick]
-        save_locations()
+        _save_locations(bot)
+        LOG.info("User %s unregistered location", nick)
         bot.say("Your registered location has been removed.")
     else:
         bot.say("You do not have a registered location.")
@@ -248,6 +323,11 @@ def unregister_location(bot, trigger):
 
 @sopel.plugin.command("w")
 def current_weather(bot, trigger):
+    try:
+        _load_locations(bot)
+    except Exception as e:
+        LOG.warning("Failed to load locations before current_weather: %s", e)
+    
     args = trigger.group(2)
     target_nick, remaining_args = parse_nick_flag(args)
     prefix = get_prefix(bot)
@@ -272,14 +352,17 @@ def current_weather(bot, trigger):
     try:
         r = requests.get(url, timeout=10)
         if not r.ok:
+            LOG.warning("PirateWeather API returned HTTP %d for %s", r.status_code, display_name)
             bot.say(f"\x02⚠️ Weather API error:\x02 HTTP {r.status_code}. PirateWeather may be down.")
             return
         data = r.json()
-    except Exception as e:
+    except (IOError, OSError, ValueError) as e:
+        LOG.error("Error retrieving weather for %s (%s, %s): %s", display_name, lat, lon, e)
         bot.say(f"Error retrieving weather: {e}")
         return
 
-    if "currently" not in data:
+    if "currently" not in data or not isinstance(data["currently"], dict):
+        LOG.warning("Weather API response missing 'currently' field for %s", display_name)
         bot.say("No weather data available.")
         return
 
@@ -336,6 +419,11 @@ def weather_alerts(bot, trigger):
         !wa            – alerts for your own registered location
         !wa -n <user>  – alerts for another user's registered location
     """
+    try:
+        _load_locations(bot)
+    except Exception as e:
+        LOG.warning("Failed to load locations before weather_alerts: %s", e)
+    
     args = trigger.group(2)
     target_nick, remaining_args = parse_nick_flag(args)
     prefix = get_prefix(bot)
@@ -367,7 +455,8 @@ def weather_alerts(bot, trigger):
     try:
         r = requests.get(url, timeout=10)
         data = r.json()
-    except Exception as e:
+    except (IOError, OSError, ValueError) as e:
+        LOG.error("Error retrieving weather alerts for %s (%s, %s): %s", display_name, lat, lon, e)
         bot.say(f"Error retrieving weather alerts: {e}")
         return
 
@@ -381,11 +470,20 @@ def weather_alerts(bot, trigger):
         f"⚠️ \x02{count}\x02 weather alert(s) for {display_name} — "
         f"sending you a PM, {requester}."
     )
-    threading.Thread(
+    
+    # Create and track thread
+    current_thread = threading.Thread(
         target=send_alerts_pm,
-        args=(bot, requester, alerts, display_name),
+        args=(bot, requester, alerts, display_name, None),  # placeholder for thread
         daemon=True,
-    ).start()
+        name=f"weather_alerts_{requester}_{display_name[:20]}",
+    )
+    with _THREAD_LOCK:
+        _ACTIVE_THREADS.add(current_thread)
+    # Now set the thread reference in the args (will be used in send_alerts_pm)
+    current_thread.args = (bot, requester, alerts, display_name, current_thread)
+    current_thread.start()
+    LOG.debug("Started weather alerts thread for %s", requester)
 
 
 @sopel.plugin.command("f")
@@ -446,99 +544,120 @@ def forecast_weather(bot, trigger):
     bot.say(sep.join(day_parts))
 
 
-def send_forecast_pm(bot, nick, daily_data, display_name):
-    """Send an extended multi-day forecast via PM with flood-safe delays."""
+def send_forecast_pm(bot, nick, daily_data, display_name, current_thread):
+    """Send an extended multi-day forecast via PM with flood-safe delays.
+    Checks shutdown signal every send to enable graceful termination.
+    """
     IRC_SAFE_LEN = 380
 
     def pm(text):
+        if _SHUTDOWN_EVENT.is_set():
+            LOG.debug("Forecast PM interrupted by shutdown signal for %s", nick)
+            return
         bot.say(text, nick)
         time.sleep(ALERT_PM_DELAY)
 
-    count = len(daily_data)
-    pm(f"📅 \x02Extended {count}-Day Forecast for {display_name}\x02")
-    pm(f"{'─' * 42}")
+    try:
+        count = len(daily_data)
+        pm(f"📅 \x02Extended {count}-Day Forecast for {display_name}\x02")
+        pm(f"{'\u2500' * 42}")
 
-    for i, day in enumerate(daily_data, 1):
-        dt = datetime.datetime.fromtimestamp(day["time"])
-        day_name = dt.strftime("%A")        # Monday, Tuesday, ...
-        date_str = dt.strftime("%b %d")      # Mar 05
-        summary = day.get("summary", "No summary")
-        temp_min = day.get("temperatureMin", 0.0)
-        temp_max = day.get("temperatureMax", 0.0)
-        humidity = day.get("humidity", 0.0) * 100
-        precip_prob = day.get("precipProbability", 0.0) * 100
-        precip_type = day.get("precipType", "")
-        wind_speed = day.get("windSpeed", 0.0)
-        wind_bearing = day.get("windBearing")
-        wind_dir = wind_direction(wind_bearing)
-        wind_gust = day.get("windGust", 0.0)
-        uv = day.get("uvIndex", 0)
+        for i, day in enumerate(daily_data, 1):
+            if _SHUTDOWN_EVENT.is_set():
+                LOG.debug("Forecast PM interrupted by shutdown signal for %s", nick)
+                break
+            
+            try:
+                dt = datetime.datetime.fromtimestamp(day["time"])
+                day_name = dt.strftime("%A")        # Monday, Tuesday, ...
+                date_str = dt.strftime("%b %d")      # Mar 05
+                summary = day.get("summary", "No summary")
+                temp_min = day.get("temperatureMin", 0.0)
+                temp_max = day.get("temperatureMax", 0.0)
+                humidity = day.get("humidity", 0.0) * 100
+                precip_prob = day.get("precipProbability", 0.0) * 100
+                precip_type = day.get("precipType", "")
+                wind_speed = day.get("windSpeed", 0.0)
+                wind_bearing = day.get("windBearing")
+                wind_dir = wind_direction(wind_bearing)
+                wind_gust = day.get("windGust", 0.0)
+                uv = day.get("uvIndex", 0)
 
-        # Emoji based on summary
-        s = summary.lower()
-        if "clear" in s or "sunny" in s:
-            emoji = "☀️"
-        elif "partly" in s:
-            emoji = "⛅"
-        elif "cloud" in s or "overcast" in s:
-            emoji = "☁️"
-        elif "snow" in s or "sleet" in s or "flurr" in s:
-            emoji = "❄️"
-        elif "thunder" in s or "storm" in s:
-            emoji = "⛈️"
-        elif "rain" in s or "drizzle" in s or "shower" in s:
-            emoji = "🌧️"
-        elif "fog" in s or "mist" in s:
-            emoji = "🌫️"
-        elif "wind" in s:
-            emoji = "💨"
-        else:
-            emoji = "🌦️"
+                # Emoji based on summary
+                s = summary.lower()
+                if "clear" in s or "sunny" in s:
+                    emoji = "☀️"
+                elif "partly" in s:
+                    emoji = "⛅"
+                elif "cloud" in s or "overcast" in s:
+                    emoji = "☁️"
+                elif "snow" in s or "sleet" in s or "flurr" in s:
+                    emoji = "❄️"
+                elif "thunder" in s or "storm" in s:
+                    emoji = "⛈️"
+                elif "rain" in s or "drizzle" in s or "shower" in s:
+                    emoji = "🌧️"
+                elif "fog" in s or "mist" in s:
+                    emoji = "🌫️"
+                elif "wind" in s:
+                    emoji = "💨"
+                else:
+                    emoji = "🌦️"
 
-        # Precip annotation
-        precip_str = ""
-        if precip_prob > 0:
-            ptype = precip_type.capitalize() if precip_type else "Precip"
-            precip_str = f"  |  🌧️ {ptype} \x02{precip_prob:.0f}%\x02"
+                # Precip annotation
+                precip_str = ""
+                if precip_prob > 0:
+                    ptype = precip_type.capitalize() if precip_type else "Precip"
+                    precip_str = f"  |  🌧️ {ptype} \x02{precip_prob:.0f}%\x02"
 
-        # Wind with arrow
-        arrow_map = {
-            "N": "↑", "NE": "↗", "E": "→", "SE": "↘",
-            "S": "↓", "SW": "↙", "W": "←", "NW": "↖",
-        }
-        wind_arrow = arrow_map.get(wind_dir, "")
-        wind_kmh = wind_speed * 3.6
-        wind_mph = wind_speed * 2.23694
-        gust_kmh = wind_gust * 3.6
+                # Wind with arrow
+                arrow_map = {
+                    "N": "↑", "NE": "↗", "E": "→", "SE": "↘",
+                    "S": "↓", "SW": "↙", "W": "←", "NW": "↖",
+                }
+                wind_arrow = arrow_map.get(wind_dir, "")
+                wind_kmh = wind_speed * 3.6
+                wind_mph = wind_speed * 2.23694
+                gust_kmh = wind_gust * 3.6
 
-        max_temp_str = colorize_temperature(temp_max)
-        min_temp_str = colorize_temperature(temp_min)
+                max_temp_str = colorize_temperature(temp_max)
+                min_temp_str = colorize_temperature(temp_min)
 
-        # UV color
-        if uv >= 8:
-            uv_color = "\x0304"  # red
-        elif uv >= 6:
-            uv_color = "\x0307"  # orange
-        elif uv >= 3:
-            uv_color = "\x0308"  # yellow
-        else:
-            uv_color = "\x0303"  # green
+                # UV color
+                if uv >= 8:
+                    uv_color = "\x0304"  # red
+                elif uv >= 6:
+                    uv_color = "\x0307"  # orange
+                elif uv >= 3:
+                    uv_color = "\x0308"  # yellow
+                else:
+                    uv_color = "\x0303"  # green
 
-        # Line 1: Day header with summary & temps
-        pm(
-            f"{emoji} \x02{day_name}, {date_str}\x02  —  {summary}  |  "
-            f"↑ {max_temp_str}  ↓ {min_temp_str}"
-        )
-        # Line 2: Details
-        pm(
-            f"   💧 Humidity \x02{humidity:.0f}%\x02{precip_str}  |  "
-            f"🌬️ Wind \x02{wind_kmh:.0f}\x02 km/h ({wind_mph:.0f} mph) {wind_arrow}{wind_dir}  "
-            f"(gusts \x02{gust_kmh:.0f}\x02 km/h)  |  "
-            f"☀️ UV {uv_color}\x02{uv}\x03\x02"
-        )
+                # Line 1: Day header with summary & temps
+                pm(
+                    f"{emoji} \x02{day_name}, {date_str}\x02  — {summary}  |  "
+                    f"↑ {max_temp_str}  ↓ {min_temp_str}"
+                )
+                # Line 2: Details
+                pm(
+                    f"   💧 Humidity \x02{humidity:.0f}%\x02{precip_str}  |  "
+                    f"🌬️ Wind \x02{wind_kmh:.0f}\x02 km/h ({wind_mph:.0f} mph) {wind_arrow}{wind_dir}  "
+                    f"(gusts \x02{gust_kmh:.0f}\x02 km/h)  |  "
+                    f"☀️ UV {uv_color}\x02{uv}\x03\x02"
+                )
+            except (KeyError, ValueError, TypeError) as e:
+                LOG.warning("Error processing forecast day %d for %s: %s", i, nick, e)
+                pm(f"[Error processing day {i}]")
+                continue
 
-    pm(f"{'─' * 42}")
-    pm(f"📍 End of forecast for \x02{display_name}\x02")
+        pm(f"{'─' * 42}")
+        pm(f"📍 End of forecast for \x02{display_name}\x02")
+        LOG.debug("Forecast PM completed for %s", nick)
+    except (IOError, AttributeError, TypeError) as e:
+        LOG.error("Error sending forecast PM to %s: %s", nick, e)
+    finally:
+        with _THREAD_LOCK:
+            _ACTIVE_THREADS.discard(current_thread)
 
 
 @sopel.plugin.command("ef")
@@ -550,6 +669,11 @@ def extended_forecast(bot, trigger):
         !ef <location>  – forecast for a specific location
         !ef -n <user>  – forecast for another user's registered location
     """
+    try:
+        _load_locations(bot)
+    except Exception as e:
+        LOG.warning("Failed to load locations before extended_forecast: %s", e)
+    
     args = trigger.group(2)
     target_nick, remaining_args = parse_nick_flag(args)
     prefix = get_prefix(bot)
@@ -577,11 +701,13 @@ def extended_forecast(bot, trigger):
     try:
         r = requests.get(url, timeout=10)
         data = r.json()
-    except Exception as e:
+    except (IOError, OSError, ValueError) as e:
+        LOG.error("Error retrieving forecast for %s (%s, %s): %s", display_name, lat, lon, e)
         bot.say(f"Error retrieving forecast: {e}")
         return
 
     if "daily" not in data or "data" not in data["daily"]:
+        LOG.warning("Extended forecast API response missing 'daily.data' field for %s", display_name)
         bot.say("No forecast data available.")
         return
 
@@ -595,15 +721,29 @@ def extended_forecast(bot, trigger):
         f"📅 Sending \x02{count}-day extended forecast\x02 for "
         f"{display_name} via PM, {requester}."
     )
-    threading.Thread(
+    
+    # Create and track thread
+    current_thread = threading.Thread(
         target=send_forecast_pm,
-        args=(bot, requester, daily_data, display_name),
+        args=(bot, requester, daily_data, display_name, None),  # placeholder for thread
         daemon=True,
-    ).start()
+        name=f"weather_forecast_{requester}_{display_name[:20]}",
+    )
+    with _THREAD_LOCK:
+        _ACTIVE_THREADS.add(current_thread)
+    # Now set the thread reference in the args
+    current_thread.args = (bot, requester, daily_data, display_name, current_thread)
+    current_thread.start()
+    LOG.debug("Started extended forecast thread for %s", requester)
 
 
 @sopel.plugin.command("space", "spaceweather")
 def space_weather(bot, trigger):
+    try:
+        _load_locations(bot)
+    except Exception as e:
+        LOG.warning("Failed to load locations before space_weather: %s", e)
+    
     args = trigger.group(2)
     target_nick, remaining_args = parse_nick_flag(args)
     prefix = get_prefix(bot)
@@ -625,38 +765,58 @@ def space_weather(bot, trigger):
     def get_json(url):
         try:
             return requests.get(url, timeout=5).json()
-        except:
+        except (IOError, OSError, ValueError) as e:
+            LOG.debug("Error fetching space weather data from %s: %s", url, e)
+            return None
+        except Exception as e:
+            LOG.warning("Unexpected error fetching space weather from %s: %s", url, e)
             return None
 
     # Global Kp Index
     kp_data = get_json("https://services.swpc.noaa.gov/json/planetary_k_index_1m.json")
-    kp = kp_data[-1]['kp_index'] if kp_data else "?"
+    try:
+        kp = kp_data[-1]['kp_index'] if kp_data else "?"
+    except (IndexError, KeyError, TypeError):
+        kp = "?"
+        LOG.debug("Could not extract Kp index from space weather data")
 
     # Solar Wind
     wind_data = get_json("https://services.swpc.noaa.gov/json/rtsw/rtsw_wind_1m.json")
     if wind_data:
-        speed = wind_data[-1].get('proton_speed', '?')
-        density = wind_data[-1].get('proton_density', '?')
+        try:
+            speed = wind_data[-1].get('proton_speed', '?')
+            density = wind_data[-1].get('proton_density', '?')
+        except (IndexError, TypeError):
+            speed, density = "?", "?"
+            LOG.debug("Could not extract solar wind data")
     else:
         speed, density = "?", "?"
 
     # Magnetic Field
     mag_data = get_json("https://services.swpc.noaa.gov/json/rtsw/rtsw_mag_1m.json")
-    bz = mag_data[-1].get('bz_gsm', '?') if mag_data else "?"
+    try:
+        bz = mag_data[-1].get('bz_gsm', '?') if mag_data else "?"
+    except (IndexError, TypeError):
+        bz = "?"
+        LOG.debug("Could not extract magnetic field data")
 
     # Aurora Probability (Local)
     aurora_prob = None
     if lat and lon:
-        ovation_data = get_json("https://services.swpc.noaa.gov/json/ovation_aurora_latest.json")
-        if ovation_data and 'coordinates' in ovation_data:
-            target_lon = round(lon) % 360
-            target_lat = round(lat)
-            for entry in ovation_data['coordinates']:
-                if entry[0] == target_lon and entry[1] == target_lat:
-                    aurora_prob = entry[2]
-                    break
-            if aurora_prob is None:
-                aurora_prob = 0
+        try:
+            ovation_data = get_json("https://services.swpc.noaa.gov/json/ovation_aurora_latest.json")
+            if ovation_data and 'coordinates' in ovation_data:
+                target_lon = round(lon) % 360
+                target_lat = round(lat)
+                for entry in ovation_data['coordinates']:
+                    if entry[0] == target_lon and entry[1] == target_lat:
+                        aurora_prob = entry[2]
+                        break
+                if aurora_prob is None:
+                    aurora_prob = 0
+        except (IndexError, TypeError, KeyError) as e:
+            LOG.debug("Could not extract aurora probability: %s", e)
+            aurora_prob = None
 
     sep = "\x0314 · \x03"
 
@@ -670,23 +830,30 @@ def space_weather(bot, trigger):
     try:
         kp_val = float(kp)
         kp_color = "\x0303"
-        if kp_val >= 4: kp_color = "\x0308"
-        if kp_val >= 5: kp_color = "\x0307"
-        if kp_val >= 6: kp_color = "\x0304"
+        if kp_val >= 4:
+            kp_color = "\x0308"
+        if kp_val >= 5:
+            kp_color = "\x0307"
+        if kp_val >= 6:
+            kp_color = "\x0304"
         kp_str = f"☀️ Kp \x02{kp_color}{kp}\x03\x02"
-    except:
+    except (ValueError, TypeError):
         kp_str = f"☀️ Kp \x02{kp}\x02"
+        LOG.debug("Could not parse Kp value: %s", kp)
 
     wind_str = f"🌬️ \x02{speed}\x02 km/s  \x02{density}\x02 p/cm³"
 
     try:
         bz_val = float(bz)
         bz_color = "\x0303"
-        if bz_val < -5: bz_color = "\x0308"
-        if bz_val < -10: bz_color = "\x0304"
+        if bz_val < -5:
+            bz_color = "\x0308"
+        if bz_val < -10:
+            bz_color = "\x0304"
         bz_str = f"🧲 Bz \x02{bz_color}{bz} nT\x03\x02"
-    except:
+    except (ValueError, TypeError):
         bz_str = f"🧲 Bz \x02{bz} nT\x02"
+        LOG.debug("Could not parse Bz value: %s", bz)
 
     if aurora_prob is not None:
         prob_color = "\x0303"
