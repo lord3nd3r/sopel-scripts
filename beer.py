@@ -16,6 +16,7 @@ import re
 LOG = logging.getLogger(__name__)
 PLUGIN_NAME = 'beer'
 MUG_GAME_PLUGIN = 'mug_game'
+NEW_USER_STARTING_COINS = 1000  # Starting coins for users on first drink purchase
 
 # IRC format/control regex patterns (from mug.py)
 _MIRC_COLOR_RE = re.compile(r'\x03(?:\d{1,2})?(?:,\d{1,2})?')
@@ -96,25 +97,38 @@ def _get_user_coins(bot, user):
 
 def _deduct_mug_coins(bot, user, amount):
     """Deduct coins from user's mug game balance.
-    Returns (new_balance, success) where success is True if deduction succeeded."""
+    Returns (new_balance, success, was_new_user) where:
+    - new_balance: resulting balance or None if insufficient
+    - success: True if deduction succeeded
+    - was_new_user: True if this was their first time (got starting coins)
+    """
     if amount <= 0:
         balance = _get_user_coins(bot, user)
-        return balance, True
+        return balance, True, False
     
     data = _load_mug_data(bot)
     users = data.get('users', {})
     user_key = _user_key(user)
     
+    was_new = False
+    
     # Get or initialize user record
     if user_key not in users or not isinstance(users[user_key], dict):
-        users[user_key] = {'nick': user, 'money': 0, 'inv': {}}
+        # New user: give them starting coins
+        users[user_key] = {
+            'nick': user,
+            'money': NEW_USER_STARTING_COINS,
+            'inv': {}
+        }
+        was_new = True
+        LOG.debug(f"New user {user_key} initialized with {NEW_USER_STARTING_COINS} starting coins")
     
     user_rec = users[user_key]
     current_balance = int(user_rec.get('money', 0))
     
     # Check if user has enough
     if current_balance < amount:
-        return None, False  # Insufficient funds
+        return None, False, was_new  # Insufficient funds
     
     # Deduct the amount
     new_balance = current_balance - amount
@@ -123,10 +137,10 @@ def _deduct_mug_coins(bot, user, amount):
     # Save back to bot.db
     if _save_mug_data(bot, data):
         LOG.debug(f"Deducted {amount} coins from {user_key}: {current_balance} -> {new_balance}")
-        return new_balance, True
+        return new_balance, True, was_new
     
     LOG.error(f"Failed to save mug data after deducting {amount} from {user_key}")
-    return None, False
+    return None, False, was_new
 
 # Prices for items
 
@@ -153,22 +167,25 @@ PRICES = {
 
 def deduct_price(bot, user, item_type):
     """Deduct price from user's mug game coins.
-    Returns (new_balance, price) where new_balance is None if insufficient funds.
+    Returns (new_balance, price, was_new_user) where:
+    - new_balance: None if insufficient funds
+    - price: the item price
+    - was_new_user: True if this was their first purchase (got starting coins)
     """
     price = PRICES.get(item_type, 0)
     
     # Free items don't require deduction
     if price <= 0:
         balance = _get_user_coins(bot, user)
-        return balance, price
+        return balance, price, False
     
     # Deduct from mug game coins
-    new_balance, success = _deduct_mug_coins(bot, user, price)
+    new_balance, success, was_new = _deduct_mug_coins(bot, user, price)
     
     if not success:
-        return None, price
+        return None, price, was_new
     
-    return new_balance, price
+    return new_balance, price, was_new
 
 
 # Item lookup: maps item type to (item_list, message_template_list, placeholder_key)
@@ -195,7 +212,7 @@ def _serve_item(bot, trigger, item_type, item_list, message_list, placeholder_ke
         
         # Deduct price
         sender = trigger.account or trigger.nick
-        new_balance, price = deduct_price(bot, sender, item_type)
+        new_balance, price, was_new_user = deduct_price(bot, sender, item_type)
         
         if new_balance is None:
             current_balance = _get_user_coins(bot, sender)
@@ -212,7 +229,10 @@ def _serve_item(bot, trigger, item_type, item_list, message_list, placeholder_ke
         
         # Send balance update via PM
         if price > 0:
-            bot.notice(f"Paid {price} coins - Remaining balance: {new_balance} coins 🪙", trigger.nick)
+            if was_new_user:
+                bot.notice(f"Welcome to the bar! 🍺 You received {NEW_USER_STARTING_COINS} starting coins.\nPaid {price} coins - Remaining balance: {new_balance} coins 🪙", trigger.nick)
+            else:
+                bot.notice(f"Paid {price} coins - Remaining balance: {new_balance} coins 🪙", trigger.nick)
     
     except Exception as e:
         LOG.error(f"Error in _serve_item for {item_type}: {e}")
