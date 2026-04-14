@@ -112,6 +112,8 @@ Grok: search for election results with sources
 
 **Trigger phrases:** `show me the links`, `sources`, `citations`, `references`, `urls`, `include links`
 
+> **Note:** The bot uses a strict extraction system that queries the API for genuine deep-link article URLs to prevent hallucinations. It does not output raw links mid-sentence; instead, it generates a clean list of verified, clickable sources at the end of its response.
+
 ---
 
 ## 🕐 Time & Date Queries

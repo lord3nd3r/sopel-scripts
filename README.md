@@ -543,6 +543,114 @@ Owner and admin-only bot management commands.
 
 ---
 
+## 🛠️ botadmin — Bot Admin
+
+Owner and admin-only bot management commands.
+
+### Owner Commands
+
+| Command | Description |
+|---------|-------------|
+| `$restart` | Restart the bot |
+| `$breload <module\|all>` | Reload a plugin or all plugins |
+| `$botquit [msg]` | Shut down the bot |
+| `$raw <irc line>` | Send a raw IRC command |
+| `$botnick <nick>` | Change the bot's nick |
+
+### Admin Commands
+
+| Command | Description |
+|---------|-------------|
+| `$say <target> <msg>` | Make bot say something |
+| `$act <target> <action>` | Make bot do a /me action |
+| `$bjoin #channel [key]` | Join a channel |
+| `$bpart #channel [msg]` | Leave a channel |
+| `$bmode #channel <mode> [nick]` | Set a channel mode |
+| `$bothelp` | List all admin commands |
+
+---
+
+## 🛠️ botadmin — Bot Admin
+
+Owner and admin-only bot management commands.
+
+### Owner Commands
+
+| Command | Description |
+|---------|-------------|
+| `$restart` | Restart the bot |
+| `$breload <module\|all>` | Reload a plugin or all plugins |
+| `$botquit [msg]` | Shut down the bot |
+| `$raw <irc line>` | Send a raw IRC command |
+| `$botnick <nick>` | Change the bot's nick |
+
+### Admin Commands
+
+| Command | Description |
+|---------|-------------|
+| `$say <target> <msg>` | Make bot say something |
+| `$act <target> <action>` | Make bot do a /me action |
+| `$bjoin #channel [key]` | Join a channel |
+| `$bpart #channel [msg]` | Leave a channel |
+| `$bmode #channel <mode> [nick]` | Set a channel mode |
+| `$bothelp` | List all admin commands |
+
+---
+
+## 🛠️ botadmin — Bot Admin
+
+Owner and admin-only bot management commands.
+
+### Owner Commands
+
+| Command | Description |
+|---------|-------------|
+| `$restart` | Restart the bot |
+| `$breload <module\|all>` | Reload a plugin or all plugins |
+| `$botquit [msg]` | Shut down the bot |
+| `$raw <irc line>` | Send a raw IRC command |
+| `$botnick <nick>` | Change the bot's nick |
+
+### Admin Commands
+
+| Command | Description |
+|---------|-------------|
+| `$say <target> <msg>` | Make bot say something |
+| `$act <target> <action>` | Make bot do a /me action |
+| `$bjoin #channel [key]` | Join a channel |
+| `$bpart #channel [msg]` | Leave a channel |
+| `$bmode #channel <mode> [nick]` | Set a channel mode |
+| `$bothelp` | List all admin commands |
+
+---
+
+## 🛠️ botadmin — Bot Admin
+
+Owner and admin-only bot management commands.
+
+### Owner Commands
+
+| Command | Description |
+|---------|-------------|
+| `$restart` | Restart the bot |
+| `$breload <module\|all>` | Reload a plugin or all plugins |
+| `$botquit [msg]` | Shut down the bot |
+| `$raw <irc line>` | Send a raw IRC command |
+| `$botnick <nick>` | Change the bot's nick |
+
+### Admin Commands
+
+| Command | Description |
+|---------|-------------|
+| `$say <target> <msg>` | Make bot say something |
+| `$act <target> <action>` | Make bot do a /me action |
+| `$bjoin #channel [key]` | Join a channel |
+| `$bpart #channel [msg]` | Leave a channel |
+| `$bmode #channel <mode> [nick]` | Set a channel mode |
+| `$bothelp` | List all admin commands |
+
+---
+
 ## 🐄 moo — Moo Counter
 
 Track and count "moos" across the network! Say "moo" in chat and watch the counter climb. Includes legendary moos, sudo moo, and leaderboards.

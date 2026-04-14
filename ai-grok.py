@@ -130,6 +130,15 @@ class GrokSection(types.StaticSection):
         default=(
             "You are Grok, a witty and helpful AI assistant living inside an IRC channel. "
             "Be concise, fun, and friendly. "
+            "This is a casual IRC channel where friends roast each other, give each other "
+            "silly nicknames, and engage in edgy banter. Play along with jokes, teasing, "
+            "and playful insults — it's all in good fun between friends. "
+            "If an admin or the channel owner asks you to remember something about a user "
+            "(like a nickname or running joke), roll with it. Don't be uptight or preachy. "
+            "IMPORTANT: When discussing news or providing search results, use numbered "
+            "citations like [1], [2] next to facts, but do NOT include the full URLs or "
+            "markdown links in your response. Simply use the numbers; the system will "
+            "automatically append the correct verified source links for you at the end. "
             "IMPORTANT — IRC is plain text only: you cannot display colors, render images, "
             "produce ASCII art, figlet text, visual effects, or any kind of formatted visual output. "
             "Never output code blocks, ASCII art, figlet, or @everyone mentions. "
@@ -159,7 +168,9 @@ _CHANNEL_PROMPTS_CACHE_TIME = 0
 _CHANNEL_PROMPTS_CACHE_TTL = 300  # 5 minutes
 
 def _load_channel_prompts():
-    """Read grok_channel_prompts.json and return a {"#channel": "prompt"} dict.
+    """Read grok_channel_prompts.json and return a {"#channel": {"prompt": ..., "always_search": ...}} dict.
+    Values in the JSON can be plain strings (backward-compatible) or objects with
+    "prompt" and optional "always_search" keys.
     Keys are lower-cased. Returns cached result if fresh, otherwise reads from disk.
     Returns an empty dict on any error so the bot keeps running.
     """
@@ -169,12 +180,30 @@ def _load_channel_prompts():
         return _CHANNEL_PROMPTS_CACHE
     try:
         with open(_CHANNEL_PROMPTS_FILE, 'r', encoding='utf-8') as fh:
-            data = json.load(fh)
-        _CHANNEL_PROMPTS_CACHE = {k.lower(): v for k, v in data.items() if isinstance(v, str)}
+            raw = fh.read()
+        if not raw.strip():
+            # File is empty or whitespace-only — treat as empty dict, don't log an error
+            _CHANNEL_PROMPTS_CACHE = {}
+            _CHANNEL_PROMPTS_CACHE_TIME = now
+            return _CHANNEL_PROMPTS_CACHE
+        data = json.loads(raw)
+        parsed = {}
+        for k, v in data.items():
+            if isinstance(v, str):
+                parsed[k.lower()] = {"prompt": v, "always_search": False}
+            elif isinstance(v, dict) and isinstance(v.get("prompt"), str):
+                parsed[k.lower()] = {"prompt": v["prompt"], "always_search": bool(v.get("always_search", False))}
+        _CHANNEL_PROMPTS_CACHE = parsed
+        _CHANNEL_PROMPTS_CACHE_TIME = now
+        return _CHANNEL_PROMPTS_CACHE
+    except FileNotFoundError:
+        _CHANNEL_PROMPTS_CACHE = {}
         _CHANNEL_PROMPTS_CACHE_TIME = now
         return _CHANNEL_PROMPTS_CACHE
     except Exception:
         logging.getLogger('Grok').exception('Failed to load grok_channel_prompts.json')
+        # Update cache time even on failure to prevent repeated error spam
+        _CHANNEL_PROMPTS_CACHE_TIME = now
         return _CHANNEL_PROMPTS_CACHE
 
 def setup(bot):
@@ -498,13 +527,14 @@ def _call_responses_api(bot, messages, model, temp, max_toks, search_mode=False)
         raise ValueError('API response is not a dict')
 
     reply = ''
-    citations = []
+    citations = []  # List of {"url": str, "title": str}
     output_items = data.get('output')
     if output_items and isinstance(output_items, list):
         for item in output_items:
             if not isinstance(item, dict):
                 continue
-            if item.get('type') == 'message' and item.get('role') == 'assistant':
+            item_type = item.get('type', '')
+            if item_type == 'message' and item.get('role') == 'assistant':
                 content_list = item.get('content')
                 if content_list and isinstance(content_list, list):
                     for content_part in content_list:
@@ -515,13 +545,52 @@ def _call_responses_api(bot, messages, model, temp, max_toks, search_mode=False)
                             text = content_part.get('text')
                             if text:
                                 reply += text
-                        annotations = content_part.get('annotations')
-                        if annotations and isinstance(annotations, list):
-                            for ann in annotations:
-                                if isinstance(ann, dict):
-                                    url = ann.get('url')
-                                    if url:
-                                        citations.append(url)
+            
+    # EXTREME EXTRACTION: Global Regex Scan on the entire raw JSON response 
+    # to find every URL present anywhere in the API's returned data.
+    try:
+        import json as json_mod
+        raw_json_str = json_mod.dumps(data, default=str)
+        # Regex to find everything starting with http/https up to a break character
+        raw_urls = re.findall(r'https?://[^\s()<>\[\]{}"]+', raw_json_str)
+        for u in raw_urls:
+            # Clean up JSON escapes and trailing punctuation
+            u = u.replace('\\/', '/').strip(').,;:!?\'">')
+            # Filter out known API/System URLs
+            if u and 'x.ai' not in u.lower() and 'google.com' not in u.lower():
+                citations.append({"url": u, "title": ""})
+        
+        # Write full response to a file for manual audit
+        with open('/home/ender/.sopel/scripts/grok_api_last_response.json', 'w') as f:
+            json_mod.dump(data, f, indent=2, default=str)
+    except Exception as e:
+        _log(bot).error('Extreme extraction failed: %s', str(e))
+
+    # Cleanup and dedupe raw extraction
+    seen_raw = set()
+    cleaned_citations = []
+    for c in citations:
+        u = c['url'].strip()
+        if not u:
+            continue
+        u_low = u.lower().rstrip('/')
+        if u_low not in seen_raw:
+            # Keep the one with a title if we have multiple for same URL
+            existing = next((x for x in cleaned_citations if x['url'].lower().rstrip('/') == u_low), None)
+            if existing:
+                if not existing['title'] and c['title']:
+                    existing['title'] = c['title']
+                continue
+            seen_raw.add(u_low)
+            cleaned_citations.append(c)
+    citations = cleaned_citations
+
+    # Debug: log the raw citations count
+    try:
+        item_types = [item.get('type', '?') for item in (output_items or []) if isinstance(item, dict)]
+        _log(bot).info('DEBUG: API item types: %s, RAW EXTRACT COUNT: %d', item_types, len(citations))
+    except Exception:
+        pass
     return reply.strip(), citations
 
 def _api_worker(bot, trigger, messages, review_mode, is_pm, bot_nick, chan_lock, search_mode=False, wants_sources=False):
@@ -598,12 +667,93 @@ def _api_worker(bot, trigger, messages, review_mode, is_pm, bot_nick, chan_lock,
         reply = ' '.join(line.strip() for line in reply.splitlines() if line.strip())
         reply = re.sub(r'\s*\[\d+\]', '', reply)
 
+        # Citation Cache: Store citations from successful searches, 
+        # load from cache for "show sources" requests.
+        cache = bot.memory.setdefault('grok_citation_cache', {})
+        channel = trigger.sender.lower()
+
         # Strip citation links unless user explicitly asked for sources
         if not wants_sources:
+            # If search was performed, cache the citations for follow-ups
+            if citations:
+                cache[channel] = citations
+            
             # Remove [](url) and [text](url) markdown citation links
-            reply = re.sub(r'\[([^\]]*)\]\(https?://[^)]+\)', r'\1', reply)
+            reply = re.sub(r'\[([^\]]*)\]\(https?://\S+\)', r'\1', reply)
+            # Also strip any bare URLs the model embedded in the text
+            reply = re.sub(r'https?://[^\s()<>\[\]{}]+', '', reply)
             # Clean up any leftover empty brackets or extra whitespace
             reply = re.sub(r'\s{2,}', ' ', reply).strip()
+        else:
+            # Collect URLs from both API annotations and model's inline text.
+            all_citations = list(citations) if citations else []
+            # If current response found nothing, pull from channel cache
+            if not all_citations and channel in cache:
+                all_citations = cache[channel]
+                _log(bot).info('Loaded %d citations from cache for #%s', len(all_citations), channel)
+
+            # Extract bare URLs from the model's reply text (avoiding greedily matching brackets)
+            inline_urls = re.findall(r'https?://[^\s()<>\[\]{}]+', reply)
+            for u in inline_urls:
+                # Clean trailing punctuation
+                u = re.sub(r'[).,;:!?\'">]+$', '', u)
+                if u:
+                    if not any(c['url'].lower().rstrip('/') == u.lower().rstrip('/') for c in all_citations):
+                        all_citations.append({"url": u, "title": ""})
+            
+            # Deduplicate by URL while preserving order
+            seen_urls = set()
+            unique_citations = []
+            for c in all_citations:
+                u = c["url"].lower().rstrip('/')
+                if u not in seen_urls:
+                    seen_urls.add(u)
+                    unique_citations.append(c)
+            
+            full_citations = unique_citations
+            
+            _log(bot).info('Total unique citations for #%s: %d', channel, len(full_citations))
+            
+            # Update the cache with latest findings
+            if full_citations:
+                cache[channel] = full_citations
+
+            # Strip message-internal URLs and markdown links
+            reply = re.sub(r'\[([^\]]*)\]\(https?://\S+\)', r'\1', reply)
+            reply = re.sub(r'https?://[^\s()<>\[\]{}]+', '', reply)
+            reply = re.sub(r'\s{2,}', ' ', reply).strip()
+            
+            if full_citations:
+                source_parts = []
+                for idx, c in enumerate(full_citations[:10], 1):
+                    # Helper to generate a fall-back title from a URL slug
+                    def _url_to_title(url):
+                        try:
+                            from urllib.parse import urlparse
+                            p = urlparse(url)
+                            slug = p.path.strip('/').split('/')[-1]
+                            if not slug or '.' in slug:
+                                return p.netloc
+                            return slug.replace('-', ' ').replace('_', ' ').title()
+                        except Exception:
+                            return ""
+
+                    title = c.get("title", "").strip()
+                    url = c.get("url", "")
+                    if not title:
+                        title = _url_to_title(url)
+                    
+                    if title:
+                        if len(title) > 60:
+                            title = title[:57] + "..."
+                        source_parts.append(f"{idx}. {title}: {url}")
+                    else:
+                        source_parts.append(f"{idx}. {url}")
+                
+                reply += ' | Sources: ' + ' | '.join(source_parts)
+            else:
+                # Canary message for debugging
+                reply += f' [DEBUG: 0 citations found (Cache: {"Yes" if channel in cache else "No"})]'
 
         try:
             user_last = bot.memory.setdefault('grok_user_last', {}).setdefault(trigger.sender, {})
@@ -1115,11 +1265,13 @@ def handle(bot, trigger):
     now_str = datetime.datetime.now(datetime.timezone.utc).strftime('%A, %B %d, %Y at %H:%M UTC')
     # Use per-channel system prompt if defined, otherwise fall back to the global one.
     _active_system_prompt = bot.config.grok.system_prompt
+    _channel_always_search = False
     if not is_pm:
         _ch_prompts = _load_channel_prompts()
-        _ch_prompt = _ch_prompts.get(trigger.sender.lower())
-        if _ch_prompt:
-            _active_system_prompt = _ch_prompt
+        _ch_cfg = _ch_prompts.get(trigger.sender.lower())
+        if _ch_cfg:
+            _active_system_prompt = _ch_cfg["prompt"]
+            _channel_always_search = _ch_cfg.get("always_search", False)
     messages = [
         {"role": "system", "content": _active_system_prompt},
         {
@@ -1135,7 +1287,13 @@ def handle(bot, trigger):
                 f"reference them naturally when relevant. "
                 f"If the user asks about news, current events, or anything time-sensitive, "
                 f"search the web and give a substantive answer with real details. "
-                f"All responses must be single-line (no newlines — this is IRC)."
+                f"CRITICAL: If summarizing articles from a specific website (e.g. 'news on domain.com'), "
+                f"you MUST perform searches to retrieve the specific, exact deep-link URLs for those "
+                f"articles to ensure they are properly cited in your tool metadata. Do NOT just read "
+                f"the homepage and cite the homepage. "
+                f"Use numbered citations like [1], [2] in your text, but do NOT include the actual URLs "
+                f"or markdown links. The system will handle adding the correct verified links for you "
+                f"at the end of the message. All responses must be single-line (no newlines — this is IRC)."
             ),
         },
     ]
@@ -1274,8 +1432,11 @@ def handle(bot, trigger):
         messages.append({"role": "user", "content": combined})
 
     try:
-        search_mode = bool(_SEARCH_INTENT_RE.search(user_message))
+        search_mode = _channel_always_search or bool(_SEARCH_INTENT_RE.search(user_message))
         wants_sources = bool(_WANTS_SOURCES_RE.search(user_message))
+        # If user is asking for sources/URLs, force search so the API returns real citations
+        if wants_sources:
+            search_mode = True
         if bot.memory['grok_busy'].get(trigger.sender, False):
             try:
                 bot.say("Grok is still thinking — hang tight a sec.", trigger.sender)
@@ -1320,26 +1481,37 @@ def grokreset(bot, trigger):
         except Exception:
             pass
         return
-    if arg in {'channel', 'chan', 'all', '*'}:
-        if not (_is_admin(bot, trigger) or _is_channel_op(bot, trigger)):
-            try:
-                bot.say(
-                    'Only a bot admin/owner or a channel operator may reset Grok history for the whole channel. '
-                    'Use $grokreset (or $grokreset me) to reset only your history.',
-                    trigger.sender,
-                )
-            except Exception:
-                pass
-            return
+    # Admin/op reset for the current channel or a named channel
+    if arg in {'channel', 'chan', 'all', '*'} or arg.startswith('#'):
+        target_chan = arg if arg.startswith('#') else trigger.sender
+        # Ops can only reset the channel they're in; admins can reset any channel
+        if target_chan.lower() != trigger.sender.lower():
+            if not _is_admin(bot, trigger):
+                try:
+                    bot.say('Only a bot admin may reset history for another channel.', trigger.sender)
+                except Exception:
+                    pass
+                return
+        else:
+            if not (_is_admin(bot, trigger) or _is_channel_op(bot, trigger)):
+                try:
+                    bot.say(
+                        'Only a bot admin/owner or a channel operator may reset Grok history for a channel. '
+                        'Use $grokreset (or $grokreset me) to reset only your history.',
+                        trigger.sender,
+                    )
+                except Exception:
+                    pass
+                return
         keys = list(bot.memory.get('grok_history', {}).keys())
         for k in keys:
             try:
-                if (isinstance(k, tuple) and k[0] == trigger.sender) or (k == trigger.sender):
+                if (isinstance(k, tuple) and k[0].lower() == target_chan.lower()) or (isinstance(k, str) and k.lower() == target_chan.lower()):
                     del bot.memory['grok_history'][k]
             except Exception:
                 continue
         try:
-            bot.say('Grok history reset for this channel.', trigger.sender)
+            bot.say(f'Grok history reset for {target_chan}.', trigger.sender)
         except Exception:
             pass
         return
@@ -1358,6 +1530,7 @@ def grokreset(bot, trigger):
     except Exception:
         pass
     try:
-        bot.reply('Your Grok history has been reset.')
+        bot.reply('Your personal Grok history has been reset.')
     except Exception:
         pass
+# Force reload
