@@ -96,7 +96,7 @@ def cooldown_cleanup(bot):
 # ──────────────────────────────────────────────────────────────
 # ++ / -- handler
 # ──────────────────────────────────────────────────────────────
-@module.rule(r'^\s*[^^\s\+\-][^\s]*?(?:\+\+|--)\s*$')
+@module.rule(r'^\s*[^\s\+\-][^\s]*?\w(?:\+\+|--)\s*$')
 def karma_increment_decrement(bot, trigger):
     if trigger.is_privmsg:
         return bot.reply(PRIVATE_KARMA_MESSAGE)
@@ -110,7 +110,8 @@ def karma_increment_decrement(bot, trigger):
 
     # Find all karma patterns in the message (capture nick + sign pair)
     # We'll strip surrounding punctuation from the captured nick below.
-    matches = re.findall(r'^\s*([^\s\+\-][^\s]*?)(\+\+|--)\s*$', trigger.group(0))
+    # Require \w before ++/-- so arrows like <-- or --> don't trigger karma.
+    matches = re.findall(r'^\s*([^\s\+\-][^\s]*?\w)(\+\+|--)\s*$', trigger.group(0))
     if not matches:
         return
 

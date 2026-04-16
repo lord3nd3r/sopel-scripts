@@ -85,21 +85,28 @@ The bot **automatically** uses live web search when it detects that your questio
 |----------|----------|
 | News & Events | `news`, `latest`, `recent`, `today`, `yesterday`, `tonight`, `this week`, `this month`, `current events`, `headlines`, `breaking`, `update` |
 | Sports | `score`, `results`, `standings`, `who won`, `who is winning` |
-| Finance | `stock price` |
-| Weather | `weather`, `forecast` |
-| People & Events | `who died`, `is ___ dead`, `did ___ happen`, `election`, `poll` |
-| General | `search`, `whats happening` |
+| Finance | `stock price`, `price of`, `worth`, `market`, `stock`, `stocks`, `crypto`, `bitcoin`, `btc`, `ethereum`, `eth` |
+| Weather & Disasters | `weather`, `forecast`, `drought`, `flooding`, `hurricane`, `tornado`, `earthquake`, `wildfire` |
+| People & Events | `who died`, `who is`, `is ___ dead`, `did ___ happen`, `election`, `poll` |
+| Factual Queries | `what is`, `where is`, `when is/was/did`, `how many/much/long/far/old/tall/big/fast`, `how bad`, `how severe`, `status of`, `population`, `gdp`, `economy`, `inflation`, `interest rate` |
+| Temporal | `currently`, `right now`, `at the moment` |
+| General | `search`, `whats happening`, `tell me about`, `what do you know about`, `look up`, `find out` |
 
 **Examples:**
 ```
 Grok: what's the latest news today?
 Grok: who won the NBA game last night?
 Grok: what's the stock price of AAPL?
+Grok: what is the price of bitcoin?
+Grok: how bad is the drought in Florida?
 Grok: search for the election results
 Grok: what's the weather forecast for tomorrow?
+Grok: tell me about the latest earthquake
 ```
 
 > **Note:** If the web search API fails, the bot automatically falls back to answering from its training data.
+
+> **Safety net:** If the model attempts to call a tool that wasn't provided (outputting raw XML), the bot automatically strips the garbage, retries the request with web search enabled, and returns a real answer. If the retry also fails, it tells the user to try again instead of outputting gibberish.
 
 ### Asking for Sources
 

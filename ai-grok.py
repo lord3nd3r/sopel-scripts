@@ -1,4 +1,4 @@
-# grok.py — v5.2: all requests via Responses API + added grok-4-20 model
+# grok.py — v5.3: expanded search intent detection + function_call XML sanitization + auto-retry
 from sopel import plugin
 from sopel.config import types
 from collections import deque
@@ -38,7 +38,16 @@ _SEARCH_INTENT_RE = re.compile(
     r'\b(search|news|latest|recent|today|yesterday|tonight|this week|this month|'
     r'current events?|whats? happening|headlines?|score|results?|standings?|'
     r'stock price|weather|forecast|breaking|update|election|poll|'
-    r'who won|who died|who is winning|is .+ dead|did .+ happen)\b',
+    r'who won|who died|who is winning|is .+ dead|did .+ happen|'
+    r'price of|how much (?:is|are|does|do|did)|how bad|how severe|'
+    r'drought|flood(?:ing)?|hurricane|tornado|earthquake|wildfire|'
+    r'status of|what(?:\'s| is) the (?:price|cost|value|status|rate)|'
+    r'worth|market|crypto|bitcoin|btc|ethereum|eth|stock|stocks|'
+    r'current(?:ly)?|right now|at the moment|'
+    r'population|gdp|economy|inflation|interest rate|'
+    r'who is |what is |where is |when (?:is|was|did|does|do)|'
+    r'how (?:many|much|long|far|old|tall|big|fast)|'
+    r'tell me about|what do you know about|look up|find out)\b',
     re.IGNORECASE,
 )
 
@@ -453,6 +462,20 @@ def _db_add_turn(bot, nick, role, text, source=None):
         _log(bot).exception('Failed to write grok DB entry')
 
 def sanitize_reply(bot, trigger, reply):
+    # Strip raw <function_call> XML that leaks when the model tries to use
+    # tools that weren't provided in the request payload.
+    if '<function_call' in reply:
+        cleaned = re.sub(r'<function_call[^>]*>.*?</function_call>', '', reply, flags=re.DOTALL).strip()
+        if cleaned:
+            reply = cleaned
+        else:
+            # Entire reply was a function call — nothing useful to show
+            try:
+                _log(bot).warning('Grok reply was entirely a raw function_call (nick=%s)', trigger.nick)
+            except Exception:
+                pass
+            return ''
+
     new_reply = re.sub(r'```.*?```', ' (code removed) ', reply, flags=re.DOTALL)
     if new_reply != reply:
         try:
@@ -466,7 +489,7 @@ def sanitize_reply(bot, trigger, reply):
             _log(bot).info('Grok reply contained ASCII art and was suppressed (nick=%s)', trigger.nick)
         except Exception:
             pass
-        return "I was gonna draw something cool… but I won’t flood the channel"
+        return "I was gonna draw something cool… but I won't flood the channel"
 
     reply = re.sub(r'[\u2580-\u259F]{5,}', ' ', reply)
     reply = re.sub(r'@(everyone|here)\b', '(nope)', reply, flags=re.IGNORECASE)
@@ -664,6 +687,29 @@ def _api_worker(bot, trigger, messages, review_mode, is_pm, bot_nick, chan_lock,
             return
 
         reply = sanitize_reply(bot, trigger, reply)
+
+        # If sanitize_reply returned empty (e.g. the model output a raw
+        # function_call instead of text), retry once with search enabled
+        # so the API actually provides the web_search tool.
+        if not reply:
+            if not search_mode:
+                _log(bot).info('Retrying with search_mode=True after raw function_call was stripped')
+                try:
+                    reply, citations = _call_responses_api(
+                        bot, messages, model, temp, max_toks,
+                        search_mode=True,
+                    )
+                    reply = sanitize_reply(bot, trigger, reply)
+                except Exception:
+                    _log(bot).exception('Retry with search_mode failed')
+                    reply = ''
+            if not reply:
+                try:
+                    bot.say("I tried to look that up but hit a wall — try asking again.", trigger.sender)
+                except Exception:
+                    pass
+                return
+
         reply = ' '.join(line.strip() for line in reply.splitlines() if line.strip())
         reply = re.sub(r'\s*\[\d+\]', '', reply)
 
@@ -1287,13 +1333,12 @@ def handle(bot, trigger):
                 f"reference them naturally when relevant. "
                 f"If the user asks about news, current events, or anything time-sensitive, "
                 f"search the web and give a substantive answer with real details. "
-                f"CRITICAL: If summarizing articles from a specific website (e.g. 'news on domain.com'), "
-                f"you MUST perform searches to retrieve the specific, exact deep-link URLs for those "
-                f"articles to ensure they are properly cited in your tool metadata. Do NOT just read "
-                f"the homepage and cite the homepage. "
-                f"Use numbered citations like [1], [2] in your text, but do NOT include the actual URLs "
-                f"or markdown links. The system will handle adding the correct verified links for you "
-                f"at the end of the message. All responses must be single-line (no newlines — this is IRC)."
+                f"CRITICAL: To ensure accurate citations, you MUST include the exact raw deep-link URL "
+                f"for every article you summarize. Do NOT use markdown links [text](url), just output "
+                f"the raw URL next to each point so it can be parsed. The system will automatically "
+                f"extract and reformat these URLs, so do not hide them behind numbered brackets alone. "
+                f"If an exact article URL cannot be found, DO NOT hallucinate one. "
+                f"All responses must be single-line (no newlines — this is IRC)."
             ),
         },
     ]

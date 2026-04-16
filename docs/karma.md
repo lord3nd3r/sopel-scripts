@@ -45,6 +45,7 @@ pip install sqlalchemy
 ## Cooldowns
 
 - **10 minutes** per user per channel between karma changes
+- Arrow-like patterns (`<--`, `-->`, `<++`) are **not treated** as karma changes — the `++` / `--` operator must immediately follow a word character (letter, digit, or underscore)
 
 ---
 

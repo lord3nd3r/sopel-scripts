@@ -72,21 +72,28 @@ The bot **automatically** uses live web search when it detects that your questio
 |----------|----------|
 | News & Events | `news`, `latest`, `recent`, `today`, `yesterday`, `tonight`, `this week`, `this month`, `current events`, `headlines`, `breaking`, `update` |
 | Sports | `score`, `results`, `standings`, `who won`, `who is winning` |
-| Finance | `stock price` |
-| Weather | `weather`, `forecast` |
-| People & Events | `who died`, `is ___ dead`, `did ___ happen`, `election`, `poll` |
-| General | `search`, `whats happening` |
+| Finance | `stock price`, `price of`, `worth`, `market`, `stock`, `stocks`, `crypto`, `bitcoin`, `btc`, `ethereum`, `eth` |
+| Weather & Disasters | `weather`, `forecast`, `drought`, `flooding`, `hurricane`, `tornado`, `earthquake`, `wildfire` |
+| People & Events | `who died`, `who is`, `is ___ dead`, `did ___ happen`, `election`, `poll` |
+| Factual Queries | `what is`, `where is`, `when is/was/did`, `how many/much/long/far/old/tall/big/fast`, `how bad`, `how severe`, `status of`, `population`, `gdp`, `economy`, `inflation`, `interest rate` |
+| Temporal | `currently`, `right now`, `at the moment` |
+| General | `search`, `whats happening`, `tell me about`, `what do you know about`, `look up`, `find out` |
 
 **Examples:**
 ```
 Grok: what's the latest news today?
 Grok: who won the NBA game last night?
 Grok: what's the stock price of AAPL?
+Grok: what is the price of bitcoin?
+Grok: how bad is the drought in Florida?
 Grok: search for the election results
 Grok: what's the weather forecast for tomorrow?
+Grok: tell me about the latest earthquake
 ```
 
 > **Note:** If the web search API fails, the bot automatically falls back to answering from its training data.
+
+> **Safety net:** If the model attempts to call a tool that wasn't provided (outputting raw XML), the bot automatically strips the garbage, retries the request with web search enabled, and returns a real answer. If the retry also fails, it tells the user to try again instead of outputting gibberish.
 
 ### 🕐 Time & Date Queries
 
@@ -435,222 +442,6 @@ A full IRC economy game with coins, mugging, betting, bounties, a shop, and an i
 
 ---
 
-## 🛠️ botadmin — Bot Admin
-
-Owner and admin-only bot management commands.
-
-### Owner Commands
-
-| Command | Description |
-|---------|-------------|
-| `$restart` | Restart the bot |
-| `$breload <module\|all>` | Reload a plugin or all plugins |
-| `$botquit [msg]` | Shut down the bot |
-| `$raw <irc line>` | Send a raw IRC command |
-| `$botnick <nick>` | Change the bot's nick |
-
-### Admin Commands
-
-| Command | Description |
-|---------|-------------|
-| `$say <target> <msg>` | Make bot say something |
-| `$act <target> <action>` | Make bot do a /me action |
-| `$bjoin #channel [key]` | Join a channel |
-| `$bpart #channel [msg]` | Leave a channel |
-| `$bmode #channel <mode> [nick]` | Set a channel mode |
-| `$bothelp` | List all admin commands |
-
----
-
-## 🛠️ botadmin — Bot Admin
-
-Owner and admin-only bot management commands.
-
-### Owner Commands
-
-| Command | Description |
-|---------|-------------|
-| `$restart` | Restart the bot |
-| `$breload <module\|all>` | Reload a plugin or all plugins |
-| `$botquit [msg]` | Shut down the bot |
-| `$raw <irc line>` | Send a raw IRC command |
-| `$botnick <nick>` | Change the bot's nick |
-
-### Admin Commands
-
-| Command | Description |
-|---------|-------------|
-| `$say <target> <msg>` | Make bot say something |
-| `$act <target> <action>` | Make bot do a /me action |
-| `$bjoin #channel [key]` | Join a channel |
-| `$bpart #channel [msg]` | Leave a channel |
-| `$bmode #channel <mode> [nick]` | Set a channel mode |
-| `$bothelp` | List all admin commands |
-
----
-
-## 🛠️ botadmin — Bot Admin
-
-Owner and admin-only bot management commands.
-
-### Owner Commands
-
-| Command | Description |
-|---------|-------------|
-| `$restart` | Restart the bot |
-| `$breload <module\|all>` | Reload a plugin or all plugins |
-| `$botquit [msg]` | Shut down the bot |
-| `$raw <irc line>` | Send a raw IRC command |
-| `$botnick <nick>` | Change the bot's nick |
-
-### Admin Commands
-
-| Command | Description |
-|---------|-------------|
-| `$say <target> <msg>` | Make bot say something |
-| `$act <target> <action>` | Make bot do a /me action |
-| `$bjoin #channel [key]` | Join a channel |
-| `$bpart #channel [msg]` | Leave a channel |
-| `$bmode #channel <mode> [nick]` | Set a channel mode |
-| `$bothelp` | List all admin commands |
-
----
-
-## 🛠️ botadmin — Bot Admin
-
-Owner and admin-only bot management commands.
-
-### Owner Commands
-
-| Command | Description |
-|---------|-------------|
-| `$restart` | Restart the bot |
-| `$breload <module\|all>` | Reload a plugin or all plugins |
-| `$botquit [msg]` | Shut down the bot |
-| `$raw <irc line>` | Send a raw IRC command |
-| `$botnick <nick>` | Change the bot's nick |
-
-### Admin Commands
-
-| Command | Description |
-|---------|-------------|
-| `$say <target> <msg>` | Make bot say something |
-| `$act <target> <action>` | Make bot do a /me action |
-| `$bjoin #channel [key]` | Join a channel |
-| `$bpart #channel [msg]` | Leave a channel |
-| `$bmode #channel <mode> [nick]` | Set a channel mode |
-| `$bothelp` | List all admin commands |
-
----
-
-## 🛠️ botadmin — Bot Admin
-
-Owner and admin-only bot management commands.
-
-### Owner Commands
-
-| Command | Description |
-|---------|-------------|
-| `$restart` | Restart the bot |
-| `$breload <module\|all>` | Reload a plugin or all plugins |
-| `$botquit [msg]` | Shut down the bot |
-| `$raw <irc line>` | Send a raw IRC command |
-| `$botnick <nick>` | Change the bot's nick |
-
-### Admin Commands
-
-| Command | Description |
-|---------|-------------|
-| `$say <target> <msg>` | Make bot say something |
-| `$act <target> <action>` | Make bot do a /me action |
-| `$bjoin #channel [key]` | Join a channel |
-| `$bpart #channel [msg]` | Leave a channel |
-| `$bmode #channel <mode> [nick]` | Set a channel mode |
-| `$bothelp` | List all admin commands |
-
----
-
-## 🛠️ botadmin — Bot Admin
-
-Owner and admin-only bot management commands.
-
-### Owner Commands
-
-| Command | Description |
-|---------|-------------|
-| `$restart` | Restart the bot |
-| `$breload <module\|all>` | Reload a plugin or all plugins |
-| `$botquit [msg]` | Shut down the bot |
-| `$raw <irc line>` | Send a raw IRC command |
-| `$botnick <nick>` | Change the bot's nick |
-
-### Admin Commands
-
-| Command | Description |
-|---------|-------------|
-| `$say <target> <msg>` | Make bot say something |
-| `$act <target> <action>` | Make bot do a /me action |
-| `$bjoin #channel [key]` | Join a channel |
-| `$bpart #channel [msg]` | Leave a channel |
-| `$bmode #channel <mode> [nick]` | Set a channel mode |
-| `$bothelp` | List all admin commands |
-
----
-
-## 🛠️ botadmin — Bot Admin
-
-Owner and admin-only bot management commands.
-
-### Owner Commands
-
-| Command | Description |
-|---------|-------------|
-| `$restart` | Restart the bot |
-| `$breload <module\|all>` | Reload a plugin or all plugins |
-| `$botquit [msg]` | Shut down the bot |
-| `$raw <irc line>` | Send a raw IRC command |
-| `$botnick <nick>` | Change the bot's nick |
-
-### Admin Commands
-
-| Command | Description |
-|---------|-------------|
-| `$say <target> <msg>` | Make bot say something |
-| `$act <target> <action>` | Make bot do a /me action |
-| `$bjoin #channel [key]` | Join a channel |
-| `$bpart #channel [msg]` | Leave a channel |
-| `$bmode #channel <mode> [nick]` | Set a channel mode |
-| `$bothelp` | List all admin commands |
-
----
-
-## 🛠️ botadmin — Bot Admin
-
-Owner and admin-only bot management commands.
-
-### Owner Commands
-
-| Command | Description |
-|---------|-------------|
-| `$restart` | Restart the bot |
-| `$breload <module\|all>` | Reload a plugin or all plugins |
-| `$botquit [msg]` | Shut down the bot |
-| `$raw <irc line>` | Send a raw IRC command |
-| `$botnick <nick>` | Change the bot's nick |
-
-### Admin Commands
-
-| Command | Description |
-|---------|-------------|
-| `$say <target> <msg>` | Make bot say something |
-| `$act <target> <action>` | Make bot do a /me action |
-| `$bjoin #channel [key]` | Join a channel |
-| `$bpart #channel [msg]` | Leave a channel |
-| `$bmode #channel <mode> [nick]` | Set a channel mode |
-| `$bothelp` | List all admin commands |
-
----
-
 ## 🐄 moo — Moo Counter
 
 Track and count "moos" across the network! Say "moo" in chat and watch the counter climb. Includes legendary moos, sudo moo, and leaderboards.
@@ -708,6 +499,10 @@ Give and receive karma with `++` and `--`. Features per-channel and global track
 ### Cooldowns
 - **10-minute cooldown** per user per channel between karma changes
 - Fun themed response messages with emojis
+
+### Arrow Protection
+- Arrow-like patterns (`<--`, `-->`, `<++`) are **not treated** as karma changes
+- The `++` / `--` operator must immediately follow a word character (letter, digit, or underscore)
 
 ---
 
