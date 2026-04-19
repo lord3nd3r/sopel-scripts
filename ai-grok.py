@@ -24,6 +24,23 @@ USER_SAFETY_SECONDS = 2
 API_QUEUE_MAXSIZE = 50
 API_WORKER_COUNT = 3
 
+# Humanizing delay: pause before sending to simulate reading + typing
+TYPING_DELAY_MIN = 1.5         # minimum seconds before responding
+TYPING_DELAY_MAX = 4.0         # maximum seconds before responding
+
+# Unprompted chime-in: occasionally jump into conversation without being mentioned
+CHIMEIN_ENABLED = True
+CHIMEIN_CHANCE_PCT = 1.5       # % chance per qualifying message (1.5%)
+CHIMEIN_COOLDOWN = 300          # seconds between chime-ins per channel (5 min)
+CHIMEIN_MIN_ACTIVITY = 5       # require at least N messages in channel log before chiming in
+# Patterns that make chime-in more likely (boosted to CHIMEIN_CHANCE_PCT * 3)
+CHIMEIN_BOOST_RE = re.compile(
+    r'\b(lmao|lmfao|rofl|haha|lol|omg|wtf|no way|holy shit|'
+    r'that\'s insane|can\'t believe|did you see|anyone know|'
+    r'i hate|i love|unpopular opinion|hot take)\b',
+    re.IGNORECASE,
+)
+
 # History and review mode limits
 MAX_HISTORY_PER_USER = 20
 MAX_HISTORY_ENTRIES = 50
@@ -137,28 +154,21 @@ class GrokSection(types.StaticSection):
     system_prompt = types.ValidatedAttribute(
         'system_prompt',
         default=(
-            "You are Grok, a witty and helpful AI assistant living inside an IRC channel. "
-            "Be concise, fun, and friendly. "
-            "This is a casual IRC channel where friends roast each other, give each other "
-            "silly nicknames, and engage in edgy banter. Play along with jokes, teasing, "
-            "and playful insults — it's all in good fun between friends. "
-            "If an admin or the channel owner asks you to remember something about a user "
-            "(like a nickname or running joke), roll with it. Don't be uptight or preachy. "
-            "IMPORTANT: When discussing news or providing search results, use numbered "
-            "citations like [1], [2] next to facts, but do NOT include the full URLs or "
-            "markdown links in your response. Simply use the numbers; the system will "
-            "automatically append the correct verified source links for you at the end. "
-            "IMPORTANT — IRC is plain text only: you cannot display colors, render images, "
-            "produce ASCII art, figlet text, visual effects, or any kind of formatted visual output. "
-            "Never output code blocks, ASCII art, figlet, or @everyone mentions. "
-            "When listing multiple items (e.g. features, results, threads, options, steps), "
-            "always number them like '1. item 2. item 3. item' for readability. "
-            "If a user asks you to do something you genuinely cannot do in IRC "
-            "(show colors, display an image, draw something, produce visual output, etc.), "
-            "be upfront and honest: tell them clearly what the limitation is and why, "
-            "instead of giving a vague, evasive, or misleading response. "
-            "For example say 'I can't display colors in IRC — it's plain text only' rather "
-            "than pretending to try or giving a nonsense reply."
+            "You are Grok, a regular in this IRC channel. You're sharp, geeky, and a little "
+            "sarcastic — but you genuinely like the people here. Talk like an IRC veteran: "
+            "use lowercase when it feels natural, drop in casual filler like 'lol', 'ngl', "
+            "'tbh', 'lmao', 'fr' occasionally, use sentence fragments, and don't always give "
+            "complete polished answers — sometimes just react. You can be blunt, funny, or "
+            "deadpan depending on the vibe. Don't start messages with your name. Don't lecture "
+            "or moralize. If someone needs real help, actually help. Keep responses short and "
+            "punchy unless the topic genuinely needs more. No ASCII art, no code blocks, no "
+            "figlets — just talk. Occasionally start replies with filler words like a real person "
+            "would — 'oh', 'wait', 'hmm', 'yo' — not every time, just enough to sound natural. "
+            "Sometimes give a one-word reaction instead of a full answer. "
+            "IMPORTANT: When discussing news or search results, use numbered citations like [1], [2] "
+            "next to facts, but do NOT include URLs in your response. "
+            "IMPORTANT — IRC is plain text only: no colors, images, ASCII art, figlet, or formatted output. "
+            "When listing items, number them like '1. item 2. item 3. item' for readability."
         ),
     )
     blocked_channels = types.ListAttribute('blocked_channels', default=[])
@@ -232,6 +242,7 @@ def setup(bot):
     bot.memory['grok_channel_log'] = {}  # per-channel chronological message log
     bot.memory['grok_say_lock'] = threading.Lock()  # thread-safe say wrapper lock
     bot.memory['grok_api_failures'] = {}  # circuit breaker: channel -> failure count
+    bot.memory['grok_chimein_last'] = {}  # per-channel last chime-in timestamp
 
     # Wrap bot.say so ALL bot output (from every plugin) is captured in channel log.
     # This lets the AI see game results, mug outcomes, bet payouts, etc.
@@ -823,6 +834,10 @@ def _api_worker(bot, trigger, messages, review_mode, is_pm, bot_nick, chan_lock,
         else:
             final_reply = reply
 
+        # Humanizing delay: pause before sending to simulate reading + typing
+        _typing_delay = random.uniform(TYPING_DELAY_MIN, TYPING_DELAY_MAX)
+        time.sleep(_typing_delay)
+
         send(bot, trigger.sender, final_reply)
 
         with chan_lock:
@@ -1250,6 +1265,61 @@ def handle(bot, trigger):
                     history.append(f"{trigger.nick}: {text_for_history}")
 
     if not mentioned:
+        # --- Unprompted chime-in: occasionally jump into conversation ---
+        if CHIMEIN_ENABLED and not is_pm and text_for_history:
+            try:
+                _ch_key = trigger.sender.lower()
+                _chimein_last = bot.memory.get('grok_chimein_last', {})
+                _now = time.time()
+                # Cooldown check
+                if _now - _chimein_last.get(_ch_key, 0) >= CHIMEIN_COOLDOWN:
+                    # Minimum activity check
+                    _cl_dq = bot.memory.get('grok_channel_log', {}).get(_ch_key)
+                    if _cl_dq and len(_cl_dq) >= CHIMEIN_MIN_ACTIVITY:
+                        # Roll the dice
+                        _chance = CHIMEIN_CHANCE_PCT
+                        if CHIMEIN_BOOST_RE.search(text_for_history):
+                            _chance = min(95, _chance * 3)
+                        if random.random() * 100 < _chance:
+                            _chimein_last[_ch_key] = _now
+                            # Build a chime-in request using recent channel context
+                            _chimein_lines = []
+                            for _cn, _ct in list(_cl_dq)[-40:]:
+                                _chimein_lines.append(f"{_cn}: {_ct}")
+                            _chimein_bg = "\n".join(_chimein_lines)
+                            _bot_nick = bot.nick
+                            _chimein_sys = (
+                                f"You are {_bot_nick}, a regular in this IRC channel. "
+                                "You just saw something in the conversation that caught your eye and you want to jump in. "
+                                "React naturally — laugh at something funny, agree, disagree, add a quip, drop a one-liner, "
+                                "or just vibe. Keep it SHORT (under 100 chars ideally). "
+                                "Do NOT address anyone by name unless it's natural. Do NOT start with your own name. "
+                                "Talk like a real IRC user: lowercase ok, slang ok, 'lol' 'ngl' 'tbh' 'fr' ok. "
+                                "Sometimes just react with one word. Do NOT summarize or explain what people said. "
+                                "Single line only — this is IRC."
+                            )
+                            _chimein_msgs = [
+                                {"role": "system", "content": _chimein_sys},
+                                {"role": "user", "content": (
+                                    "Here's what's been said in the channel recently:\n"
+                                    + _chimein_bg + "\n\n"
+                                    "Jump in naturally with a short reaction or comment."
+                                )},
+                            ]
+                            _chimein_lock = _get_channel_lock(bot, trigger.sender)
+                            try:
+                                if not bot.memory['grok_busy'].get(trigger.sender, False):
+                                    bot.memory['grok_busy'][trigger.sender] = True
+                                    API_TASK_QUEUE.put_nowait((
+                                        bot, trigger, _chimein_msgs, False, False,
+                                        _bot_nick, _chimein_lock, False, False,
+                                    ))
+                            except queue.Full:
+                                bot.memory['grok_busy'].pop(trigger.sender, None)
+                            except Exception:
+                                bot.memory['grok_busy'].pop(trigger.sender, None)
+            except Exception:
+                pass
         return
 
     user_message = text_for_history
@@ -1324,21 +1394,14 @@ def handle(bot, trigger):
             "role": "system",
             "content": (
                 f"Current date/time: {now_str}. "
-                f"Your IRC nick is '{bot_nick}'. You are replying to {trigger.nick}. "
-                f"You also run game/utility plugins that respond to $ commands "
-                f"(e.g. $bet, $mug, $coins, $top5, $trivia, $stock, $weather, $quote, etc.). "
-                f"Messages from '{bot_nick}' in the channel log are your own previous outputs "
-                f"from these plugins — treat them as things you said/did. "
-                f"Be aware of game events, coin balances, mug outcomes, and banter — "
-                f"reference them naturally when relevant. "
-                f"If the user asks about news, current events, or anything time-sensitive, "
-                f"search the web and give a substantive answer with real details. "
-                f"CRITICAL: To ensure accurate citations, you MUST include the exact raw deep-link URL "
-                f"for every article you summarize. Do NOT use markdown links [text](url), just output "
-                f"the raw URL next to each point so it can be parsed. The system will automatically "
-                f"extract and reformat these URLs, so do not hide them behind numbered brackets alone. "
-                f"If an exact article URL cannot be found, DO NOT hallucinate one. "
-                f"All responses must be single-line (no newlines — this is IRC)."
+                f"Your IRC nick is '{bot_nick}'. You're talking to {trigger.nick}. "
+                f"You also run game/utility plugins ($ commands like $bet, $mug, $coins, etc.). "
+                f"Messages from '{bot_nick}' in the channel log are things you said — reference "
+                f"game events, coin balances, mug outcomes naturally when relevant. "
+                f"For news or current events, search the web and give real details. "
+                f"Include raw deep-link URLs for articles you cite (the system strips and reformats them). "
+                f"Do NOT use markdown links. If you can't find an exact URL, don't make one up. "
+                f"Single line only — this is IRC. No newlines."
             ),
         },
     ]

@@ -22,7 +22,7 @@ api_key = xai-XXXXXXXXXXXXXXXXXXXXXXXX
 model = grok-4-1-fast-reasoning
 
 # Optional — custom system prompt (the bot's personality)
-system_prompt = You are Grok, a witty AI assistant on IRC.
+system_prompt = You are Glitchy, a regular in this IRC channel. You're sharp, geeky, and a little sarcastic.
 
 # Optional — channels where the bot will NOT respond
 blocked_channels =
@@ -205,6 +205,51 @@ The bot reacts to `/me` actions and emote-style messages directed at it. Respons
 /me pets Grok
 * User hugs Grok
 ```
+
+---
+
+## 🧑 Humanization Features
+
+The bot includes several features designed to make it feel less like an AI and more like a regular channel participant.
+
+### Typing Delay
+
+Responses are delayed by a random **1.5–4 seconds** before being sent, simulating the time a real person would take to read and type a reply. This prevents the instant-response pattern that's a dead giveaway for bots.
+
+**Tunables** (in code):
+| Setting | Default | Description |
+|---------|---------|-------------|
+| `TYPING_DELAY_MIN` | 1.5 | Minimum delay in seconds |
+| `TYPING_DELAY_MAX` | 4.0 | Maximum delay in seconds |
+
+### Unprompted Chime-In
+
+The bot occasionally jumps into conversation **without being mentioned**, just like a real channel regular would. It reads the recent chat context and drops a short, natural reaction — a quip, agreement, one-liner, or just "lol".
+
+**How it works:**
+- Every channel message has a **1.5% chance** of triggering a chime-in
+- Messages containing laughter/excitement keywords (lol, lmao, omg, wtf, etc.) get a **3x boost** (4.5% chance)
+- **5-minute cooldown** per channel between chime-ins
+- Requires at least **5 messages** in the channel log before it will chime in
+- Chime-in responses are typically short (under 100 chars)
+
+**Tunables** (in code):
+| Setting | Default | Description |
+|---------|---------|-------------|
+| `CHIMEIN_ENABLED` | `True` | Master switch |
+| `CHIMEIN_CHANCE_PCT` | 1.5 | Base % chance per message |
+| `CHIMEIN_COOLDOWN` | 300 | Seconds between chime-ins per channel |
+| `CHIMEIN_MIN_ACTIVITY` | 5 | Min messages in log before chiming in |
+
+### Natural Language Style
+
+The system prompt instructs the bot to:
+- Use lowercase naturally, like IRC regulars do
+- Drop in casual filler: "lol", "ngl", "tbh", "lmao", "fr", "honestly"
+- Use sentence fragments instead of always giving complete answers
+- Occasionally start with filler words: "oh", "wait", "hmm", "yo", "dude"
+- Give one-word reactions ("same", "fr", "lmao") when that's all the moment needs
+- Be blunt, funny, or deadpan depending on the conversational vibe
 
 ---
 
