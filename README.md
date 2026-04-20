@@ -60,6 +60,8 @@ An AI chatbot powered by the **xAI Grok API**. The bot responds when mentioned b
 | `/me pets BotNick` | Emote interaction — bot reacts | `/me hugs Grok` |
 | `$grokreset` | Reset your conversation history | `$grokreset` |
 | `$grokreset channel` | Reset all channel history (admin/op) | `$grokreset channel` |
+| `$ai <on\|off>` | Enable/disable AI for the channel (admin/op) | `$ai off` |
+| `$talkback <on\|off>` | Enable/disable chime-ins (admin/op) | `$talkback off` |
 | `$testemote` | Verify emote plugin is loaded | `$testemote` |
 
 ### 🔍 Web Search (Automatic)
@@ -439,6 +441,87 @@ A full IRC economy game with coins, mugging, betting, bounties, a shop, and an i
 - **Scaled fail/crit loss caps:** Normal fail cap = max(100k, 5% of your money); Crit fail cap = max(250k, 10% of your money)
 - **Bet cap:** Max bet is 1,000,000,000 (1B) to prevent hyperinflation
 - **Whale protection:** If victim has > 10k coins, max steal is 25% per mug
+
+---
+
+## 🛠️ botadmin — Bot Admin
+
+Owner and admin-only bot management commands.
+
+### Owner Commands
+
+| Command | Description |
+|---------|-------------|
+| `$restart` | Restart the bot |
+| `$breload <module\|all>` | Reload a plugin or all plugins |
+| `$botquit [msg]` | Shut down the bot |
+| `$raw <irc line>` | Send a raw IRC command |
+| `$botnick <nick>` | Change the bot's nick |
+
+### Admin Commands
+
+| Command | Description |
+|---------|-------------|
+| `$say <target> <msg>` | Make bot say something |
+| `$act <target> <action>` | Make bot do a /me action |
+| `$bjoin #channel [key]` | Join a channel |
+| `$bpart #channel [msg]` | Leave a channel |
+| `$bmode #channel <mode> [nick]` | Set a channel mode |
+| `$bothelp` | List all admin commands |
+
+---
+
+## 🛠️ botadmin — Bot Admin
+
+Owner and admin-only bot management commands.
+
+### Owner Commands
+
+| Command | Description |
+|---------|-------------|
+| `$restart` | Restart the bot |
+| `$breload <module\|all>` | Reload a plugin or all plugins |
+| `$botquit [msg]` | Shut down the bot |
+| `$raw <irc line>` | Send a raw IRC command |
+| `$botnick <nick>` | Change the bot's nick |
+
+### Admin Commands
+
+| Command | Description |
+|---------|-------------|
+| `$say <target> <msg>` | Make bot say something |
+| `$act <target> <action>` | Make bot do a /me action |
+| `$bjoin #channel [key]` | Join a channel |
+| `$bpart #channel [msg]` | Leave a channel |
+| `$bmode #channel <mode> [nick]` | Set a channel mode |
+| `$bothelp` | List all admin commands |
+
+---
+
+## 🛠️ botadmin — Bot Admin
+
+Owner and admin-only bot management commands.
+
+### Owner Commands
+
+| Command | Description |
+|---------|-------------|
+| `$restart` | Restart the bot |
+| `$breload <module\|all>` | Reload a plugin or all plugins |
+| `$botquit [msg]` | Shut down the bot |
+| `$raw <irc line>` | Send a raw IRC command |
+| `$botnick <nick>` | Change the bot's nick |
+
+### Admin Commands
+
+| Command | Description |
+|---------|-------------|
+| `$say <target> <msg>` | Make bot say something |
+| `$act <target> <action>` | Make bot do a /me action |
+| `$bjoin #channel [key]` | Join a channel |
+| `$bpart #channel [msg]` | Leave a channel |
+| `$bmode #channel <mode> [nick]` | Set a channel mode |
+| `$bothelp` | List all admin commands |
 
 ---
 

@@ -62,6 +62,8 @@ intent_check = heuristic
 | `/me pets BotNick` | Anyone | Emote interaction |
 | `$grokreset` | Anyone | Reset your conversation history |
 | `$grokreset channel` | Op+ / Admin | Reset all channel conversation history |
+| `$ai <on\|off>` | Op+ / Admin | Enable/disable AI entirely for the channel |
+| `$talkback <on\|off>` | Op+ / Admin | Enable/disable unprompted chime-ins |
 | `$testemote` | Anyone | Test that the emote plugin is loaded |
 
 ### Admin PM Commands
@@ -240,6 +242,11 @@ The bot occasionally jumps into conversation **without being mentioned**, just l
 | `CHIMEIN_CHANCE_PCT` | 1.5 | Base % chance per message |
 | `CHIMEIN_COOLDOWN` | 300 | Seconds between chime-ins per channel |
 | `CHIMEIN_MIN_ACTIVITY` | 5 | Min messages in log before chiming in |
+
+**Channel Control:**
+Channel operators can toggle this feature per-channel using:
+- `$talkback off` — Disable unprompted chime-ins
+- `$talkback on` — Enable unprompted chime-ins
 
 ### Natural Language Style
 

@@ -30,8 +30,8 @@ TYPING_DELAY_MAX = 4.0         # maximum seconds before responding
 
 # Unprompted chime-in: occasionally jump into conversation without being mentioned
 CHIMEIN_ENABLED = True
-CHIMEIN_CHANCE_PCT = 1.5       # % chance per qualifying message (1.5%)
-CHIMEIN_COOLDOWN = 300          # seconds between chime-ins per channel (5 min)
+CHIMEIN_CHANCE_PCT = 5       # % chance per qualifying message (1.5%)
+CHIMEIN_COOLDOWN = 200          # seconds between chime-ins per channel (5 min)
 CHIMEIN_MIN_ACTIVITY = 5       # require at least N messages in channel log before chiming in
 # Patterns that make chime-in more likely (boosted to CHIMEIN_CHANCE_PCT * 3)
 CHIMEIN_BOOST_RE = re.compile(
@@ -267,6 +267,7 @@ def setup(bot):
         os.makedirs(base_dir, exist_ok=True)
         db_path = os.path.join(base_dir, 'grok.sqlite3')
         bot.memory['grok_db_path'] = db_path
+        bot.memory['grok_channel_settings_cache'] = {}
         _init_db(bot)
         _load_admin_ignored_into_memory(bot)
     except Exception:
@@ -431,6 +432,18 @@ def _init_db(bot):
             time_fmt TEXT
         )
     ''')
+    c.execute('''
+        CREATE TABLE IF NOT EXISTS grok_channel_settings (
+            channel TEXT PRIMARY KEY,
+            talkback INTEGER DEFAULT 1,
+            enabled INTEGER DEFAULT 1
+        )
+    ''')
+    try:
+        c.execute('ALTER TABLE grok_channel_settings ADD COLUMN enabled INTEGER DEFAULT 1')
+    except sqlite3.OperationalError:
+        # Column already exists
+        pass
     conn.commit()
     conn.close()
 
@@ -471,6 +484,104 @@ def _db_add_turn(bot, nick, role, text, source=None):
             )
     except Exception:
         _log(bot).exception('Failed to write grok DB entry')
+
+def _db_get_channel_talkback(bot, channel):
+    channel = channel.lower()
+    cache = bot.memory.get('grok_channel_settings_cache', {})
+    if channel in cache and isinstance(cache[channel], dict) and 'talkback' in cache[channel]:
+        return cache[channel]['talkback']
+    
+    try:
+        with _DBContext(bot) as conn:
+            c = conn.cursor()
+            c.execute('SELECT talkback FROM grok_channel_settings WHERE channel = ?', (channel,))
+            row = c.fetchone()
+            val = row[0] if row else 1
+            if channel not in cache or not isinstance(cache[channel], dict):
+                cache[channel] = {}
+            cache[channel]['talkback'] = val
+            return val
+    except Exception:
+        return 1
+
+def _db_set_channel_talkback(bot, channel, status):
+    channel = channel.lower()
+    val = 1 if status else 0
+    try:
+        with _DBContext(bot) as conn:
+            c = conn.cursor()
+            c.execute(
+                'INSERT INTO grok_channel_settings (channel, talkback, enabled) VALUES (?, ?, 1) '
+                'ON CONFLICT(channel) DO UPDATE SET talkback = excluded.talkback',
+                (channel, val)
+            )
+        cache = bot.memory.get('grok_channel_settings_cache', {})
+        if channel not in cache or not isinstance(cache[channel], dict):
+            cache[channel] = {}
+        cache[channel]['talkback'] = val
+        return True
+    except Exception:
+        _log(bot).exception('Failed to update channel talkback setting')
+        return False
+
+def _db_get_channel_enabled(bot, channel):
+    channel = channel.lower()
+    cache = bot.memory.get('grok_channel_settings_cache', {})
+    if channel in cache and isinstance(cache[channel], dict) and 'enabled' in cache[channel]:
+        return cache[channel]['enabled']
+    
+    try:
+        with _DBContext(bot) as conn:
+            c = conn.cursor()
+            c.execute('SELECT enabled FROM grok_channel_settings WHERE channel = ?', (channel,))
+            row = c.fetchone()
+            val = row[0] if row else 1
+            if channel not in cache or not isinstance(cache[channel], dict):
+                cache[channel] = {}
+            cache[channel]['enabled'] = val
+            return val
+    except Exception:
+        return 1
+
+def _db_set_channel_enabled(bot, channel, status):
+    channel = channel.lower()
+    val = 1 if status else 0
+    try:
+        with _DBContext(bot) as conn:
+            c = conn.cursor()
+            c.execute(
+                'INSERT INTO grok_channel_settings (channel, talkback, enabled) VALUES (?, 1, ?) '
+                'ON CONFLICT(channel) DO UPDATE SET enabled = excluded.enabled',
+                (channel, val)
+            )
+        cache = bot.memory.get('grok_channel_settings_cache', {})
+        if channel not in cache or not isinstance(cache[channel], dict):
+            cache[channel] = {}
+        cache[channel]['enabled'] = val
+        return True
+    except Exception:
+        _log(bot).exception('Failed to update channel enabled setting')
+        return False
+
+def _db_get_channel_settings(bot, channel):
+    channel = channel.lower()
+    cache = bot.memory.get('grok_channel_settings_cache', {})
+    if channel in cache and 'talkback' in cache[channel] and 'enabled' in cache[channel]:
+        return cache[channel]
+    
+    try:
+        with _DBContext(bot) as conn:
+            c = conn.cursor()
+            c.execute('SELECT talkback, enabled FROM grok_channel_settings WHERE channel = ?', (channel,))
+            row = c.fetchone()
+            if row:
+                settings = {"talkback": row[0], "enabled": row[1]}
+            else:
+                settings = {"talkback": 1, "enabled": 1}
+            cache[channel] = settings
+            return settings
+    except Exception:
+        return {"talkback": 1, "enabled": 1}
 
 def sanitize_reply(bot, trigger, reply):
     # Strip raw <function_call> XML that leaks when the model tries to use
@@ -1112,6 +1223,11 @@ def handle(bot, trigger):
     except Exception:
         pass
 
+    # Per-channel AI toggle check
+    if not is_pm:
+        if not _db_get_channel_enabled(bot, trigger.sender):
+            return
+
     try:
         cfg_core_nick = getattr(bot.config.core, 'nick', None)
     except Exception:
@@ -1266,7 +1382,7 @@ def handle(bot, trigger):
 
     if not mentioned:
         # --- Unprompted chime-in: occasionally jump into conversation ---
-        if CHIMEIN_ENABLED and not is_pm and text_for_history:
+        if CHIMEIN_ENABLED and not is_pm and text_for_history and _db_get_channel_talkback(bot, trigger.sender):
             try:
                 _ch_key = trigger.sender.lower()
                 _chimein_last = bot.memory.get('grok_chimein_last', {})
@@ -1641,4 +1757,67 @@ def grokreset(bot, trigger):
         bot.reply('Your personal Grok history has been reset.')
     except Exception:
         pass
+
+@plugin.command('talkback')
+def talkback(bot, trigger):
+    """Toggle unprompted chime-ins for this channel."""
+    if _is_pm(trigger):
+        bot.say("Talkback can only be configured in channels.")
+        return
+
+    # Check privileges: Op or higher
+    if not (_is_admin(bot, trigger) or _is_channel_op(bot, trigger)):
+        bot.reply("Only channel operators or bot admins can change talkback settings.")
+        return
+
+    arg = (trigger.group(2) or '').strip().lower()
+    channel = trigger.sender
+    
+    if arg in ('on', 'enable', 'true', '1'):
+        if _db_set_channel_talkback(bot, channel, True):
+            bot.say(f"Talkback is now enabled for {channel}.")
+        else:
+            bot.say("Failed to update talkback setting.")
+    elif arg in ('off', 'disable', 'false', '0'):
+        if _db_set_channel_talkback(bot, channel, False):
+            bot.say(f"Talkback is now disabled for {channel}.")
+        else:
+            bot.say("Failed to update talkback setting.")
+    else:
+        # Show current status
+        current = _db_get_channel_talkback(bot, channel)
+        status = "enabled" if current else "disabled"
+        bot.say(f"Talkback is currently {status} for {channel}. Use '.talkback on' or '.talkback off' to change it.")
+
+@plugin.command('ai')
+def ai_toggle(bot, trigger):
+    """Enable or disable Grok AI for this channel."""
+    if _is_pm(trigger):
+        bot.say("AI status can only be configured in channels.")
+        return
+
+    # Check privileges: Op or higher
+    if not (_is_admin(bot, trigger) or _is_channel_op(bot, trigger)):
+        bot.reply("Only channel operators or bot admins can change AI status.")
+        return
+
+    arg = (trigger.group(2) or '').strip().lower()
+    channel = trigger.sender
+    
+    if arg in ('on', 'enable', 'true', '1'):
+        if _db_set_channel_enabled(bot, channel, True):
+            bot.say(f"Grok AI is now ENABLED for {channel}.")
+        else:
+            bot.say("Failed to update AI status.")
+    elif arg in ('off', 'disable', 'false', '0'):
+        if _db_set_channel_enabled(bot, channel, False):
+            bot.say(f"Grok AI is now DISABLED for {channel}. I will no longer respond to mentions or chime in here.")
+        else:
+            bot.say("Failed to update AI status.")
+    else:
+        # Show current status
+        current = _db_get_channel_enabled(bot, channel)
+        status = "ENABLED" if current else "DISABLED"
+        bot.say(f"Grok AI is currently {status} for {channel}. Use '.ai on' or '.ai off' to change it.")
+
 # Force reload
