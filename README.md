@@ -28,6 +28,9 @@ A collection of custom [Sopel](https://sopel.chat/) IRC bot plugins for fun, uti
 - [YouTube Titles](docs/youtube_titles.md)
 - [Auto Voice](docs/autovoice.md)
 - [Markov Chain](docs/markov.md)
+- [Wiki Search](docs/wiki.md)
+- [Quotes](docs/quote.md)
+- [Rizon Help](docs/rizonhelp.md)
 - [Installation](#-installation)
 - [Configuration](#-configuration)
 
@@ -973,6 +976,45 @@ Markov chain chatbot that learns from channel messages and generates random sent
 | `$markovfor <#channel> <word>` | Same, with a seed word |
 
 📖 **Full docs:** [docs/markov.md](docs/markov.md)
+
+---
+
+## 🔍 wiki — Wiki Search
+
+Search Grokepedia and Wikipedia directly from IRC.
+
+| Command | Description |
+|---------|-------------|
+| `$wiki <term>` | Search for a term |
+
+📖 **Full docs:** [docs/wiki.md](docs/wiki.md)
+
+---
+
+## 💬 quote — Channel Quote Database
+
+Save and search funny or memorable things said in the channel.
+
+| Command | Description |
+|---------|-------------|
+| `$quote add <nick> <text>` | Add a new quote |
+| `$quote search <term>` | Search for a quote |
+| `$quote` | Get a random quote |
+
+📖 **Full docs:** [docs/quote.md](docs/quote.md)
+
+---
+
+## 🆘 rizonhelp — Rizon Network Help
+
+Quick access to Rizon IRC network help topics and FAQ.
+
+| Command | Description |
+|---------|-------------|
+| `$rhelp` | List topics |
+| `$rhelp <topic>` | Get detailed help |
+
+📖 **Full docs:** [docs/rizonhelp.md](docs/rizonhelp.md)
 
 ---
 
