@@ -8,6 +8,10 @@ import random
 import threading
 import time
 import atexit
+
+# Use OS-level entropy (/dev/urandom) for all game randomness so consecutive
+# calls are truly independent — eliminates the Mersenne Twister streakiness.
+_sysrand = random.SystemRandom()
 from contextlib import contextmanager
 import unicodedata
 import re
@@ -195,7 +199,7 @@ TITLE_THRESHOLDS = [
 ]
 
 # Anti-cheat settings
-REQUIRE_IDENTIFIED = True      # Require NickServ identification for economy commands
+REQUIRE_IDENTIFIED = False     # Require NickServ identification for economy commands
 GLOBAL_CMD_COOLDOWN = 3        # Min seconds between ANY economy command per user
 
 # ---- Flood / spam gate ----
@@ -457,7 +461,7 @@ def locked_data(bot):
 
 
 def _rand(lst):
-    return random.choice(lst)
+    return _sysrand.choice(lst)
 
 
 def _utf8_len(s: str) -> int:
@@ -1169,7 +1173,7 @@ def _bot_mug(bot, channel, target_nick, intro_messages):
         intro = _rand(intro_messages).format(bot=bot_nick, vic=target_nick)
         bot.say(intro, channel)
 
-        roll = random.randint(1, 100)
+        roll = _sysrand.randint(1, 100)
 
         if roll <= BOT_SUCCESS_CHANCE:
             # Success
@@ -1177,7 +1181,7 @@ def _bot_mug(bot, channel, target_nick, intro_messages):
                 bot.say(f"🤖 {bot_nick} tried to mug {target_nick}, but they're broke! Nothing to take. 🤷", channel)
                 return
 
-            pct = random.randint(BOT_STEAL_MIN, BOT_STEAL_MAX) / 100.0
+            pct = _sysrand.randint(BOT_STEAL_MIN, BOT_STEAL_MAX) / 100.0
             steal = max(1, int(vic_money * pct))
             # Apply whale cap
             if vic_money > RICH_VICTIM_THRESHOLD:
@@ -1196,7 +1200,7 @@ def _bot_mug(bot, channel, target_nick, intro_messages):
                 bot.say(f"🤖 {bot_nick} fumbles the heist but has no coins to drop. Awkward. 🫠", channel)
                 return
 
-            pct = random.randint(BOT_FAIL_LOSS_MIN, BOT_FAIL_LOSS_MAX) / 100.0
+            pct = _sysrand.randint(BOT_FAIL_LOSS_MIN, BOT_FAIL_LOSS_MAX) / 100.0
             loss = max(1, int(bot_money * pct))
             fail_cap = max(MAX_FAIL_LOSS_FLOOR, int(bot_money * (MAX_FAIL_LOSS_PCT / 100.0)))
             loss = min(loss, bot_money, fail_cap)
@@ -1212,10 +1216,10 @@ def _bot_retaliate(bot, channel, attacker_nick):
     """Delayed retaliation: bot mugs back the player who mugged it."""
     if not BOT_RETALIATE or not BOT_PLAYER_ENABLED:
         return
-    if random.randint(1, 100) > BOT_RETALIATE_CHANCE:
+    if _sysrand.randint(1, 100) > BOT_RETALIATE_CHANCE:
         return  # didn't trigger this time
 
-    delay = random.randint(BOT_RETALIATE_DELAY[0], BOT_RETALIATE_DELAY[1])
+    delay = _sysrand.randint(BOT_RETALIATE_DELAY[0], BOT_RETALIATE_DELAY[1])
 
     def _do_retaliate():
         time.sleep(delay)
@@ -1240,7 +1244,7 @@ def _start_bot_proactive_thread(bot):
         _bot_proactive_stop.wait(60)
 
         while not _bot_proactive_stop.is_set():
-            interval = random.randint(BOT_PROACTIVE_INTERVAL[0], BOT_PROACTIVE_INTERVAL[1]) * 60
+            interval = _sysrand.randint(BOT_PROACTIVE_INTERVAL[0], BOT_PROACTIVE_INTERVAL[1]) * 60
             if _bot_proactive_stop.wait(interval):
                 break  # stop signal received
 
@@ -1256,7 +1260,7 @@ def _start_bot_proactive_thread(bot):
                 if not candidates:
                     continue
 
-                target = random.choice(candidates)
+                target = _sysrand.choice(candidates)
                 target_nick = target.get("nick", "")
                 if not target_nick:
                     continue
@@ -1297,10 +1301,10 @@ def coins(bot, trigger):
             return
 
         current = max(0, int(user.get("money", 0)))
-        base_gain = random.randint(COINS_MIN_GAIN, COINS_MAX_GAIN)
+        base_gain = _sysrand.randint(COINS_MIN_GAIN, COINS_MAX_GAIN)
 
         if current > 0:
-            pct = random.randint(COINS_SCALE_MIN_PCT, COINS_SCALE_MAX_PCT) / 100.0
+            pct = _sysrand.randint(COINS_SCALE_MIN_PCT, COINS_SCALE_MAX_PCT) / 100.0
             scaling_gain = min(int(current * pct), COINS_SCALE_MAX_EXTRA)
         else:
             scaling_gain = 0
@@ -1613,7 +1617,7 @@ def mug(bot, trigger):
 
         def do_crit_fail(reason_text=None):
             att_money = int(attacker.get("money", 0))
-            pct = random.randint(CRIT_LOSS_MIN, CRIT_LOSS_MAX) / 100.0
+            pct = _sysrand.randint(CRIT_LOSS_MIN, CRIT_LOSS_MAX) / 100.0
             loss = max(1, int(att_money * pct)) if att_money > 0 else 0
             # Scale cap to attacker wealth so rich players feel the sting
             crit_cap = max(MAX_CRIT_LOSS_FLOOR, int(att_money * (MAX_CRIT_LOSS_PCT / 100.0)))
@@ -1655,7 +1659,7 @@ def mug(bot, trigger):
             return
 
         # Ultra-rare oops-jail (happens even before the roll) — godmode users are immune
-        if not _has_godmode(attacker_nick) and random.randint(1, 100) <= MUG_OOPS_JAIL_CHANCE_PCT:
+        if not _has_godmode(attacker_nick) and _sysrand.randint(1, 100) <= MUG_OOPS_JAIL_CHANCE_PCT:
             do_crit_fail(reason_text="🤡 ULTRA-RARE OOPS: you looked suspicious and got arrested instantly.")
             _mug_happened = True
             # fall through to retaliation check below
@@ -1674,7 +1678,7 @@ def mug(bot, trigger):
         else:
             success_chance = min(95, SUCCESS_CHANCE + bonus_success)
 
-        roll = random.randint(1, 100)
+        roll = _sysrand.randint(1, 100)
         success_max = success_chance
         normal_fail_max = success_max + NORMAL_FAIL_CHANCE
 
@@ -1684,13 +1688,13 @@ def mug(bot, trigger):
         elif roll <= success_max:
             # Banana trap check (victim)
             slip = _banana_slip_chance(victim)
-            if not _has_godmode(attacker_nick) and slip > 0 and random.randint(1, 100) <= slip and BANANA_SLIP_TRIGGERS_CRIT_FAIL:
+            if not _has_godmode(attacker_nick) and slip > 0 and _sysrand.randint(1, 100) <= slip and BANANA_SLIP_TRIGGERS_CRIT_FAIL:
                 do_crit_fail(reason_text=f"🍌 Banana trap! {target_nick} had {slip}% slip chance.")
                 _mug_happened = True
 
             # Cloak dodge check (victim) - cap at 50% max to prevent 100% immunity
             immune = min(50, get_item_bonus(victim, "mug_immune_chance"))
-            if not _mug_happened and immune > 0 and random.randint(1, 100) <= immune:
+            if not _mug_happened and immune > 0 and _sysrand.randint(1, 100) <= immune:
                 attacker["last_mug"] = now
                 bot.say(
                     f"{prefix} 🕶️ {att_display} tries to mug {vic_display}, but {target_nick} vanishes into the shadows. No coins stolen! 👻 | {attacker_nick}: {fmt_coins(attacker['money'])} | {target_nick}: {fmt_coins(victim.get('money', 0))}"
@@ -1707,10 +1711,10 @@ def mug(bot, trigger):
                 _mug_happened = True
 
             if not _mug_happened:
-                pct_base = random.randint(SUCCESS_STEAL_MIN, SUCCESS_STEAL_MAX)
+                pct_base = _sysrand.randint(SUCCESS_STEAL_MIN, SUCCESS_STEAL_MAX)
                 pct_bonus = min(30, get_item_bonus(attacker, "mug_steal_bonus_pct"))  # cap bonus at +30%
 
-                mega = (random.randint(1, 100) <= MUG_MEGA_STEAL_CHANCE_PCT)
+                mega = (_sysrand.randint(1, 100) <= MUG_MEGA_STEAL_CHANCE_PCT)
                 if mega:
                     steal_pct = max(0, pct_base + pct_bonus + MUG_MEGA_STEAL_BONUS_PCT)
                 else:
@@ -1766,7 +1770,7 @@ def mug(bot, trigger):
         # NORMAL FAIL PATH
         elif roll <= normal_fail_max:
             att_money = int(attacker.get("money", 0))
-            pct = random.randint(FAIL_LOSS_MIN, FAIL_LOSS_MAX) / 100.0
+            pct = _sysrand.randint(FAIL_LOSS_MIN, FAIL_LOSS_MAX) / 100.0
             loss = max(1, int(att_money * pct))
             # Scale cap to attacker wealth so rich players feel the sting
             fail_cap = max(MAX_FAIL_LOSS_FLOOR, int(att_money * (MAX_FAIL_LOSS_PCT / 100.0)))
@@ -1856,7 +1860,7 @@ def bet(bot, trigger):
             win_chance = min(95, BET_BASE_WIN_CHANCE + bonus)
 
         # Roll 1..10000; win_chance is still a percent.
-        roll = random.randint(1, BET_ROLL_MAX)
+        roll = _sysrand.randint(1, BET_ROLL_MAX)
         win = roll <= (win_chance * (BET_ROLL_MAX // 100))
         user["last_bet"] = now
 
@@ -1904,8 +1908,8 @@ DICE_COOLDOWN_MESSAGES = [
 
 def _roll_2d6():
     """Roll two six-sided dice. Returns (die1, die2, total)."""
-    d1 = random.randint(1, 6)
-    d2 = random.randint(1, 6)
+    d1 = _sysrand.randint(1, 6)
+    d2 = _sysrand.randint(1, 6)
     return d1, d2, d1 + d2
 
 
@@ -2025,7 +2029,7 @@ def roll_dice(bot, trigger):
             elif game_type == 'field':
                 d1, d2, total = 6, 6, 12
             else:
-                d1, d2, total = random.choice([(4, 3, 7), (5, 3, 8), (6, 2, 8), (5, 4, 9), (6, 5, 11)])
+                d1, d2, total = _sysrand.choice([(4, 3, 7), (5, 3, 8), (6, 2, 8), (5, 4, 9), (6, 5, 11)])
         else:
             d1, d2, total = _roll_2d6()
 
@@ -2092,7 +2096,7 @@ def _penny_spin(godmode=False):
         _, payout, reels, msg = PENNY_PRIZES[-1]
         return payout, reels, msg
     total_weight = sum(w for w, _, _, _ in PENNY_PRIZES)
-    roll = random.randint(1, total_weight)
+    roll = _sysrand.randint(1, total_weight)
     cumulative = 0
     for weight, payout, reels, msg in PENNY_PRIZES:
         cumulative += weight
@@ -2191,7 +2195,7 @@ def _dollar_spin(godmode=False):
         _, payout, reels, msg = DOLLAR_PRIZES[-1]
         return payout, reels, msg
     total_weight = sum(w for w, _, _, _ in DOLLAR_PRIZES)
-    roll = random.randint(1, total_weight)
+    roll = _sysrand.randint(1, total_weight)
     cumulative = 0
     for weight, payout, reels, msg in DOLLAR_PRIZES:
         cumulative += weight
@@ -2371,30 +2375,30 @@ def roulette(bot, trigger):
         if _has_godmode(trigger.nick):
             # Rig it: pick a winning number
             if bet_str == 'red':
-                number = random.choice(list(ROULETTE_REDS))
+                number = _sysrand.choice(list(ROULETTE_REDS))
             elif bet_str == 'black':
-                number = random.choice(list(ROULETTE_BLACKS))
+                number = _sysrand.choice(list(ROULETTE_BLACKS))
             elif bet_str == 'odd':
-                number = random.choice([n for n in range(1, 37) if n % 2 == 1])
+                number = _sysrand.choice([n for n in range(1, 37) if n % 2 == 1])
             elif bet_str == 'even':
-                number = random.choice([n for n in range(2, 37) if n % 2 == 0])
+                number = _sysrand.choice([n for n in range(2, 37) if n % 2 == 0])
             elif bet_str == 'low':
-                number = random.randint(1, 18)
+                number = _sysrand.randint(1, 18)
             elif bet_str == 'high':
-                number = random.randint(19, 36)
+                number = _sysrand.randint(19, 36)
             elif bet_str == '1st':
-                number = random.randint(1, 12)
+                number = _sysrand.randint(1, 12)
             elif bet_str == '2nd':
-                number = random.randint(13, 24)
+                number = _sysrand.randint(13, 24)
             elif bet_str == '3rd':
-                number = random.randint(25, 36)
+                number = _sysrand.randint(25, 36)
             else:
                 try:
                     number = int(bet_str)
                 except ValueError:
-                    number = random.randint(0, 36)
+                    number = _sysrand.randint(0, 36)
         else:
-            number = random.randint(0, 36)
+            number = _sysrand.randint(0, 36)
 
         won, mult, desc = _roulette_eval(bet_str, number)
         color_emoji = _roulette_color_emoji(number)
@@ -2442,7 +2446,7 @@ BJ_COOLDOWN_MESSAGES = [
 def _bj_new_deck():
     """Create and shuffle a standard 52-card deck."""
     deck = [(r, s) for s in _SUITS for r in _RANKS]
-    random.shuffle(deck)
+    _sysrand.shuffle(deck)
     return deck
 
 
@@ -2919,7 +2923,7 @@ def texas_holdem(bot, trigger):
     if _has_godmode(trigger.nick) and p_score <= d_score:
         # Give the player a royal flush if possible, otherwise just re-score to win
         for _ in range(50):
-            random.shuffle(deck)
+            _sysrand.shuffle(deck)
             player_hole = [_bj_draw(deck), _bj_draw(deck)]
             deck.extend(player_hole)  # put them back for reshuffling
             p_rank, p_score, p_name, p_best = _holdem_best_hand(player_hole, community)

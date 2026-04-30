@@ -738,7 +738,7 @@ def _call_responses_api(bot, messages, model, temp, max_toks, search_mode=False)
         pass
     return reply.strip(), citations
 
-def _api_worker(bot, trigger, messages, review_mode, is_pm, bot_nick, chan_lock, search_mode=False, wants_sources=False):
+def _api_worker(bot, trigger, messages, review_mode, is_pm, bot_nick, chan_lock, search_mode=False, wants_sources=False, is_chimein=False):
     try:
         # Circuit breaker: check if channel has too many failures
         channel = trigger.sender
@@ -940,7 +940,7 @@ def _api_worker(bot, trigger, messages, review_mode, is_pm, bot_nick, chan_lock,
         except Exception:
             pass
 
-        if trigger.nick.lower() not in reply.lower() and not _is_owner(bot, trigger):
+        if not is_chimein and trigger.nick.lower() not in reply.lower() and not _is_owner(bot, trigger):
             final_reply = f"{trigger.nick}: {reply}"
         else:
             final_reply = reply
@@ -1428,7 +1428,7 @@ def handle(bot, trigger):
                                     bot.memory['grok_busy'][trigger.sender] = True
                                     API_TASK_QUEUE.put_nowait((
                                         bot, trigger, _chimein_msgs, False, False,
-                                        _bot_nick, _chimein_lock, False, False,
+                                        _bot_nick, _chimein_lock, False, False, True,
                                     ))
                             except queue.Full:
                                 bot.memory['grok_busy'].pop(trigger.sender, None)
