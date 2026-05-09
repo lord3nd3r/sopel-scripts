@@ -11,15 +11,14 @@ Talks to you when mentioned by name. Uses xAI Grok with web search.
 pip install requests
 ```
 
-**2. Add to your Sopel `.cfg` file:**
+**2. Add to your ibot `.cfg` file (e.g. `~/ibot/glitchy.cfg`):**
 ```ini
 [grok]
 # Required — your xAI API key (get one from https://console.x.ai)
 api_key = xai-XXXXXXXXXXXXXXXXXXXXXXXX
 
-# Optional — model to use (default: grok-4-1-fast-reasoning)
-# Choices: grok-4-1-fast-reasoning, grok-4-fast-reasoning, grok-3, grok-beta
-model = grok-4-1-fast-reasoning
+# Optional — model to use (default: grok-4.3)
+model = grok-4.3
 
 # Optional — custom system prompt (the bot's personality)
 system_prompt = You are Glitchy, a regular in this IRC channel. You're sharp, geeky, and a little sarcastic.
@@ -43,12 +42,12 @@ ignored_nicks =
 intent_check = heuristic
 ```
 
-**3. Place the script:**
+**3. Place the script in your ibot plugin extra directory:**
 ```
 ~/.sopel/scripts/ai-grok.py
 ```
 
-> **Note:** Per-channel system prompts can be set via `grok_channel_prompts.json` in the scripts directory.
+> **Note:** The bot runs on [ibot](https://github.com/lord3nd3r/ibot), a custom asyncio IRC framework with a Sopel-compatible shim. Per-channel system prompts can be set via `grok_channel_prompts.json` in the scripts directory.
 
 ---
 
@@ -127,7 +126,7 @@ Grok: search for election results with sources
 
 ## 🕐 Time & Date Queries
 
-Ask the bot about the current time or date and it responds instantly. Time queries **bypass rate-limiting** so you can always get a fresh answer.
+Ask the bot about the current time or date and it responds **instantly with the exact time** from your saved timezone preferences — no AI involved, no jokes, just the real answer. Time queries **bypass rate-limiting** so you can always get a fresh answer.
 
 **Trigger phrases:**
 - `what time is it`, `what's the time`, `current time`
@@ -139,6 +138,8 @@ Grok: what time is it?
 Grok: what's today's date?
 Grok: what day is it?
 ```
+
+> **Note:** Short time queries (≤8 words) go directly to a local clock response. Longer messages that happen to mention time still go through the AI.
 
 ### Setting Your Timezone
 

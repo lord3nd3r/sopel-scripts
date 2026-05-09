@@ -266,8 +266,24 @@ def _read_api_key_raw(bot):
 
 def setup(bot):
     bot.config.define_section('grok', GrokSection)
-    # Read API key directly from config file - the sopel shim masks SecretAttribute/ValidatedAttribute values
-    _raw_key = _read_api_key_raw(bot)
+    # Read API key directly from the underlying configparser - the ibot shim
+    # wraps returned values in objects whose __str__ returns '***' for security.
+    # bot.config.parser  = raw configparser on the config object
+    # bot.config.grok._parser = same configparser, via the StaticSection instance
+    _raw_key = None
+    for _getter in (
+        lambda: bot.config.parser.get('grok', 'api_key'),
+        lambda: bot.config.grok._parser.get('grok', 'api_key'),
+        lambda: str(bot.config.grok.api_key),
+    ):
+        try:
+            v = _getter()
+            if v and v not in ('***', 'None', 'none'):
+                _raw_key = v
+                break
+        except Exception:
+            pass
+    _log(bot).info('setup: key_len=%s prefix=%s', len(_raw_key) if _raw_key else 0, (_raw_key[:8] if _raw_key else 'NONE'))
     bot.memory['grok_headers'] = {
         "Authorization": f"Bearer {_raw_key}",
         "Content-Type": "application/json",
@@ -805,7 +821,7 @@ def _call_responses_api(bot, messages, model, temp, max_toks, search_mode=False)
         pass
     return reply.strip(), citations
 
-def _api_worker(bot, trigger, messages, review_mode, is_pm, bot_nick, chan_lock, search_mode=False, wants_sources=False, is_chimein=False):
+def _api_worker(bot, trigger, messages, review_mode, is_pm, bot_nick, chan_lock, search_mode=False, wants_sources=False, is_chimein=False, is_action=False):
     try:
         # Circuit breaker: check if channel has too many failures
         channel = trigger.sender
@@ -1011,7 +1027,9 @@ def _api_worker(bot, trigger, messages, review_mode, is_pm, bot_nick, chan_lock,
         except Exception:
             pass
 
-        if not is_chimein and trigger.nick.lower() not in reply.lower() and not _is_owner(bot, trigger):
+        if is_action:
+            final_reply = reply
+        elif not is_chimein and trigger.nick.lower() not in reply.lower() and not _is_owner(bot, trigger):
             final_reply = f"{trigger.nick}: {reply}"
         else:
             final_reply = reply
@@ -1020,7 +1038,10 @@ def _api_worker(bot, trigger, messages, review_mode, is_pm, bot_nick, chan_lock,
         _typing_delay = random.uniform(TYPING_DELAY_MIN, TYPING_DELAY_MAX)
         time.sleep(_typing_delay)
 
-        send(bot, trigger.sender, final_reply)
+        if is_action:
+            bot.action(final_reply, trigger.sender)
+        else:
+            send(bot, trigger.sender, final_reply)
 
         with chan_lock:
             per_conv_key = ("PM", trigger.nick.lower()) if is_pm else (trigger.sender, trigger.nick)
@@ -1604,6 +1625,16 @@ def _heuristic_intent_check(bot, trigger, line, bot_nick):
 @plugin.rule('.*')
 @plugin.priority('high')
 def handle(bot, trigger):
+    # ibot dispatches PRIVMSG to both event_handlers AND rule_handlers.
+    # Deduplicate: ignore the rule-handler call when the event-handler already ran.
+    _dedup_key = f'_grok_dedup_{trigger.nick}_{trigger.sender}_{trigger.group(0)[:40]}'
+    import time as _time
+    _now = _time.monotonic()
+    _last = bot.memory.get(_dedup_key, 0)
+    if _now - _last < 0.5:
+        return
+    bot.memory[_dedup_key] = _now
+
     is_pm = _is_pm(trigger)
 
     if is_pm:
@@ -2035,6 +2066,11 @@ def handle(bot, trigger):
     except Exception:
         # Fallback to UTC if timezone is invalid
         now_str = datetime.datetime.now(datetime.timezone.utc).strftime('%A, %B %d, %Y at %H:%M UTC')
+
+    # For pure time/date queries, answer directly without hitting the API
+    if time_mode and len(user_message.split()) <= 8:
+        bot.say(now_str, trigger.sender)
+        return
     
     # Use per-channel system prompt if defined, otherwise fall back to the global one.
     _active_system_prompt = bot.config.grok.system_prompt
@@ -2073,7 +2109,7 @@ def handle(bot, trigger):
         {
             "role": "system",
             "content": (
-                f"Current date/time: {now_str}. "
+                f"Current date/time: {now_str}. When asked what time or date it is, state this directly. "
                 f"Your IRC nick is '{bot_nick}'. You're talking to {trigger.nick}. "
                 f"You also run game/utility plugins ($ commands like $bet, $mug, $coins, etc.). "
                 f"Messages from '{bot_nick}' in the channel log are things you said — reference "
@@ -2263,7 +2299,14 @@ def handle(bot, trigger):
         # If user is asking for sources/URLs, force search so the API returns real citations
         if wants_sources:
             search_mode = True
-        API_TASK_QUEUE.put_nowait((bot, trigger, messages, review_mode, is_pm, bot_nick, chan_lock, search_mode, wants_sources, False))
+        # If responding to a /me action, tell Grok to reply in /me style
+        if action_bot_mentioned:
+            messages.append({"role": "system", "content":
+                "The user just performed a /me IRC action directed at you. "
+                "Respond as a short third-person action yourself (e.g. 'purrs contentedly' or 'wags tail'). "
+                "Do NOT start with your nick. Do NOT use quotes. Just the action text, plain and brief."
+            })
+        API_TASK_QUEUE.put_nowait((bot, trigger, messages, review_mode, is_pm, bot_nick, chan_lock, search_mode, wants_sources, False, action_bot_mentioned))
     except queue.Full:
         try:
             bot.say('Grok is super busy right now — try again in a minute?', trigger.sender)
