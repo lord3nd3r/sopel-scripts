@@ -165,27 +165,43 @@ Grok: tldr
 
 The bot supports **dynamic personality changes** that can be set on-the-fly during conversation. Personalities are stored in memory and persist until explicitly reset.
 
-#### Channel-Wide Personalities
+**Default behavior:** Personality commands apply **per-user** (only to the person who requested it) unless you explicitly specify channel-wide.
 
-Set a personality that affects how the bot responds to **everyone** in the channel:
+#### Per-User Personalities (Default)
 
-**Trigger phrases:**
-- `role play as <character>`
-- `act like <character>`
-- `pretend to be <character>`
-- `be <character>`
+By default, when you tell the bot to change personality, it only affects **you**:
 
 **Examples:**
 ```
-Grok: role play as rick from rick and morty
+Grok: speak Russian
+Grok: be angry and insulting
 Grok: act like a pirate
-Grok: pretend to be a drill sergeant
-Grok: be john wick
+Grok: role play as rick from rick and morty
 ```
 
-#### Per-User Personalities
+In these cases, the bot will use that personality only when responding to you. Other users see the default personality.
 
-Set a personality that only affects how the bot responds to a **specific user**:
+#### Channel-Wide Personalities
+
+To make a personality affect **everyone** in the channel, explicitly say "in this channel" or similar:
+
+**Trigger phrases:** Add any of these to your command:
+- `in this channel`
+- `in the channel`
+- `for everyone`
+- `for the whole channel`
+- `channel-wide`
+
+**Examples:**
+```
+Grok: role play as rick in this channel
+Grok: act like a pirate for everyone
+Grok: be a drill sergeant in the channel
+```
+
+#### Targeting Another User
+
+Set a personality for how the bot talks to a **specific other user**:
 
 **Syntax:** `speak to <nick> like <description>`
 
@@ -196,7 +212,7 @@ Grok: talk to End3r like a drill sergeant
 Grok: reply to SoulCareer like a philosopher
 ```
 
-**Priority:** Per-user personalities override channel-wide personalities. If both are set, the bot will use the user-specific personality when talking to that user, and the channel personality for everyone else.
+**Priority:** User-specific targets > Per-user settings > Channel-wide settings > Config default
 
 #### Resetting Personalities
 

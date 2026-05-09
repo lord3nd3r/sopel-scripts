@@ -97,16 +97,23 @@ _REVIEW_INTENT_RE = re.compile(
     re.IGNORECASE,
 )
 
-# Match channel-wide personality: "role play as rick", "act like a pirate"
-_PERSONALITY_CHANNEL_SET_RE = re.compile(
-    r'\b(?:role\s*play|roleplay|pretend(?:\s+to\s+be)?|act\s+(?:like|as)|be|become)\s+'
-    r'(?:from now on\s+)?(?:as(?:\s+if)?|like)?\s*'
+# Match channel-wide personality: must explicitly say "in this channel" or "for everyone"
+_PERSONALITY_CHANNEL_INDICATOR_RE = re.compile(
+    r'\b(?:in (?:this |the )?channel|for everyone|for (?:the )?whole channel|channel[- ]?wide|to everyone)\b',
+    re.IGNORECASE,
+)
+
+# Match personality command (defaults to per-user unless channel indicator present)
+_PERSONALITY_COMMAND_RE = re.compile(
+    r'\b(?:role\s*play|roleplay|pretend(?:\s+to\s+be)?|act\s+(?:like|as)|be|become|'
+    r'speak|talk|reply|respond)\s+'
+    r'(?:to\s+(?:me\s+)?)?(?:from now on\s+)?(?:as(?:\s+if)?|like|in)?\s*'
     r'(?:a\s+|an\s+)?(.+?)(?:\.|$)',
     re.IGNORECASE,
 )
 
-# Match per-user personality: "speak to burnout like you're from alberta"
-_PERSONALITY_USER_SET_RE = re.compile(
+# Match per-user personality with explicit target: "speak to burnout like..."
+_PERSONALITY_USER_TARGET_RE = re.compile(
     r'\b(?:speak|talk|reply|respond)\s+(?:to|with)\s+(\w+)\s+(?:like|as(?:\s+if)?|in)\s+(.+?)(?:\.|$)',
     re.IGNORECASE,
 )
@@ -1894,28 +1901,48 @@ def handle(bot, trigger):
         pass
 
     # Check for personality set/reset instructions
+    # Default: commands are per-user UNLESS "in this channel" or similar is specified
     _personality_key = trigger.sender.lower() if not is_pm else f"PM:{trigger.nick.lower()}"
     
-    # Check for channel-wide personality: "role play as rick"
-    _channel_personality_match = _PERSONALITY_CHANNEL_SET_RE.search(user_message)
-    if _channel_personality_match:
-        _personality_desc = _channel_personality_match.group(1).strip()
-        if _personality_desc:
-            bot.memory['grok_channel_personality'][_personality_key] = _personality_desc
-            _log(bot).info('Set channel personality for %s: %s', _personality_key, _personality_desc[:50])
+    # Check if it's explicitly a channel-wide command
+    _is_channel_wide = bool(_PERSONALITY_CHANNEL_INDICATOR_RE.search(user_message))
     
-    # Check for user-specific personality: "speak to burnout like you're from alberta"
-    _user_personality_match = _PERSONALITY_USER_SET_RE.search(user_message)
-    if _user_personality_match:
-        _target_nick = _user_personality_match.group(1).strip().lower()
-        _personality_desc = _user_personality_match.group(2).strip()
+    # Check for personality command with explicit target: "speak to burnout like..."
+    _user_target_match = _PERSONALITY_USER_TARGET_RE.search(user_message)
+    if _user_target_match:
+        _target_nick = _user_target_match.group(1).strip().lower()
+        _personality_desc = _user_target_match.group(2).strip()
+        if _personality_desc and not is_pm:
+            _chan_key = trigger.sender.lower()
+            if _chan_key not in bot.memory['grok_user_personality']:
+                bot.memory['grok_user_personality'][_chan_key] = {}
+            bot.memory['grok_user_personality'][_chan_key][_target_nick] = _personality_desc
+            _log(bot).info('Set user personality for %s in %s: %s', _target_nick, _chan_key, _personality_desc[:50])
+    
+    # Check for general personality command (defaults to per-user)
+    _personality_match = _PERSONALITY_COMMAND_RE.search(user_message)
+    if _personality_match:
+        _personality_desc = _personality_match.group(1).strip()
+        # Remove channel indicators from the description if present
+        _personality_desc = _PERSONALITY_CHANNEL_INDICATOR_RE.sub('', _personality_desc).strip()
+        
         if _personality_desc:
-            if not is_pm:
-                _chan_key = trigger.sender.lower()
-                if _chan_key not in bot.memory['grok_user_personality']:
-                    bot.memory['grok_user_personality'][_chan_key] = {}
-                bot.memory['grok_user_personality'][_chan_key][_target_nick] = _personality_desc
-                _log(bot).info('Set user personality for %s in %s: %s', _target_nick, _chan_key, _personality_desc[:50])
+            if _is_channel_wide:
+                # Channel-wide: affects everyone
+                bot.memory['grok_channel_personality'][_personality_key] = _personality_desc
+                _log(bot).info('Set channel-wide personality for %s: %s', _personality_key, _personality_desc[:50])
+            else:
+                # Per-user (default): only affects the person who said it
+                if not is_pm:
+                    _chan_key = trigger.sender.lower()
+                    if _chan_key not in bot.memory['grok_user_personality']:
+                        bot.memory['grok_user_personality'][_chan_key] = {}
+                    bot.memory['grok_user_personality'][_chan_key][trigger.nick.lower()] = _personality_desc
+                    _log(bot).info('Set per-user personality for %s in %s: %s', trigger.nick.lower(), _chan_key, _personality_desc[:50])
+                else:
+                    # In PM, just use the personality
+                    bot.memory['grok_channel_personality'][_personality_key] = _personality_desc
+                    _log(bot).info('Set PM personality for %s: %s', _personality_key, _personality_desc[:50])
     
     # Check for personality reset
     _personality_reset_match = _PERSONALITY_RESET_RE.search(user_message)
