@@ -23,7 +23,7 @@ CHANNEL_RATE_LIMIT = 4
 REVIEW_COOLDOWN = 30
 USER_SAFETY_SECONDS = 2
 API_QUEUE_MAXSIZE = 50
-API_WORKER_COUNT = 3
+API_WORKER_COUNT = 5  # Number of parallel API request threads
 
 # Humanizing delay: pause before sending to simulate reading + typing
 TYPING_DELAY_MIN = 1.5         # minimum seconds before responding
@@ -1879,6 +1879,10 @@ def handle(bot, trigger):
         _log(bot).exception('Admin PM command handler failed')
         return
 
+    # ========== INSTANT CONFIG COMMANDS (no rate limiting, no busy check) ==========
+    # These are processed immediately and return early - they don't queue API calls
+    
+    # Timezone/format preferences
     try:
         _pref_tz = None
         _pref_tz_label = None
@@ -1897,71 +1901,78 @@ def handle(bot, trigger):
         if _pref_tz or _pref_fmt:
             _db_set_user_pref(bot, trigger.nick, tz=_pref_tz, tz_label=_pref_tz_label, fmt=_pref_fmt)
             _log(bot).info('Saved pref for %s: tz=%s label=%s fmt=%s', trigger.nick, _pref_tz, _pref_tz_label, _pref_fmt)
+            return  # Preference saved, no response needed
     except Exception:
         pass
 
-    # Check for personality set/reset instructions
+    # Personality commands - instant config changes
     # Default: commands are per-user UNLESS "in this channel" or similar is specified
     _personality_key = trigger.sender.lower() if not is_pm else f"PM:{trigger.nick.lower()}"
+    _personality_match = None
+    _user_target_match = None
+    _personality_reset_match = None
     
-    # Check if it's explicitly a channel-wide command
-    _is_channel_wide = bool(_PERSONALITY_CHANNEL_INDICATOR_RE.search(user_message))
-    
-    # Check for personality command with explicit target: "speak to burnout like..."
-    _user_target_match = _PERSONALITY_USER_TARGET_RE.search(user_message)
-    if _user_target_match:
-        _target_nick = _user_target_match.group(1).strip().lower()
-        _personality_desc = _user_target_match.group(2).strip()
-        if _personality_desc and not is_pm:
-            _chan_key = trigger.sender.lower()
-            if _chan_key not in bot.memory['grok_user_personality']:
-                bot.memory['grok_user_personality'][_chan_key] = {}
-            bot.memory['grok_user_personality'][_chan_key][_target_nick] = _personality_desc
-            _log(bot).info('Set user personality for %s in %s: %s', _target_nick, _chan_key, _personality_desc[:50])
-    
-    # Check for general personality command (defaults to per-user)
-    _personality_match = _PERSONALITY_COMMAND_RE.search(user_message)
-    if _personality_match:
-        _personality_desc = _personality_match.group(1).strip()
-        # Remove channel indicators from the description if present
-        _personality_desc = _PERSONALITY_CHANNEL_INDICATOR_RE.sub('', _personality_desc).strip()
+    try:
+        # Check if it's explicitly a channel-wide command
+        _is_channel_wide = bool(_PERSONALITY_CHANNEL_INDICATOR_RE.search(user_message))
         
-        if _personality_desc:
-            if _is_channel_wide:
-                # Channel-wide: affects everyone
-                bot.memory['grok_channel_personality'][_personality_key] = _personality_desc
-                _log(bot).info('Set channel-wide personality for %s: %s', _personality_key, _personality_desc[:50])
-            else:
-                # Per-user (default): only affects the person who said it
-                if not is_pm:
-                    _chan_key = trigger.sender.lower()
-                    if _chan_key not in bot.memory['grok_user_personality']:
-                        bot.memory['grok_user_personality'][_chan_key] = {}
-                    bot.memory['grok_user_personality'][_chan_key][trigger.nick.lower()] = _personality_desc
-                    _log(bot).info('Set per-user personality for %s in %s: %s', trigger.nick.lower(), _chan_key, _personality_desc[:50])
-                else:
-                    # In PM, just use the personality
+        # Check for personality command with explicit target: "speak to burnout like..."
+        _user_target_match = _PERSONALITY_USER_TARGET_RE.search(user_message)
+        if _user_target_match:
+            _target_nick = _user_target_match.group(1).strip().lower()
+            _personality_desc = _user_target_match.group(2).strip()
+            if _personality_desc and not is_pm:
+                _chan_key = trigger.sender.lower()
+                if _chan_key not in bot.memory['grok_user_personality']:
+                    bot.memory['grok_user_personality'][_chan_key] = {}
+                bot.memory['grok_user_personality'][_chan_key][_target_nick] = _personality_desc
+                _log(bot).info('Set user personality for %s in %s: %s', _target_nick, _chan_key, _personality_desc[:50])
+                return  # Personality set, no response needed
+        
+        # Check for general personality command (defaults to per-user)
+        _personality_match = _PERSONALITY_COMMAND_RE.search(user_message)
+        if _personality_match:
+            _personality_desc = _personality_match.group(1).strip()
+            # Remove channel indicators from the description if present
+            _personality_desc = _PERSONALITY_CHANNEL_INDICATOR_RE.sub('', _personality_desc).strip()
+            
+            if _personality_desc:
+                if _is_channel_wide:
+                    # Channel-wide: affects everyone
                     bot.memory['grok_channel_personality'][_personality_key] = _personality_desc
-                    _log(bot).info('Set PM personality for %s: %s', _personality_key, _personality_desc[:50])
+                    _log(bot).info('Set channel-wide personality for %s: %s', _personality_key, _personality_desc[:50])
+                else:
+                    # Per-user (default): only affects the person who said it
+                    if not is_pm:
+                        _chan_key = trigger.sender.lower()
+                        if _chan_key not in bot.memory['grok_user_personality']:
+                            bot.memory['grok_user_personality'][_chan_key] = {}
+                        bot.memory['grok_user_personality'][_chan_key][trigger.nick.lower()] = _personality_desc
+                        _log(bot).info('Set per-user personality for %s in %s: %s', trigger.nick.lower(), _chan_key, _personality_desc[:50])
+                    else:
+                        # In PM, just use the personality
+                        bot.memory['grok_channel_personality'][_personality_key] = _personality_desc
+                        _log(bot).info('Set PM personality for %s: %s', _personality_key, _personality_desc[:50])
+                return  # Personality set, no response needed
+        
+        # Check for personality reset
+        _personality_reset_match = _PERSONALITY_RESET_RE.search(user_message)
+        if _personality_reset_match:
+            # Clear channel personality
+            if _personality_key in bot.memory['grok_channel_personality']:
+                del bot.memory['grok_channel_personality'][_personality_key]
+                _log(bot).info('Cleared channel personality for %s', _personality_key)
+            # Clear user personalities for this channel
+            if not is_pm:
+                _chan_key = trigger.sender.lower()
+                if _chan_key in bot.memory['grok_user_personality']:
+                    del bot.memory['grok_user_personality'][_chan_key]
+                    _log(bot).info('Cleared all user personalities for %s', _chan_key)
+            return  # Reset complete, no response needed
+    except Exception:
+        pass
     
-    # Check for personality reset
-    _personality_reset_match = _PERSONALITY_RESET_RE.search(user_message)
-    if _personality_reset_match:
-        # Clear channel personality
-        if _personality_key in bot.memory['grok_channel_personality']:
-            del bot.memory['grok_channel_personality'][_personality_key]
-            _log(bot).info('Cleared channel personality for %s', _personality_key)
-        # Clear user personalities for this channel
-        if not is_pm:
-            _chan_key = trigger.sender.lower()
-            if _chan_key in bot.memory['grok_user_personality']:
-                del bot.memory['grok_user_personality'][_chan_key]
-                _log(bot).info('Cleared all user personalities for %s', _chan_key)
-    
-    # If a personality command was detected, acknowledge and return early
-    # Don't process personality commands as regular chat messages
-    if _personality_match or _user_target_match or _personality_reset_match:
-        return  # Personality set/reset - no response needed
+    # ========== END INSTANT CONFIG COMMANDS ==========
 
     review_mode = bool(_REVIEW_INTENT_RE.search(user_message)) or (user_message.strip() == '^^')
 
