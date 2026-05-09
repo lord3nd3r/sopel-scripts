@@ -257,7 +257,7 @@ def _load_channel_prompts():
 def setup(bot):
     bot.config.define_section('grok', GrokSection)
     if not bot.config.grok.api_key:
-        raise types.ConfigurationError('Grok API key required in [grok] section')
+        raise RuntimeError('Grok API key required in [grok] section')
     bot.memory['grok_headers'] = {
         "Authorization": f"Bearer {bot.config.grok.api_key}",
         "Content-Type": "application/json",
