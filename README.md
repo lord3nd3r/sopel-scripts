@@ -161,6 +161,61 @@ Grok: tldr
 
 > **Cooldown:** Review mode has a 30-second cooldown per channel to prevent spam.
 
+### 🎭 Dynamic Personalities
+
+The bot supports **dynamic personality changes** that can be set on-the-fly during conversation. Personalities are stored in memory and persist until explicitly reset.
+
+#### Channel-Wide Personalities
+
+Set a personality that affects how the bot responds to **everyone** in the channel:
+
+**Trigger phrases:**
+- `role play as <character>`
+- `act like <character>`
+- `pretend to be <character>`
+- `be <character>`
+
+**Examples:**
+```
+Grok: role play as rick from rick and morty
+Grok: act like a pirate
+Grok: pretend to be a drill sergeant
+Grok: be john wick
+```
+
+#### Per-User Personalities
+
+Set a personality that only affects how the bot responds to a **specific user**:
+
+**Syntax:** `speak to <nick> like <description>`
+
+**Examples:**
+```
+Grok: speak to burnout like you're from alberta
+Grok: talk to End3r like a drill sergeant
+Grok: reply to SoulCareer like a philosopher
+```
+
+**Priority:** Per-user personalities override channel-wide personalities. If both are set, the bot will use the user-specific personality when talking to that user, and the channel personality for everyone else.
+
+#### Resetting Personalities
+
+Clear both channel and user personalities:
+
+**Trigger phrases:**
+- `stop roleplaying`, `stop roleplay`
+- `reset personality`
+- `be normal again`
+- `go back to normal`
+- `clear personality`
+
+**Example:**
+```
+Grok: stop roleplaying
+```
+
+> **Note:** Anyone in the channel can set or reset personalities, not just admins. Personalities are stored in memory and cleared on bot restart.
+
 ### 🤗 Emote Interactions
 
 The bot reacts to `/me` actions and emote-style messages directed at it. Responses are **generated dynamically by the AI** and vary each time — the examples below are illustrative only.
@@ -444,6 +499,195 @@ A full IRC economy game with coins, mugging, betting, bounties, a shop, and an i
 - **Scaled fail/crit loss caps:** Normal fail cap = max(100k, 5% of your money); Crit fail cap = max(250k, 10% of your money)
 - **Bet cap:** Max bet is 1,000,000,000 (1B) to prevent hyperinflation
 - **Whale protection:** If victim has > 10k coins, max steal is 25% per mug
+
+---
+
+## 🛠️ botadmin — Bot Admin
+
+Owner and admin-only bot management commands.
+
+### Owner Commands
+
+| Command | Description |
+|---------|-------------|
+| `$restart` | Restart the bot |
+| `$breload <module\|all>` | Reload a plugin or all plugins |
+| `$botquit [msg]` | Shut down the bot |
+| `$raw <irc line>` | Send a raw IRC command |
+| `$botnick <nick>` | Change the bot's nick |
+
+### Admin Commands
+
+| Command | Description |
+|---------|-------------|
+| `$say <target> <msg>` | Make bot say something |
+| `$act <target> <action>` | Make bot do a /me action |
+| `$bjoin #channel [key]` | Join a channel |
+| `$bpart #channel [msg]` | Leave a channel |
+| `$bmode #channel <mode> [nick]` | Set a channel mode |
+| `$bothelp` | List all admin commands |
+
+---
+
+## 🛠️ botadmin — Bot Admin
+
+Owner and admin-only bot management commands.
+
+### Owner Commands
+
+| Command | Description |
+|---------|-------------|
+| `$restart` | Restart the bot |
+| `$breload <module\|all>` | Reload a plugin or all plugins |
+| `$botquit [msg]` | Shut down the bot |
+| `$raw <irc line>` | Send a raw IRC command |
+| `$botnick <nick>` | Change the bot's nick |
+
+### Admin Commands
+
+| Command | Description |
+|---------|-------------|
+| `$say <target> <msg>` | Make bot say something |
+| `$act <target> <action>` | Make bot do a /me action |
+| `$bjoin #channel [key]` | Join a channel |
+| `$bpart #channel [msg]` | Leave a channel |
+| `$bmode #channel <mode> [nick]` | Set a channel mode |
+| `$bothelp` | List all admin commands |
+
+---
+
+## 🛠️ botadmin — Bot Admin
+
+Owner and admin-only bot management commands.
+
+### Owner Commands
+
+| Command | Description |
+|---------|-------------|
+| `$restart` | Restart the bot |
+| `$breload <module\|all>` | Reload a plugin or all plugins |
+| `$botquit [msg]` | Shut down the bot |
+| `$raw <irc line>` | Send a raw IRC command |
+| `$botnick <nick>` | Change the bot's nick |
+
+### Admin Commands
+
+| Command | Description |
+|---------|-------------|
+| `$say <target> <msg>` | Make bot say something |
+| `$act <target> <action>` | Make bot do a /me action |
+| `$bjoin #channel [key]` | Join a channel |
+| `$bpart #channel [msg]` | Leave a channel |
+| `$bmode #channel <mode> [nick]` | Set a channel mode |
+| `$bothelp` | List all admin commands |
+
+---
+
+## 🛠️ botadmin — Bot Admin
+
+Owner and admin-only bot management commands.
+
+### Owner Commands
+
+| Command | Description |
+|---------|-------------|
+| `$restart` | Restart the bot |
+| `$breload <module\|all>` | Reload a plugin or all plugins |
+| `$botquit [msg]` | Shut down the bot |
+| `$raw <irc line>` | Send a raw IRC command |
+| `$botnick <nick>` | Change the bot's nick |
+
+### Admin Commands
+
+| Command | Description |
+|---------|-------------|
+| `$say <target> <msg>` | Make bot say something |
+| `$act <target> <action>` | Make bot do a /me action |
+| `$bjoin #channel [key]` | Join a channel |
+| `$bpart #channel [msg]` | Leave a channel |
+| `$bmode #channel <mode> [nick]` | Set a channel mode |
+| `$bothelp` | List all admin commands |
+
+---
+
+## 🛠️ botadmin — Bot Admin
+
+Owner and admin-only bot management commands.
+
+### Owner Commands
+
+| Command | Description |
+|---------|-------------|
+| `$restart` | Restart the bot |
+| `$breload <module\|all>` | Reload a plugin or all plugins |
+| `$botquit [msg]` | Shut down the bot |
+| `$raw <irc line>` | Send a raw IRC command |
+| `$botnick <nick>` | Change the bot's nick |
+
+### Admin Commands
+
+| Command | Description |
+|---------|-------------|
+| `$say <target> <msg>` | Make bot say something |
+| `$act <target> <action>` | Make bot do a /me action |
+| `$bjoin #channel [key]` | Join a channel |
+| `$bpart #channel [msg]` | Leave a channel |
+| `$bmode #channel <mode> [nick]` | Set a channel mode |
+| `$bothelp` | List all admin commands |
+
+---
+
+## 🛠️ botadmin — Bot Admin
+
+Owner and admin-only bot management commands.
+
+### Owner Commands
+
+| Command | Description |
+|---------|-------------|
+| `$restart` | Restart the bot |
+| `$breload <module\|all>` | Reload a plugin or all plugins |
+| `$botquit [msg]` | Shut down the bot |
+| `$raw <irc line>` | Send a raw IRC command |
+| `$botnick <nick>` | Change the bot's nick |
+
+### Admin Commands
+
+| Command | Description |
+|---------|-------------|
+| `$say <target> <msg>` | Make bot say something |
+| `$act <target> <action>` | Make bot do a /me action |
+| `$bjoin #channel [key]` | Join a channel |
+| `$bpart #channel [msg]` | Leave a channel |
+| `$bmode #channel <mode> [nick]` | Set a channel mode |
+| `$bothelp` | List all admin commands |
+
+---
+
+## 🛠️ botadmin — Bot Admin
+
+Owner and admin-only bot management commands.
+
+### Owner Commands
+
+| Command | Description |
+|---------|-------------|
+| `$restart` | Restart the bot |
+| `$breload <module\|all>` | Reload a plugin or all plugins |
+| `$botquit [msg]` | Shut down the bot |
+| `$raw <irc line>` | Send a raw IRC command |
+| `$botnick <nick>` | Change the bot's nick |
+
+### Admin Commands
+
+| Command | Description |
+|---------|-------------|
+| `$say <target> <msg>` | Make bot say something |
+| `$act <target> <action>` | Make bot do a /me action |
+| `$bjoin #channel [key]` | Join a channel |
+| `$bpart #channel [msg]` | Leave a channel |
+| `$bmode #channel <mode> [nick]` | Set a channel mode |
+| `$bothelp` | List all admin commands |
 
 ---
 

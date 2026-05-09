@@ -14,6 +14,7 @@ import logging
 import queue
 import json
 import atexit
+from zoneinfo import ZoneInfo
 
 # Tunables / constants
 MAX_SEND_LEN = 440
@@ -96,6 +97,27 @@ _REVIEW_INTENT_RE = re.compile(
     re.IGNORECASE,
 )
 
+# Match channel-wide personality: "role play as rick", "act like a pirate"
+_PERSONALITY_CHANNEL_SET_RE = re.compile(
+    r'\b(?:role\s*play|roleplay|pretend(?:\s+to\s+be)?|act\s+(?:like|as)|be|become)\s+'
+    r'(?:from now on\s+)?(?:as(?:\s+if)?|like)?\s*'
+    r'(?:a\s+|an\s+)?(.+?)(?:\.|$)',
+    re.IGNORECASE,
+)
+
+# Match per-user personality: "speak to burnout like you're from alberta"
+_PERSONALITY_USER_SET_RE = re.compile(
+    r'\b(?:speak|talk|reply|respond)\s+(?:to|with)\s+(\w+)\s+(?:like|as(?:\s+if)?|in)\s+(.+?)(?:\.|$)',
+    re.IGNORECASE,
+)
+
+_PERSONALITY_RESET_RE = re.compile(
+    r'\b(?:stop|quit|end|reset|clear|remove|cancel|revert|go back to normal|be normal|'
+    r'be yourself|default|original)\s+'
+    r'(?:the\s+)?(?:roleplay|personality|character|act|acting|pretending|persona|mode)\b',
+    re.IGNORECASE,
+)
+
 _TZ_ABBR_MAP = {
     'EST': 'America/New_York', 'EDT': 'America/New_York',
     'ET': 'America/New_York', 'EASTERN': 'America/New_York',
@@ -148,7 +170,7 @@ class GrokSection(types.StaticSection):
     api_key = types.SecretAttribute('api_key')
     model = types.ChoiceAttribute(
         'model',
-        choices=['grok-4-1-fast-reasoning', 'grok-4-fast-reasoning', 'grok-4-20', 'grok-3', 'grok-beta'],
+        choices=['grok-4-1-fast-reasoning', 'grok-4-fast-reasoning', 'grok-4-20', 'grok-4.3', 'grok-3', 'grok-beta'],
         default='grok-4-1-fast-reasoning',
     )
     system_prompt = types.ValidatedAttribute(
@@ -243,6 +265,8 @@ def setup(bot):
     bot.memory['grok_say_lock'] = threading.Lock()  # thread-safe say wrapper lock
     bot.memory['grok_api_failures'] = {}  # circuit breaker: channel -> failure count
     bot.memory['grok_chimein_last'] = {}  # per-channel last chime-in timestamp
+    bot.memory['grok_channel_personality'] = {}  # per-channel dynamic personality overrides
+    bot.memory['grok_user_personality'] = {}  # per-user personalities: {channel: {nick: personality}}
 
     # Wrap bot.say so ALL bot output (from every plugin) is captured in channel log.
     # This lets the AI see game results, mug outcomes, bet payouts, etc.
@@ -437,6 +461,29 @@ def _init_db(bot):
             channel TEXT PRIMARY KEY,
             talkback INTEGER DEFAULT 1,
             enabled INTEGER DEFAULT 1
+        )
+    ''')
+    c.execute('''
+        CREATE TABLE IF NOT EXISTS grok_user_profiles (
+            nick TEXT PRIMARY KEY,
+            nationality TEXT,
+            location TEXT,
+            weather_location TEXT,
+            facts TEXT,
+            last_updated TEXT,
+            updated_by TEXT
+        )
+    ''')
+    c.execute('''
+        CREATE TABLE IF NOT EXISTS grok_profile_suggestions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            nick TEXT NOT NULL,
+            fact TEXT NOT NULL,
+            confidence REAL,
+            source_context TEXT,
+            suggested_ts TEXT,
+            reviewed INTEGER DEFAULT 0,
+            approved INTEGER DEFAULT 0
         )
     ''')
     try:
@@ -990,6 +1037,349 @@ def _db_clear_user(bot, nick):
     except Exception:
         _log(bot).exception('Failed to clear grok DB for %s', nick)
 
+# ==================== USER PROFILE FUNCTIONS ====================
+
+def _db_get_user_profile(bot, nick):
+    """Retrieve user profile data. Returns dict with nationality, location, weather_location, and facts (list)."""
+    try:
+        with _DBContext(bot) as conn:
+            c = conn.cursor()
+            c.execute(
+                'SELECT nationality, location, weather_location, facts, last_updated, updated_by '
+                'FROM grok_user_profiles WHERE nick = ?',
+                (nick.lower(),)
+            )
+            row = c.fetchone()
+            if not row:
+                return None
+            profile = {
+                'nationality': row[0],
+                'location': row[1],
+                'weather_location': row[2],
+                'facts': json.loads(row[3]) if row[3] else [],
+                'last_updated': row[4],
+                'updated_by': row[5]
+            }
+            return profile
+    except Exception:
+        _log(bot).exception('Failed to get profile for %s', nick)
+        return None
+
+def _db_update_profile_field(bot, nick, field, value, updated_by):
+    """Update a specific profile field (nationality, location, weather_location)."""
+    valid_fields = {'nationality', 'location', 'weather_location'}
+    if field not in valid_fields:
+        return False
+    try:
+        with _DBContext(bot) as conn:
+            c = conn.cursor()
+            # Check if profile exists
+            c.execute('SELECT nick FROM grok_user_profiles WHERE nick = ?', (nick.lower(),))
+            exists = c.fetchone()
+            now_ts = datetime.datetime.utcnow().isoformat()
+            if exists:
+                c.execute(
+                    f'UPDATE grok_user_profiles SET {field} = ?, last_updated = ?, updated_by = ? WHERE nick = ?',
+                    (value, now_ts, updated_by.lower(), nick.lower())
+                )
+            else:
+                # Create new profile
+                c.execute(
+                    'INSERT INTO grok_user_profiles (nick, nationality, location, weather_location, facts, last_updated, updated_by) '
+                    'VALUES (?, ?, ?, ?, ?, ?, ?)',
+                    (nick.lower(), 
+                     value if field == 'nationality' else None,
+                     value if field == 'location' else None,
+                     value if field == 'weather_location' else None,
+                     json.dumps([]),
+                     now_ts,
+                     updated_by.lower())
+                )
+            return True
+    except Exception:
+        _log(bot).exception('Failed to update profile field for %s', nick)
+        return False
+
+def _db_add_profile_fact(bot, nick, fact, updated_by):
+    """Add a fact to user's profile. Returns True if successful."""
+    try:
+        with _DBContext(bot) as conn:
+            c = conn.cursor()
+            c.execute('SELECT facts FROM grok_user_profiles WHERE nick = ?', (nick.lower(),))
+            row = c.fetchone()
+            now_ts = datetime.datetime.utcnow().isoformat()
+            
+            if row:
+                facts = json.loads(row[0]) if row[0] else []
+                if fact not in facts:
+                    facts.append(fact)
+                    c.execute(
+                        'UPDATE grok_user_profiles SET facts = ?, last_updated = ?, updated_by = ? WHERE nick = ?',
+                        (json.dumps(facts), now_ts, updated_by.lower(), nick.lower())
+                    )
+            else:
+                # Create new profile with this fact
+                c.execute(
+                    'INSERT INTO grok_user_profiles (nick, facts, last_updated, updated_by) VALUES (?, ?, ?, ?)',
+                    (nick.lower(), json.dumps([fact]), now_ts, updated_by.lower())
+                )
+            return True
+    except Exception:
+        _log(bot).exception('Failed to add fact for %s', nick)
+        return False
+
+def _db_remove_profile_fact(bot, nick, fact_index):
+    """Remove a fact by index. Returns True if successful."""
+    try:
+        with _DBContext(bot) as conn:
+            c = conn.cursor()
+            c.execute('SELECT facts FROM grok_user_profiles WHERE nick = ?', (nick.lower(),))
+            row = c.fetchone()
+            if not row:
+                return False
+            facts = json.loads(row[0]) if row[0] else []
+            if 0 <= fact_index < len(facts):
+                facts.pop(fact_index)
+                now_ts = datetime.datetime.utcnow().isoformat()
+                c.execute(
+                    'UPDATE grok_user_profiles SET facts = ?, last_updated = ? WHERE nick = ?',
+                    (json.dumps(facts), now_ts, nick.lower())
+                )
+                return True
+            return False
+    except Exception:
+        _log(bot).exception('Failed to remove fact for %s', nick)
+        return False
+
+def _db_delete_user_profile(bot, nick):
+    """Delete entire profile for a user."""
+    try:
+        with _DBContext(bot) as conn:
+            c = conn.cursor()
+            c.execute('DELETE FROM grok_user_profiles WHERE nick = ?', (nick.lower(),))
+            return True
+    except Exception:
+        _log(bot).exception('Failed to delete profile for %s', nick)
+        return False
+
+def _format_profile_for_context(nick, profile):
+    """Format user profile data for inclusion in AI context."""
+    if not profile:
+        return None
+    parts = []
+    if profile.get('nationality'):
+        parts.append(f"Nationality: {profile['nationality']}")
+    if profile.get('location'):
+        parts.append(f"Location: {profile['location']}")
+    if profile.get('weather_location'):
+        parts.append(f"Weather location: {profile['weather_location']}")
+    if profile.get('facts'):
+        parts.append(f"Notable facts: {'; '.join(profile['facts'])}")
+    
+    if not parts:
+        return None
+    
+    return f"Profile for {nick}: {', '.join(parts)}"
+
+# ==================== PROFILE SUGGESTION FUNCTIONS ====================
+
+def _db_add_fact_suggestion(bot, nick, fact, confidence, context):
+    """Store a suggested fact for later review. Confidence is 0.0-1.0."""
+    try:
+        with _DBContext(bot) as conn:
+            c = conn.cursor()
+            # Check if similar fact already exists (pending or approved)
+            c.execute(
+                'SELECT id FROM grok_profile_suggestions WHERE nick = ? AND fact = ? AND reviewed = 0',
+                (nick.lower(), fact)
+            )
+            if c.fetchone():
+                return False  # Already suggested
+            
+            now_ts = datetime.datetime.utcnow().isoformat()
+            c.execute(
+                'INSERT INTO grok_profile_suggestions (nick, fact, confidence, source_context, suggested_ts) '
+                'VALUES (?, ?, ?, ?, ?)',
+                (nick.lower(), fact, confidence, context, now_ts)
+            )
+            
+            # Auto-approve high confidence facts
+            if confidence >= 0.9:
+                suggestion_id = c.lastrowid
+                c.execute(
+                    'UPDATE grok_profile_suggestions SET reviewed = 1, approved = 1 WHERE id = ?',
+                    (suggestion_id,)
+                )
+                _db_add_profile_fact(bot, nick, fact, 'auto-learned')
+            
+            return True
+    except Exception:
+        _log(bot).exception('Failed to add fact suggestion for %s', nick)
+        return False
+
+def _db_get_pending_suggestions(bot, limit=20):
+    """Get pending fact suggestions that haven't been reviewed."""
+    try:
+        with _DBContext(bot) as conn:
+            c = conn.cursor()
+            c.execute(
+                'SELECT id, nick, fact, confidence, source_context, suggested_ts '
+                'FROM grok_profile_suggestions WHERE reviewed = 0 ORDER BY confidence DESC, id ASC LIMIT ?',
+                (limit,)
+            )
+            rows = c.fetchall()
+            return [
+                {
+                    'id': r[0],
+                    'nick': r[1],
+                    'fact': r[2],
+                    'confidence': r[3],
+                    'context': r[4],
+                    'suggested_ts': r[5]
+                }
+                for r in rows
+            ]
+    except Exception:
+        _log(bot).exception('Failed to get pending suggestions')
+        return []
+
+def _db_approve_suggestion(bot, suggestion_id, approver):
+    """Approve a fact suggestion and add it to the user's profile."""
+    try:
+        with _DBContext(bot) as conn:
+            c = conn.cursor()
+            c.execute(
+                'SELECT nick, fact FROM grok_profile_suggestions WHERE id = ? AND reviewed = 0',
+                (suggestion_id,)
+            )
+            row = c.fetchone()
+            if not row:
+                return False
+            
+            nick, fact = row
+            c.execute(
+                'UPDATE grok_profile_suggestions SET reviewed = 1, approved = 1 WHERE id = ?',
+                (suggestion_id,)
+            )
+            _db_add_profile_fact(bot, nick, fact, approver)
+            return True
+    except Exception:
+        _log(bot).exception('Failed to approve suggestion %s', suggestion_id)
+        return False
+
+def _db_reject_suggestion(bot, suggestion_id):
+    """Reject a fact suggestion."""
+    try:
+        with _DBContext(bot) as conn:
+            c = conn.cursor()
+            c.execute(
+                'UPDATE grok_profile_suggestions SET reviewed = 1, approved = 0 WHERE id = ?',
+                (suggestion_id,)
+            )
+            return True
+    except Exception:
+        _log(bot).exception('Failed to reject suggestion %s', suggestion_id)
+        return False
+
+def _extract_facts_from_conversation(bot, channel_log, user_nick):
+    """Use AI to extract facts about a user from recent conversation. Returns list of (fact, confidence) tuples."""
+    # This is called periodically to analyze conversation and extract facts
+    if not channel_log or len(channel_log) < 5:
+        _log(bot).debug('Not enough conversation history for fact extraction (need 5+ messages)')
+        return []
+    
+    # Build a prompt asking the AI to extract facts
+    log_text = '\n'.join([f"{nick}: {text}" for nick, text in channel_log[-30:]])
+    
+    extraction_prompt = f"""Analyze this IRC conversation log and extract factual information about the user '{user_nick}'.
+
+Conversation log:
+{log_text}
+
+Extract clear, factual statements about {user_nick}. Examples of good facts:
+- "is from Canada"
+- "plays Counter-Strike"
+- "works as a software developer"
+- "speaks French"
+- "hates pineapple on pizza"
+
+Return ONLY a JSON array of facts with confidence scores (0.0-1.0), like:
+[{{"fact": "is from Canada", "confidence": 0.95}}, {{"fact": "plays CS:GO", "confidence": 0.8}}]
+
+If no clear facts can be extracted, return an empty array: []
+
+Rules:
+- Only include facts explicitly stated or strongly implied
+- Use confidence 0.9+ only for direct statements
+- Be concise (under 10 words per fact)
+- Avoid opinions unless clearly stated as theirs
+- Skip temporary states (e.g., "is tired")"""
+
+    try:
+        # Make a simple API call to extract facts
+        api_key = bot.config.grok.api_key
+        if not api_key:
+            _log(bot).warning('No Grok API key configured for fact extraction')
+            return []
+        
+        model = bot.config.grok.model
+        _log(bot).info('Extracting facts for %s from %d messages using model %s', user_nick, len(channel_log), model)
+        
+        response = requests.post(
+            'https://api.x.ai/v1/chat/completions',
+            headers={'Authorization': f'Bearer {api_key}', 'Content-Type': 'application/json'},
+            json={
+                'model': model,
+                'messages': [{'role': 'user', 'content': extraction_prompt}],
+                'temperature': 0.3,
+                'max_tokens': 500
+            },
+            timeout=15
+        )
+        
+        _log(bot).debug('Fact extraction API response status: %d', response.status_code)
+        
+        if response.status_code == 200:
+            result = response.json()
+            content = result['choices'][0]['message']['content'].strip()
+            _log(bot).info('Fact extraction response for %s: %s', user_nick, content[:500])
+            
+            # Store for debugging
+            bot.memory['_last_fact_extraction_response'] = content
+            
+            # Try to extract JSON from the response
+            json_match = re.search(r'\[.*\]', content, re.DOTALL)
+            if json_match:
+                json_str = json_match.group()
+                _log(bot).debug('Found JSON: %s', json_str[:300])
+                try:
+                    facts_data = json.loads(json_str)
+                    extracted = [(f['fact'], f['confidence']) for f in facts_data if isinstance(f, dict) and 'fact' in f and 'confidence' in f]
+                    _log(bot).info('Extracted %d facts for %s: %s', len(extracted), user_nick, extracted)
+                    return extracted
+                except json.JSONDecodeError as e:
+                    _log(bot).error('Failed to parse JSON: %s', str(e))
+            else:
+                _log(bot).warning('No JSON array found in fact extraction response. Full response: %s', content)
+        else:
+            _log(bot).error('Fact extraction API error: %d - %s', response.status_code, response.text[:200])
+            
+    except requests.exceptions.Timeout:
+        _log(bot).error('Fact extraction timed out for %s', user_nick)
+    except requests.exceptions.RequestException as e:
+        _log(bot).exception('Request failed during fact extraction for %s: %s', user_nick, str(e))
+    except json.JSONDecodeError as e:
+        _log(bot).exception('Failed to parse JSON in fact extraction for %s: %s', user_nick, str(e))
+    except Exception as e:
+        _log(bot).exception('Unexpected error during fact extraction for %s: %s', user_nick, str(e))
+    
+    return []
+
+# ==================== END PROFILE SUGGESTION FUNCTIONS ====================
+
+# ==================== END USER PROFILE FUNCTIONS ====================
+
+
 def _db_get_admin_ignored(bot):
     try:
         with _DBContext(bot) as conn:
@@ -1037,7 +1427,7 @@ def _db_get_user_pref(bot, nick):
     except Exception:
         return {}
 
-def _db_set_user_pref(bot, nick, tz=None, fmt=None):
+def _db_set_user_pref(bot, nick, tz=None, tz_label=None, fmt=None):
     try:
         with _DBContext(bot) as conn:
             c = conn.cursor()
@@ -1050,8 +1440,8 @@ def _db_set_user_pref(bot, nick, tz=None, fmt=None):
             cur_label = row[1] if row else None
             cur_fmt = row[2] if row else None
             new_iana = tz if tz is not None else cur_iana
+            new_label = tz_label if tz_label is not None else (cur_label if cur_label else new_iana)
             new_fmt = fmt if fmt is not None else cur_fmt
-            new_label = new_iana
             c.execute(
                 'INSERT OR REPLACE INTO grok_user_prefs (nick, tz_iana, tz_label, time_fmt) VALUES (?, ?, ?, ?)',
                 (nick.lower(), new_iana, new_label, new_fmt),
@@ -1255,6 +1645,41 @@ def handle(bot, trigger):
                     _cl_key, deque(maxlen=300)
                 )
                 _cl_dq.append((trigger.nick, line.strip()))
+                
+                # Auto-learning: periodically extract facts about active users
+                _learn_counter_key = f'grok_learn_counter_{_cl_key}'
+                _learn_counter = bot.memory.get(_learn_counter_key, 0) + 1
+                bot.memory[_learn_counter_key] = _learn_counter
+                
+                # Every 100 messages, pick a random active user and try to learn facts
+                if _learn_counter >= 100:
+                    bot.memory[_learn_counter_key] = 0
+                    
+                    # Find active users (who have spoken at least 5 times in recent history)
+                    nick_counts = {}
+                    for n, _ in list(_cl_dq)[-100:]:
+                        if n.lower() not in own_nicks:
+                            nick_counts[n] = nick_counts.get(n, 0) + 1
+                    
+                    active_users = [n for n, count in nick_counts.items() if count >= 5]
+                    if active_users:
+                        # Pick a random user to learn about
+                        target_user = random.choice(active_users)
+                        
+                        # Run fact extraction in background to avoid blocking
+                        def _background_learn():
+                            try:
+                                facts = _extract_facts_from_conversation(bot, list(_cl_dq), target_user)
+                                for fact, confidence in facts:
+                                    context = f"Auto-learned from {trigger.sender}"
+                                    _db_add_fact_suggestion(bot, target_user, fact, confidence, context)
+                            except Exception:
+                                _log(bot).exception('Background fact learning failed for %s', target_user)
+                        
+                        # Start background thread
+                        learn_thread = threading.Thread(target=_background_learn, daemon=True)
+                        learn_thread.start()
+                        
             except Exception:
                 pass
 
@@ -1449,6 +1874,7 @@ def handle(bot, trigger):
 
     try:
         _pref_tz = None
+        _pref_tz_label = None
         _pref_fmt = None
         _mtz = _TZ_SET_RE.search(user_message)
         if _mtz:
@@ -1456,15 +1882,54 @@ def handle(bot, trigger):
             _iana = _TZ_ABBR_MAP.get(_abbr)
             if _iana:
                 _pref_tz = _iana
+                _pref_tz_label = _abbr
         _mfmt = _FMT_SET_RE.search(user_message)
         if _mfmt:
             _raw = _mfmt.group(1).lower().replace(' ', '').replace('-', '')
             _pref_fmt = '12' if _raw.startswith('12') else '24'
         if _pref_tz or _pref_fmt:
-            _db_set_user_pref(bot, trigger.nick, tz=_pref_tz, fmt=_pref_fmt)
-            _log(bot).info('Saved pref for %s: tz=%s fmt=%s', trigger.nick, _pref_tz, _pref_fmt)
+            _db_set_user_pref(bot, trigger.nick, tz=_pref_tz, tz_label=_pref_tz_label, fmt=_pref_fmt)
+            _log(bot).info('Saved pref for %s: tz=%s label=%s fmt=%s', trigger.nick, _pref_tz, _pref_tz_label, _pref_fmt)
     except Exception:
         pass
+
+    # Check for personality set/reset instructions
+    _personality_key = trigger.sender.lower() if not is_pm else f"PM:{trigger.nick.lower()}"
+    
+    # Check for channel-wide personality: "role play as rick"
+    _channel_personality_match = _PERSONALITY_CHANNEL_SET_RE.search(user_message)
+    if _channel_personality_match:
+        _personality_desc = _channel_personality_match.group(1).strip()
+        if _personality_desc:
+            bot.memory['grok_channel_personality'][_personality_key] = _personality_desc
+            _log(bot).info('Set channel personality for %s: %s', _personality_key, _personality_desc[:50])
+    
+    # Check for user-specific personality: "speak to burnout like you're from alberta"
+    _user_personality_match = _PERSONALITY_USER_SET_RE.search(user_message)
+    if _user_personality_match:
+        _target_nick = _user_personality_match.group(1).strip().lower()
+        _personality_desc = _user_personality_match.group(2).strip()
+        if _personality_desc:
+            if not is_pm:
+                _chan_key = trigger.sender.lower()
+                if _chan_key not in bot.memory['grok_user_personality']:
+                    bot.memory['grok_user_personality'][_chan_key] = {}
+                bot.memory['grok_user_personality'][_chan_key][_target_nick] = _personality_desc
+                _log(bot).info('Set user personality for %s in %s: %s', _target_nick, _chan_key, _personality_desc[:50])
+    
+    # Check for personality reset
+    _personality_reset_match = _PERSONALITY_RESET_RE.search(user_message)
+    if _personality_reset_match:
+        # Clear channel personality
+        if _personality_key in bot.memory['grok_channel_personality']:
+            del bot.memory['grok_channel_personality'][_personality_key]
+            _log(bot).info('Cleared channel personality for %s', _personality_key)
+        # Clear user personalities for this channel
+        if not is_pm:
+            _chan_key = trigger.sender.lower()
+            if _chan_key in bot.memory['grok_user_personality']:
+                del bot.memory['grok_user_personality'][_chan_key]
+                _log(bot).info('Cleared all user personalities for %s', _chan_key)
 
     review_mode = bool(_REVIEW_INTENT_RE.search(user_message)) or (user_message.strip() == '^^')
 
@@ -1494,7 +1959,23 @@ def handle(bot, trigger):
             return
         review_last[trigger.sender] = now
 
-    now_str = datetime.datetime.now(datetime.timezone.utc).strftime('%A, %B %d, %Y at %H:%M UTC')
+    # Get user's timezone and format preferences
+    user_prefs = _db_get_user_pref(bot, trigger.nick)
+    user_tz = user_prefs.get('tz_iana', 'UTC')
+    user_fmt = user_prefs.get('time_fmt', '24')
+    
+    try:
+        now_dt = datetime.datetime.now(ZoneInfo(user_tz))
+        if user_fmt == '12':
+            time_fmt = '%I:%M %p'
+        else:
+            time_fmt = '%H:%M'
+        tz_label = user_prefs.get('tz_label', user_tz)
+        now_str = now_dt.strftime(f'%A, %B %d, %Y at {time_fmt} {tz_label}')
+    except Exception:
+        # Fallback to UTC if timezone is invalid
+        now_str = datetime.datetime.now(datetime.timezone.utc).strftime('%A, %B %d, %Y at %H:%M UTC')
+    
     # Use per-channel system prompt if defined, otherwise fall back to the global one.
     _active_system_prompt = bot.config.grok.system_prompt
     _channel_always_search = False
@@ -1504,6 +1985,29 @@ def handle(bot, trigger):
         if _ch_cfg:
             _active_system_prompt = _ch_cfg["prompt"]
             _channel_always_search = _ch_cfg.get("always_search", False)
+    
+    # Apply dynamic personality override if set
+    # Priority: user-specific > channel-wide > config default
+    _personality_key = trigger.sender.lower() if not is_pm else f"PM:{trigger.nick.lower()}"
+    _dynamic_personality = None
+    
+    # Check for user-specific personality first
+    if not is_pm:
+        _chan_key = trigger.sender.lower()
+        _user_personalities = bot.memory.get('grok_user_personality', {}).get(_chan_key, {})
+        _dynamic_personality = _user_personalities.get(trigger.nick.lower())
+    
+    # Fall back to channel-wide personality
+    if not _dynamic_personality:
+        _dynamic_personality = bot.memory.get('grok_channel_personality', {}).get(_personality_key)
+    
+    if _dynamic_personality:
+        # Override the system prompt with the personality instruction
+        _active_system_prompt = (
+            f"You are {bot_nick}. {_dynamic_personality}. "
+            "Speak naturally in this role. Keep responses short and conversational — this is IRC. "
+            "Stay in character consistently. No ASCII art, no code blocks, no figlets — just talk."
+        )
     messages = [
         {"role": "system", "content": _active_system_prompt},
         {
@@ -1521,6 +2025,44 @@ def handle(bot, trigger):
             ),
         },
     ]
+
+    # Inject user profile data if available
+    user_profile = _db_get_user_profile(bot, trigger.nick)
+    if user_profile:
+        profile_text = _format_profile_for_context(trigger.nick, user_profile)
+        if profile_text:
+            messages.append({"role": "system", "content": profile_text})
+    
+    # Check if other users are mentioned and include their profiles
+    mentioned_nicks = set()
+    words = user_message.lower().split()
+    # Try to find mentioned nicks - look for words that might be nicknames
+    # This is heuristic - we check against known nicks in recent channel history
+    if not is_pm:
+        try:
+            with chan_lock:
+                chan_log_dq = bot.memory.get('grok_channel_log', {}).get(trigger.sender.lower())
+                if chan_log_dq:
+                    # Collect nicks from recent channel activity
+                    recent_nicks = set()
+                    for nick, _ in list(chan_log_dq)[-100:]:  # Last 100 messages
+                        recent_nicks.add(nick.lower())
+                    # Check if any words in the message match recent nicks
+                    for word in words:
+                        clean_word = word.strip(',:;!?.')
+                        if clean_word in recent_nicks and clean_word != trigger.nick.lower() and clean_word != bot_nick.lower():
+                            mentioned_nicks.add(clean_word)
+        except Exception:
+            pass
+    
+    # Add profiles for mentioned users
+    for mentioned_nick in mentioned_nicks:
+        mentioned_profile = _db_get_user_profile(bot, mentioned_nick)
+        if mentioned_profile:
+            profile_text = _format_profile_for_context(mentioned_nick, mentioned_profile)
+            if profile_text:
+                messages.append({"role": "system", "content": profile_text})
+
 
     relevant_turns = []
     if not review_mode:
@@ -1655,20 +2197,19 @@ def handle(bot, trigger):
         )
         messages.append({"role": "user", "content": combined})
 
+    # Check if channel is already processing a request
+    if bot.memory.get('grok_busy', {}).get(trigger.sender):
+        return
+    
     try:
         search_mode = _channel_always_search or bool(_SEARCH_INTENT_RE.search(user_message))
         wants_sources = bool(_WANTS_SOURCES_RE.search(user_message))
         # If user is asking for sources/URLs, force search so the API returns real citations
         if wants_sources:
             search_mode = True
-        if bot.memory['grok_busy'].get(trigger.sender, False):
-            try:
-                bot.say("Grok is still thinking — hang tight a sec.", trigger.sender)
-            except Exception:
-                pass
-            return
+        # Queue the request - multiple requests per channel will be processed in order
         bot.memory['grok_busy'][trigger.sender] = True
-        API_TASK_QUEUE.put_nowait((bot, trigger, messages, review_mode, is_pm, bot_nick, chan_lock, search_mode, wants_sources))
+        API_TASK_QUEUE.put_nowait((bot, trigger, messages, review_mode, is_pm, bot_nick, chan_lock, search_mode, wants_sources, False))
     except queue.Full:
         try:
             bot.say('Grok is super busy right now — try again in a minute?', trigger.sender)
@@ -1819,5 +2360,342 @@ def ai_toggle(bot, trigger):
         current = _db_get_channel_enabled(bot, channel)
         status = "ENABLED" if current else "DISABLED"
         bot.say(f"Grok AI is currently {status} for {channel}. Use '.ai on' or '.ai off' to change it.")
+
+# ==================== USER PROFILE COMMANDS ====================
+
+@plugin.command('profile')
+def profile_view(bot, trigger):
+    """View a user's profile. Usage: .profile <nick>"""
+    args = (trigger.group(2) or '').strip()
+    if not args:
+        bot.reply("Usage: .profile <nick>")
+        return
+    
+    target_nick = args.split()[0]
+    profile = _db_get_user_profile(bot, target_nick)
+    
+    if not profile:
+        bot.say(f"No profile found for {target_nick}.")
+        return
+    
+    parts = []
+    if profile.get('nationality'):
+        parts.append(f"Nationality: {profile['nationality']}")
+    if profile.get('location'):
+        parts.append(f"Location: {profile['location']}")
+    if profile.get('weather_location'):
+        parts.append(f"Weather: {profile['weather_location']}")
+    
+    if parts:
+        bot.say(f"Profile for {target_nick} — {' | '.join(parts)}")
+    
+    facts = profile.get('facts', [])
+    if facts:
+        for i, fact in enumerate(facts):
+            bot.say(f"  [{i}] {fact}")
+    
+    if not parts and not facts:
+        bot.say(f"Profile for {target_nick} exists but is empty.")
+
+@plugin.command('setprofile')
+def profile_set_field(bot, trigger):
+    """Set a profile field. Usage: .setprofile <nick> <field> <value>
+    Fields: nationality, location, weather_location"""
+    if not _is_admin(bot, trigger):
+        bot.reply("Only bot admins can manage profiles.")
+        return
+    
+    args = (trigger.group(2) or '').strip()
+    if not args:
+        bot.reply("Usage: .setprofile <nick> <field> <value>")
+        return
+    
+    parts = args.split(None, 2)
+    if len(parts) < 3:
+        bot.reply("Usage: .setprofile <nick> <field> <value>")
+        return
+    
+    target_nick, field, value = parts
+    field = field.lower()
+    
+    if field not in {'nationality', 'location', 'weather_location'}:
+        bot.reply("Valid fields: nationality, location, weather_location")
+        return
+    
+    if _db_update_profile_field(bot, target_nick, field, value, trigger.nick):
+        bot.say(f"Updated {field} for {target_nick} to: {value}")
+    else:
+        bot.say(f"Failed to update profile for {target_nick}.")
+
+@plugin.command('addfact')
+def profile_add_fact(bot, trigger):
+    """Add a fact to a user's profile. Usage: .addfact <nick> <fact>"""
+    if not _is_admin(bot, trigger):
+        bot.reply("Only bot admins can manage profiles.")
+        return
+    
+    args = (trigger.group(2) or '').strip()
+    if not args:
+        bot.reply("Usage: .addfact <nick> <fact>")
+        return
+    
+    parts = args.split(None, 1)
+    if len(parts) < 2:
+        bot.reply("Usage: .addfact <nick> <fact>")
+        return
+    
+    target_nick, fact = parts
+    
+    if _db_add_profile_fact(bot, target_nick, fact, trigger.nick):
+        bot.say(f"Added fact for {target_nick}: {fact}")
+    else:
+        bot.say(f"Failed to add fact for {target_nick}.")
+
+@plugin.command('delfact')
+def profile_del_fact(bot, trigger):
+    """Remove a fact from a user's profile. Usage: .delfact <nick> <index>"""
+    if not _is_admin(bot, trigger):
+        bot.reply("Only bot admins can manage profiles.")
+        return
+    
+    args = (trigger.group(2) or '').strip()
+    if not args:
+        bot.reply("Usage: .delfact <nick> <index>")
+        return
+    
+    parts = args.split()
+    if len(parts) < 2:
+        bot.reply("Usage: .delfact <nick> <index>")
+        return
+    
+    target_nick = parts[0]
+    try:
+        index = int(parts[1])
+    except ValueError:
+        bot.reply("Index must be a number.")
+        return
+    
+    if _db_remove_profile_fact(bot, target_nick, index):
+        bot.say(f"Removed fact #{index} for {target_nick}.")
+    else:
+        bot.say(f"Failed to remove fact for {target_nick}. Check the index.")
+
+@plugin.command('delprofile')
+def profile_delete(bot, trigger):
+    """Delete a user's entire profile. Usage: .delprofile <nick>"""
+    if not _is_admin(bot, trigger):
+        bot.reply("Only bot admins can manage profiles.")
+        return
+    
+    args = (trigger.group(2) or '').strip()
+    if not args:
+        bot.reply("Usage: .delprofile <nick>")
+        return
+    
+    target_nick = args.split()[0]
+    
+    if _db_delete_user_profile(bot, target_nick):
+        bot.say(f"Deleted profile for {target_nick}.")
+    else:
+        bot.say(f"Failed to delete profile for {target_nick}.")
+
+@plugin.command('reviewfacts')
+def review_facts(bot, trigger):
+    """Review pending fact suggestions. Usage: .reviewfacts [limit]"""
+    if not _is_admin(bot, trigger):
+        bot.reply("Only bot admins can review facts.")
+        return
+    
+    args = (trigger.group(2) or '').strip()
+    limit = 10
+    if args:
+        try:
+            limit = int(args)
+            limit = min(limit, 50)
+        except ValueError:
+            pass
+    
+    suggestions = _db_get_pending_suggestions(bot, limit)
+    if not suggestions:
+        bot.say("No pending fact suggestions.")
+        return
+    
+    bot.say(f"Found {len(suggestions)} pending fact suggestion(s):")
+    for s in suggestions:
+        confidence_pct = int(s['confidence'] * 100)
+        bot.say(f"[{s['id']}] {s['nick']}: \"{s['fact']}\" (confidence: {confidence_pct}%)")
+    bot.say("Use '.approve <id>' to approve or '.reject <id>' to reject.")
+
+@plugin.command('approve')
+def approve_fact(bot, trigger):
+    """Approve a fact suggestion. Usage: .approve <id>"""
+    if not _is_admin(bot, trigger):
+        bot.reply("Only bot admins can approve facts.")
+        return
+    
+    args = (trigger.group(2) or '').strip()
+    if not args:
+        bot.reply("Usage: .approve <id>")
+        return
+    
+    try:
+        suggestion_id = int(args)
+    except ValueError:
+        bot.reply("ID must be a number.")
+        return
+    
+    if _db_approve_suggestion(bot, suggestion_id, trigger.nick):
+        bot.say(f"Approved suggestion #{suggestion_id}.")
+    else:
+        bot.say(f"Failed to approve suggestion #{suggestion_id}. It may not exist or was already reviewed.")
+
+@plugin.command('reject')
+def reject_fact(bot, trigger):
+    """Reject a fact suggestion. Usage: .reject <id>"""
+    if not _is_admin(bot, trigger):
+        bot.reply("Only bot admins can reject facts.")
+        return
+    
+    args = (trigger.group(2) or '').strip()
+    if not args:
+        bot.reply("Usage: .reject <id>")
+        return
+    
+    try:
+        suggestion_id = int(args)
+    except ValueError:
+        bot.reply("ID must be a number.")
+        return
+    
+    if _db_reject_suggestion(bot, suggestion_id):
+        bot.say(f"Rejected suggestion #{suggestion_id}.")
+    else:
+        bot.say(f"Failed to reject suggestion #{suggestion_id}.")
+
+@plugin.command('learnfacts')
+def learn_facts_now(bot, trigger):
+    """Manually trigger fact learning for a specific user. Usage: .learnfacts <nick>"""
+    if not _is_admin(bot, trigger):
+        bot.reply("Only bot admins can trigger fact learning.")
+        return
+    
+    args = (trigger.group(2) or '').strip()
+    if not args:
+        bot.reply("Usage: .learnfacts <nick>")
+        return
+    
+    target_nick = args.split()[0]
+    
+    # Get recent channel log
+    if _is_pm(trigger):
+        bot.reply("Fact learning only works in channels.")
+        return
+    
+    chan_lock = bot.memory.setdefault('grok_channel_log_lock', {}).setdefault(
+        trigger.sender.lower(), threading.Lock()
+    )
+    
+    with chan_lock:
+        chan_log_dq = bot.memory.get('grok_channel_log', {}).get(trigger.sender.lower())
+        if not chan_log_dq:
+            bot.say("No conversation history available.")
+            return
+        channel_log = list(chan_log_dq)
+    
+    if len(channel_log) < 5:
+        bot.say(f"Not enough conversation history (only {len(channel_log)} messages). Need at least 5.")
+        return
+    
+    # Count how many messages mention the target user
+    mentions = sum(1 for nick, text in channel_log if target_nick.lower() in text.lower() or nick.lower() == target_nick.lower())
+    
+    bot.say(f"Analyzing {len(channel_log)} messages ({mentions} mentioning {target_nick})...")
+    
+    # Store response for debugging
+    bot.memory['_last_fact_extraction_response'] = None
+    
+    try:
+        facts = _extract_facts_from_conversation(bot, channel_log, target_nick)
+    except Exception as e:
+        bot.say(f"Error during extraction: {type(e).__name__}: {str(e)[:100]}")
+        # Show the last API response if available
+        if bot.memory.get('_last_fact_extraction_response'):
+            bot.say(f"Last API response: {bot.memory['_last_fact_extraction_response'][:200]}")
+        return
+    
+    if not facts:
+        bot.say(f"No facts could be extracted about {target_nick}. Check error logs for details (might be API issue).")
+        return
+    
+    added = 0
+    auto_approved = 0
+    for fact, confidence in facts:
+        context_snippet = f"Learned from channel conversation in {trigger.sender}"
+        if _db_add_fact_suggestion(bot, target_nick, fact, confidence, context_snippet):
+            added += 1
+            if confidence >= 0.9:
+                auto_approved += 1
+    
+    if auto_approved > 0:
+        bot.say(f"Added {added} fact suggestion(s) for {target_nick}. {auto_approved} auto-approved (high confidence). Use .reviewfacts to review others.")
+    else:
+        bot.say(f"Added {added} fact suggestion(s) for {target_nick}. Use .reviewfacts to review.")
+
+@plugin.command('testapi')
+def test_api(bot, trigger):
+    """Test the Grok API directly. Admin only."""
+    if not _is_admin(bot, trigger):
+        return
+    
+    try:
+        api_key = bot.config.grok.api_key
+        if not api_key:
+            bot.say("No API key configured")
+            return
+        
+        model = bot.config.grok.model
+        bot.say(f"Testing API with simple request using model {model}...")
+        response = requests.post(
+            'https://api.x.ai/v1/chat/completions',
+            headers={'Authorization': f'Bearer {api_key}', 'Content-Type': 'application/json'},
+            json={
+                'model': model,
+                'messages': [{'role': 'user', 'content': 'Say only the word "test" and nothing else.'}],
+                'temperature': 0.3,
+                'max_tokens': 10
+            },
+            timeout=15
+        )
+        
+        bot.say(f"Status: {response.status_code}")
+        if response.status_code == 200:
+            result = response.json()
+            content = result['choices'][0]['message']['content']
+            bot.say(f"Response: {content}")
+        else:
+            bot.say(f"Error: {response.text[:200]}")
+    except Exception as e:
+        bot.say(f"Exception: {type(e).__name__}: {str(e)[:150]}")
+
+@plugin.command('showextract')
+def show_last_extraction(bot, trigger):
+    """Show the last fact extraction API response. Admin only."""
+    if not _is_admin(bot, trigger):
+        return
+    
+    response = bot.memory.get('_last_fact_extraction_response')
+    if not response:
+        bot.say("No extraction has been run yet.")
+        return
+    
+    # Split into chunks if needed
+    if len(response) <= 400:
+        bot.say(f"Last extraction: {response}")
+    else:
+        bot.say(f"Last extraction (first 400 chars): {response[:400]}")
+        bot.say(f"... (total {len(response)} chars)")
+
+
+# ==================== END USER PROFILE COMMANDS ====================
 
 # Force reload
