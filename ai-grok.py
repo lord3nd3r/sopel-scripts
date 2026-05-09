@@ -174,7 +174,7 @@ def _api_worker_loop():
 # Worker threads will be started after helper functions are defined (see bottom of file)
 
 class GrokSection(types.StaticSection):
-    api_key = types.SecretAttribute('api_key')
+    api_key = types.ValidatedAttribute('api_key')
     model = types.ChoiceAttribute(
         'model',
         choices=['grok-4-1-fast-reasoning', 'grok-4-fast-reasoning', 'grok-4-20', 'grok-4.3', 'grok-3', 'grok-beta'],
