@@ -6,7 +6,7 @@ Usage:
   .tell <nick> <message>   — leave a message for <nick>
   .showtells               — privately list your pending tells (clears them)
 
-When <nick> next speaks in any channel the bot is in, they receive a NOTICE
+When <nick> next speaks in any channel the bot is in, they receive a PM
 per pending message: who sent it, when, and the text.
 """
 
@@ -100,14 +100,14 @@ def _fmt_time(epoch):
 
 
 def _deliver_tells(bot, nick):
-    """Fetch and deliver all pending tells for nick via NOTICE."""
+    """Fetch and deliver all pending tells for nick via PM."""
     tells = _fetch_tells(nick)
     for row in tells:
         msg = (
             f'[Tell from \x02{row["sender"]}\x02 in {row["channel"]} '
             f'on {_fmt_time(row["sent_at"])}]: {row["message"]}'
         )
-        bot.notice(msg, nick)
+        bot.say(msg, nick)
     return len(tells)
 
 
@@ -154,10 +154,10 @@ def cmd_showtells(bot, trigger):
     """Show your pending tells privately without waiting to speak."""
     count = _pending_count(str(trigger.nick))
     if count == 0:
-        bot.notice('You have no pending messages.', trigger.nick)
+        bot.say('You have no pending messages.', trigger.nick)
         return
     delivered = _deliver_tells(bot, str(trigger.nick))
-    bot.notice(f'{delivered} message(s) delivered above.', trigger.nick)
+    bot.say(f'{delivered} message(s) delivered above.', trigger.nick)
 
 
 # ─────────────────────────── delivery trigger ───────────────────────

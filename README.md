@@ -1281,7 +1281,7 @@ Quick access to Rizon IRC network help topics and FAQ.
 
 ## 📬 tell — Offline Messages
 
-Leave messages for users who aren't online. Delivered via `NOTICE` when they next speak.
+Leave messages for users who aren't online. Delivered via PM when they next speak.
 
 | Command | Description |
 |---------|-------------|

@@ -1,6 +1,6 @@
 # 📬 Tell — Offline Messages
 
-Leave messages for users who aren't currently active. When they next speak in any channel the bot is in, they receive a `NOTICE` for each pending message.
+Leave messages for users who aren't currently active. When they next speak in any channel the bot is in, they receive a PM for each pending message.
 
 ---
 
@@ -19,7 +19,7 @@ Leave messages for users who aren't currently active. When they next speak in an
 
 1. Use `.tell <nick> <message>` in any channel.
 2. The bot confirms: `I will tell <nick> that when they next speak.`
-3. When `<nick>` next says anything in any channel, the bot sends them a `NOTICE`:
+3. When `<nick>` next says anything in any channel, the bot sends them a PM:
    ```
    [Tell from End3r in #linux on 2026-05-09 15:43 UTC]: hey, call me back!
    ```
@@ -37,14 +37,14 @@ Leave messages for users who aren't currently active. When they next speak in an
 
 **Delivery when the target speaks:**
 ```
--devbox- [Tell from End3r in #linux on 2026-05-09 15:43 UTC]: hey, you around later?
+(PM from devbox): [Tell from End3r in #linux on 2026-05-09 15:43 UTC]: hey, you around later?
 ```
 
 **Checking your own pending messages:**
 ```
 <based> .showtells
--devbox- [Tell from End3r in #linux on 2026-05-09 15:43 UTC]: hey, you around later?
--devbox- 1 message(s) delivered above.
+(PM from devbox): [Tell from End3r in #linux on 2026-05-09 15:43 UTC]: hey, you around later?
+(PM from devbox): 1 message(s) delivered above.
 ```
 
 ---
@@ -53,4 +53,4 @@ Leave messages for users who aren't currently active. When they next speak in an
 
 - You cannot leave a message for yourself or for the bot.
 - Messages are stored in `~/.sopel/tell.db` (SQLite) and survive bot restarts.
-- Delivery uses `NOTICE` so it doesn't clutter the channel.
+- Delivery uses PM so it doesn't clutter the channel.
