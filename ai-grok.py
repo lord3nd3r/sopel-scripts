@@ -1935,6 +1935,8 @@ def handle(bot, trigger):
             _personality_desc = _personality_match.group(1).strip()
             # Remove channel indicators from the description if present
             _personality_desc = _PERSONALITY_CHANNEL_INDICATOR_RE.sub('', _personality_desc).strip()
+            # Strip leading connector words left over after channel indicator removal
+            _personality_desc = re.sub(r'^(?:like|as(?:\s+if)?|in|a|an)\s+', '', _personality_desc, flags=re.IGNORECASE).strip()
             
             if _personality_desc:
                 if _is_channel_wide:
