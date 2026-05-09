@@ -32,3 +32,4 @@ The bot command prefix is **`$`** unless noted otherwise.
 | [💬 Quotes](docs/quote.md) | Save and search funny channel quotes |
 | [🆘 Rizon Help](docs/rizonhelp.md) | Rizon network help and FAQ |
 | [📬 Tell](docs/tell.md) | Leave offline messages for users, delivered when they next speak |
+| [🧠 Wolfram Alpha](docs/wolframalpha.md) | Math, conversions, and factual queries via Wolfram Alpha |

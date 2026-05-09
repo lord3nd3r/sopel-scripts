@@ -32,6 +32,7 @@ A collection of custom [Sopel](https://sopel.chat/) IRC bot plugins for fun, uti
 - [Quotes](docs/quote.md)
 - [Rizon Help](docs/rizonhelp.md)
 - [Tell](docs/tell.md)
+- [Wolfram Alpha](docs/wolframalpha.md)
 - [Installation](#-installation)
 - [Configuration](#-configuration)
 
@@ -1289,6 +1290,21 @@ Leave messages for users who aren't online. Delivered via PM when they next spea
 | `.showtells` | Retrieve your own pending messages immediately |
 
 📖 **Full docs:** [docs/tell.md](docs/tell.md)
+
+---
+
+## 🧠 wolframalpha — Wolfram Alpha
+
+Query Wolfram Alpha for math, unit conversions, factual lookups, and more.
+
+| Command | Description |
+|---------|-------------|
+| `.wa <query>` | Query Wolfram Alpha |
+| `.calc <expr>` | Calculate a math expression |
+| `.math <expr>` | Alias for `.calc` |
+| `.convert <query>` | Unit/currency conversion |
+
+📖 **Full docs:** [docs/wolframalpha.md](docs/wolframalpha.md)
 
 ---
 
