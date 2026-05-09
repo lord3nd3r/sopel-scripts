@@ -2,7 +2,7 @@
 """
 wolframalpha.py — Sopel plugin for Wolfram Alpha queries.
 
-Commands: .wa  .calc  .math  .convert
+Commands: $wa  $calc  $math  $convert
 Get a free API key at: https://developer.wolframalpha.com/
 """
 
@@ -26,14 +26,14 @@ MAX_LEN   = 300
 
 
 @plugin.commands('wa', 'calc', 'math', 'convert', 'wolframalpha')
-@plugin.example('.wa speed of light in mph')
-@plugin.example('.calc 2^32')
-@plugin.example('.convert 100 USD to EUR')
+@plugin.example('$wa speed of light in mph')
+@plugin.example('$calc 2^32')
+@plugin.example('$convert 100 USD to EUR')
 def wolframalpha(bot, trigger):
     """<query> — Look up anything on Wolfram Alpha."""
     query = (trigger.group(2) or '').strip()
     if not query:
-        bot.reply('Usage: .wa <query>')
+        bot.reply('Usage: $wa <query>')
         return
 
     if WA_API_KEY == 'YOUR_APPID_HERE':

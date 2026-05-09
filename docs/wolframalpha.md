@@ -17,27 +17,27 @@ All commands accept the same query syntax.
 
 | Command | Description |
 |---------|-------------|
-| `.wa <query>` | Query Wolfram Alpha |
-| `.calc <expr>` | Calculate a math expression |
-| `.math <expr>` | Alias for `.calc` |
-| `.convert <query>` | Unit/currency conversion |
-| `.wolframalpha <query>` | Full command name |
+| `$wa <query>` | Query Wolfram Alpha |
+| `$calc <expr>` | Calculate a math expression |
+| `$math <expr>` | Alias for `$calc` |
+| `$convert <query>` | Unit/currency conversion |
+| `$wolframalpha <query>` | Full command name |
 
 ---
 
 ## Examples
 
 ```
-<End3r> .wa speed of light in mph
+<End3r> $wa speed of light in mph
 <devbox> Speed of light: 6.706 × 10^8 mph — [ https://www.wolframalpha.com/input/?i=speed+of+light+in+mph ]
 
-<End3r> .calc 2^32
+<End3r> $calc 2^32
 <devbox> Result: 4294967296 — [ https://www.wolframalpha.com/input/?i=2%5E32 ]
 
-<End3r> .convert 100 USD to EUR
+<End3r> $convert 100 USD to EUR
 <devbox> Result: 92.45 euros (EUR) — [ https://www.wolframalpha.com/input/?i=100+USD+to+EUR ]
 
-<End3r> .wa population of Japan
+<End3r> $wa population of Japan
 <devbox> Population: 123.3 million people (2024 estimate) — [ ... ]
 ```
 

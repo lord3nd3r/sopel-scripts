@@ -121,19 +121,19 @@ def setup(bot):
 # ─────────────────────────── commands ───────────────────────────────
 
 @plugin.commands('tell')
-@plugin.example('.tell SomeUser Hey, call me back!')
+@plugin.example('$tell SomeUser Hey, call me back!')
 def cmd_tell(bot, trigger):
     """Leave a message for a user. Delivered via NOTICE when they next speak."""
     args = (trigger.group(2) or '').strip()
     if not args or ' ' not in args:
-        bot.reply('Usage: .tell <nick> <message>')
+        bot.reply('Usage: $tell <nick> <message>')
         return
 
     recipient, _, message = args.partition(' ')
     message = message.strip()
 
     if not message:
-        bot.reply('Usage: .tell <nick> <message>')
+        bot.reply('Usage: $tell <nick> <message>')
         return
 
     if recipient.lower() == bot.nick.lower():

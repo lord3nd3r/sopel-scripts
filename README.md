@@ -1286,8 +1286,8 @@ Leave messages for users who aren't online. Delivered via PM when they next spea
 
 | Command | Description |
 |---------|-------------|
-| `.tell <nick> <message>` | Leave a message for `<nick>` |
-| `.showtells` | Retrieve your own pending messages immediately |
+| `$tell <nick> <message>` | Leave a message for `<nick>` |
+| `$showtells` | Retrieve your own pending messages immediately |
 
 📖 **Full docs:** [docs/tell.md](docs/tell.md)
 
@@ -1299,10 +1299,10 @@ Query Wolfram Alpha for math, unit conversions, factual lookups, and more.
 
 | Command | Description |
 |---------|-------------|
-| `.wa <query>` | Query Wolfram Alpha |
-| `.calc <expr>` | Calculate a math expression |
-| `.math <expr>` | Alias for `.calc` |
-| `.convert <query>` | Unit/currency conversion |
+| `$wa <query>` | Query Wolfram Alpha |
+| `$calc <expr>` | Calculate a math expression |
+| `$math <expr>` | Alias for `$calc` |
+| `$convert <query>` | Unit/currency conversion |
 
 📖 **Full docs:** [docs/wolframalpha.md](docs/wolframalpha.md)
 

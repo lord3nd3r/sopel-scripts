@@ -8,16 +8,14 @@ Leave messages for users who aren't currently active. When they next speak in an
 
 | Command | Description |
 |---------|-------------|
-| `.tell <nick> <message>` | Leave a message for `<nick>` |
-| `.showtells` | Retrieve your pending messages immediately (via NOTICE) |
-
-> The command prefix is `.` (dot), not `$`.
+| `$tell <nick> <message>` | Leave a message for `<nick>` |
+| `$showtells` | Retrieve your pending messages immediately (via NOTICE) |
 
 ---
 
 ## How It Works
 
-1. Use `.tell <nick> <message>` in any channel.
+1. Use `$tell <nick> <message>` in any channel.
 2. The bot confirms: `I will tell <nick> that when they next speak.`
 3. When `<nick>` next says anything in any channel, the bot sends them a PM:
    ```
@@ -31,7 +29,7 @@ Leave messages for users who aren't currently active. When they next speak in an
 
 **Leaving a message:**
 ```
-<End3r> .tell based hey, you around later?
+<End3r> $tell based hey, you around later?
 <devbox> End3r: I will tell based that when they next speak.
 ```
 
@@ -42,7 +40,7 @@ Leave messages for users who aren't currently active. When they next speak in an
 
 **Checking your own pending messages:**
 ```
-<based> .showtells
+<based> $showtells
 (PM from devbox): [Tell from End3r in #linux on 2026-05-09 15:43 UTC]: hey, you around later?
 (PM from devbox): 1 message(s) delivered above.
 ```
