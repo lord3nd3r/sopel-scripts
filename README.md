@@ -31,6 +31,7 @@ A collection of custom [Sopel](https://sopel.chat/) IRC bot plugins for fun, uti
 - [Wiki Search](docs/wiki.md)
 - [Quotes](docs/quote.md)
 - [Rizon Help](docs/rizonhelp.md)
+- [Tell](docs/tell.md)
 - [Installation](#-installation)
 - [Configuration](#-configuration)
 
@@ -1275,6 +1276,19 @@ Quick access to Rizon IRC network help topics and FAQ.
 | `$rhelp <topic>` | Get detailed help |
 
 📖 **Full docs:** [docs/rizonhelp.md](docs/rizonhelp.md)
+
+---
+
+## 📬 tell — Offline Messages
+
+Leave messages for users who aren't online. Delivered via `NOTICE` when they next speak.
+
+| Command | Description |
+|---------|-------------|
+| `.tell <nick> <message>` | Leave a message for `<nick>` |
+| `.showtells` | Retrieve your own pending messages immediately |
+
+📖 **Full docs:** [docs/tell.md](docs/tell.md)
 
 ---
 

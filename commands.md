@@ -31,3 +31,4 @@ The bot command prefix is **`$`** unless noted otherwise.
 | [🔍 Wiki Search](docs/wiki.md) | Search Grokepedia and Wikipedia |
 | [💬 Quotes](docs/quote.md) | Save and search funny channel quotes |
 | [🆘 Rizon Help](docs/rizonhelp.md) | Rizon network help and FAQ |
+| [📬 Tell](docs/tell.md) | Leave offline messages for users, delivered when they next speak |
