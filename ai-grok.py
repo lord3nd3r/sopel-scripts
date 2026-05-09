@@ -1957,6 +1957,11 @@ def handle(bot, trigger):
             if _chan_key in bot.memory['grok_user_personality']:
                 del bot.memory['grok_user_personality'][_chan_key]
                 _log(bot).info('Cleared all user personalities for %s', _chan_key)
+    
+    # If a personality command was detected, acknowledge and return early
+    # Don't process personality commands as regular chat messages
+    if _personality_match or _user_target_match or _personality_reset_match:
+        return  # Personality set/reset - no response needed
 
     review_mode = bool(_REVIEW_INTENT_RE.search(user_message)) or (user_message.strip() == '^^')
 
