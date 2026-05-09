@@ -24,7 +24,6 @@ REVIEW_COOLDOWN = 30
 USER_SAFETY_SECONDS = 2
 API_QUEUE_MAXSIZE = 50
 API_WORKER_COUNT = 3  # Number of parallel API request threads
-CHANNEL_MAX_CONCURRENT = 2  # Max concurrent API requests per channel (per-channel limit)
 
 # Humanizing delay: pause before sending to simulate reading + typing
 TYPING_DELAY_MIN = 1.5         # minimum seconds before responding
@@ -267,7 +266,7 @@ def setup(bot):
     bot.memory['grok_last'] = {}
     bot.memory['grok_locks'] = {}
     bot.memory['grok_locks_lock'] = threading.Lock()
-    bot.memory['grok_busy'] = {}  # per-channel concurrent request counter
+    bot.memory['grok_busy'] = {}  # unused, kept for compatibility
     bot.memory['grok_channel_log'] = {}  # per-channel chronological message log
     bot.memory['grok_say_lock'] = threading.Lock()  # thread-safe say wrapper lock
     bot.memory['grok_api_failures'] = {}  # circuit breaker: channel -> failure count
@@ -1021,14 +1020,7 @@ def _api_worker(bot, trigger, messages, review_mode, is_pm, bot_nick, chan_lock,
     except Exception:
         _log(bot).exception('Grok API worker failed for %s', trigger.sender)
     finally:
-        try:
-            cur = bot.memory['grok_busy'].get(trigger.sender, 1) - 1
-            if cur <= 0:
-                bot.memory['grok_busy'].pop(trigger.sender, None)
-            else:
-                bot.memory['grok_busy'][trigger.sender] = cur
-        except Exception:
-            pass
+        pass
 
 def _db_get_recent(bot, nick, limit=MAX_HISTORY_PER_USER):
     try:
@@ -1863,24 +1855,17 @@ def handle(bot, trigger):
                             ]
                             _chimein_lock = _get_channel_lock(bot, trigger.sender)
                             try:
-                                if bot.memory['grok_busy'].get(trigger.sender, 0) < CHANNEL_MAX_CONCURRENT:
-                                    bot.memory['grok_busy'][trigger.sender] = bot.memory['grok_busy'].get(trigger.sender, 0) + 1
+                                if bot.memory['grok_busy'].get(trigger.sender, 0) < 1:
+                                    bot.memory['grok_busy'][trigger.sender] = 1
                                     API_TASK_QUEUE.put_nowait((
                                         bot, trigger, _chimein_msgs, False, False,
                                         _bot_nick, _chimein_lock, False, False, True,
                                     ))
+                                    bot.memory['grok_busy'].pop(trigger.sender, None)
                             except queue.Full:
-                                cur = bot.memory['grok_busy'].get(trigger.sender, 1) - 1
-                                if cur <= 0:
-                                    bot.memory['grok_busy'].pop(trigger.sender, None)
-                                else:
-                                    bot.memory['grok_busy'][trigger.sender] = cur
+                                bot.memory['grok_busy'].pop(trigger.sender, None)
                             except Exception:
-                                cur = bot.memory['grok_busy'].get(trigger.sender, 1) - 1
-                                if cur <= 0:
-                                    bot.memory['grok_busy'].pop(trigger.sender, None)
-                                else:
-                                    bot.memory['grok_busy'][trigger.sender] = cur
+                                bot.memory['grok_busy'].pop(trigger.sender, None)
             except Exception:
                 pass
         return
@@ -2255,35 +2240,19 @@ def handle(bot, trigger):
         )
         messages.append({"role": "user", "content": combined})
 
-    # Check if channel is already at max concurrent requests
-    if bot.memory.get('grok_busy', {}).get(trigger.sender, 0) >= CHANNEL_MAX_CONCURRENT:
-        return
-    
     try:
         search_mode = _channel_always_search or bool(_SEARCH_INTENT_RE.search(user_message))
         wants_sources = bool(_WANTS_SOURCES_RE.search(user_message))
         # If user is asking for sources/URLs, force search so the API returns real citations
         if wants_sources:
             search_mode = True
-        # Queue the request - increment concurrent counter
-        bot.memory['grok_busy'][trigger.sender] = bot.memory['grok_busy'].get(trigger.sender, 0) + 1
         API_TASK_QUEUE.put_nowait((bot, trigger, messages, review_mode, is_pm, bot_nick, chan_lock, search_mode, wants_sources, False))
     except queue.Full:
-        cur = bot.memory['grok_busy'].get(trigger.sender, 1) - 1
-        if cur <= 0:
-            bot.memory['grok_busy'].pop(trigger.sender, None)
-        else:
-            bot.memory['grok_busy'][trigger.sender] = cur
         try:
             bot.say('Grok is super busy right now — try again in a minute?', trigger.sender)
         except Exception:
             pass
     except Exception:
-        cur = bot.memory['grok_busy'].get(trigger.sender, 1) - 1
-        if cur <= 0:
-            bot.memory['grok_busy'].pop(trigger.sender, None)
-        else:
-            bot.memory['grok_busy'][trigger.sender] = cur
         _log(bot).exception('Failed to enqueue Grok API task')
 
 @plugin.command('testemote')
