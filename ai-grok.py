@@ -254,11 +254,22 @@ def _load_channel_prompts():
         _CHANNEL_PROMPTS_CACHE_TIME = now
         return _CHANNEL_PROMPTS_CACHE
 
+def _read_api_key_raw(bot):
+    """Read API key directly from the config file, bypassing the sopel shim which masks SecretAttribute values."""
+    try:
+        import configparser
+        cfg = configparser.ConfigParser()
+        cfg.read(bot.config.filename)
+        return cfg.get('grok', 'api_key', fallback=None)
+    except Exception:
+        return None
+
 def setup(bot):
     bot.config.define_section('grok', GrokSection)
-    # Note: API key validation happens at first use - will fail gracefully if missing
+    # Read API key directly from config file - the sopel shim masks SecretAttribute/ValidatedAttribute values
+    _raw_key = _read_api_key_raw(bot)
     bot.memory['grok_headers'] = {
-        "Authorization": f"Bearer {bot.config.grok.api_key}",
+        "Authorization": f"Bearer {_raw_key}",
         "Content-Type": "application/json",
     }
     # Per-conversation rolling history & last-response time
