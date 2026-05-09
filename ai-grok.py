@@ -836,12 +836,16 @@ def _api_worker(bot, trigger, messages, review_mode, is_pm, bot_nick, chan_lock,
                     except Exception:
                         pass
                     return
-            except requests.exceptions.HTTPError:
+            except requests.exceptions.HTTPError as e:
                 if attempt < attempts:
                     time.sleep(backoff + random.random() * 0.5)
                     backoff *= 2
                 else:
                     _log(bot).exception('Grok API final attempt failed (HTTP error)')
+                    try:
+                        _log(bot).error('API 400 response body: %s', e.response.text[:500] if e.response is not None else 'no body')
+                    except Exception:
+                        pass
                     api_failures[channel] = api_failures.get(channel, 0) + 1
                     try:
                         bot.say("Grok is having trouble right now; please try again later.", trigger.sender)
