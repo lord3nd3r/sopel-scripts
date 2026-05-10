@@ -6,8 +6,8 @@ import re
 YOUTUBE_RE = r'https?://(?:[\w-]+\.)?(?:youtube\.com|youtu\.be)/\S*'
 
 @plugin.url(YOUTUBE_RE)
-def youtube_title(bot, trigger, match):
-    url = match.group(0)
+def youtube_title(bot, trigger, match=None):
+    url = match.group(0) if match is not None else re.search(YOUTUBE_RE, trigger.group(0)).group(0)
 
     # Build oEmbed request
     api = "https://www.youtube.com/oembed?url={}&format=json".format(url)
