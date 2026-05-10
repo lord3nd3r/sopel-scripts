@@ -32,6 +32,7 @@ A collection of custom [Sopel](https://sopel.chat/) IRC bot plugins for fun, uti
 - [Quotes](docs/quote.md)
 - [Rizon Help](docs/rizonhelp.md)
 - [Tell](docs/tell.md)
+- [Seen](docs/seen.md)
 - [Wolfram Alpha](docs/wolframalpha.md)
 - [Installation](#-installation)
 - [Configuration](#-configuration)
@@ -1290,6 +1291,18 @@ Leave messages for users who aren't online. Delivered via PM when they next spea
 | `$showtells` | Retrieve your own pending messages immediately |
 
 📖 **Full docs:** [docs/tell.md](docs/tell.md)
+
+---
+
+## 👁️ seen — Last Seen Tracker
+
+Tracks and reports the last time a user was seen speaking in a channel.
+
+| Command | Description |
+|---------|-------------|
+| `$seen <nick>` | Report when `<nick>` was last seen and what they said |
+
+📖 **Full docs:** [docs/seen.md](docs/seen.md)
 
 ---
 
