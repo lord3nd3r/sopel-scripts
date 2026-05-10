@@ -31,20 +31,18 @@ TIMEOUT    = 8
 MAX_TITLE  = 200
 
 
-@plugin.url(URL_RE)
+@plugin.rule('.*')
+@plugin.priority('low')
 @plugin.thread(True)
-def url_title(bot, trigger, match=None):
-    if match is not None:
-        url = match.group(0)
-    else:
-        raw = str(trigger.group(0) or '')
-        m = re.search(URL_RE, raw)
-        if not m:
-            return
-        url = m.group(0)
+def url_title(bot, trigger):
+    if not trigger.sender or trigger.is_privmsg:
+        return
 
-    # Strip trailing punctuation swept up by the regex
-    url = re.sub(r'[>)\]\'\".,!?]+$', '', url)
+    raw = str(trigger.group(0) or '')
+    m = re.search(URL_RE, raw)
+    if not m:
+        return
+    url = re.sub(r'[>)\]\'\".,!?]+$', '', m.group(0))
 
     if SKIP_DOMAINS.search(url):
         return
