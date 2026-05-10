@@ -180,22 +180,27 @@ def _sweep(bot):
                 continue
 
             idle = (now - last) > IDLE_SECONDS
+            autovoiced = info.get('autovoiced', False)
 
             if count >= MSG_THRESHOLD and not has_voice and not idle:
                 to_voice.append(nick_lower)
-            elif has_voice and idle:
+            elif has_voice and autovoiced and idle:
                 to_devoice.append(nick_lower)
 
         # batch MODE changes (up to 4 per command to stay safe)
         _batch_mode(bot, channel, '+v', to_voice)
         _batch_mode(bot, channel, '-v', to_devoice)
 
-        # reset count for devoiced users so they must re-earn +v
+        # mark newly voiced users and reset devoiced users
         with _data_lock:
             chan_data = _data.get(channel, {})
+            for nick_lower in to_voice:
+                if nick_lower in chan_data and isinstance(chan_data[nick_lower], dict):
+                    chan_data[nick_lower]['autovoiced'] = True
             for nick_lower in to_devoice:
                 if nick_lower in chan_data and isinstance(chan_data[nick_lower], dict):
                     chan_data[nick_lower]['count'] = 0
+                    chan_data[nick_lower]['autovoiced'] = False
 
         # clean out idle entries from data so file doesn't grow forever
         with _data_lock:
@@ -285,6 +290,8 @@ def track_message(bot, trigger):
         if _bot_has_halfop(bot, channel) and not _user_has_mode(bot, channel, nick):
             bot.write(['MODE', channel, '+v', nick])
             LOG.info('autovoice: +v %s in %s (hit %d msgs)', nick, channel, MSG_THRESHOLD)
+            with _data_lock:
+                _data.get(channel, {}).get(nick_lower, {})['autovoiced'] = True
 
     # Periodic save (every 50 messages across all channels)
     if int(now) % 50 == 0:
