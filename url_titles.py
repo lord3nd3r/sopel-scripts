@@ -35,7 +35,7 @@ MAX_TITLE  = 200
 @plugin.priority('low')
 @plugin.thread(True)
 def url_title(bot, trigger):
-    if not trigger.sender or trigger.is_privmsg:
+    if not trigger.sender or not str(trigger.sender).startswith('#'):
         return
 
     raw = str(trigger.group(0) or '')
