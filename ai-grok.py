@@ -125,6 +125,28 @@ _PERSONALITY_RESET_RE = re.compile(
     re.IGNORECASE,
 )
 
+# Persistent memory: "remember X" stores facts, "forget X" removes them
+_REMEMBER_CMD_RE = re.compile(
+    r'^remember\s+(?:that\s+)?(.+)',
+    re.IGNORECASE | re.DOTALL,
+)
+# Conversational "remember" — NOT a command, let it go to the AI
+_REMEMBER_SKIP_RE = re.compile(
+    r'^remember\s+(?:when\b|how\b|the\s+time\b|that\s+time\b|that\s+one\s+time\b)',
+    re.IGNORECASE,
+)
+_FORGET_CMD_RE = re.compile(
+    r'^forget\s+(?:that\s+|about\s+)?(.+)',
+    re.IGNORECASE | re.DOTALL,
+)
+_WHAT_REMEMBER_RE = re.compile(
+    r'what\s+do\s+you\s+(?:remember|know)\s+about\s+(?:me\b|(\w+))',
+    re.IGNORECASE,
+)
+
+# Max persistent facts per user
+MAX_USER_FACTS = 50
+
 _TZ_ABBR_MAP = {
     'EST': 'America/New_York', 'EDT': 'America/New_York',
     'ET': 'America/New_York', 'EASTERN': 'America/New_York',
@@ -1873,7 +1895,19 @@ def handle(bot, trigger):
                         _chance = CHIMEIN_CHANCE_PCT
                         if CHIMEIN_BOOST_RE.search(text_for_history):
                             _chance = min(95, _chance * 3)
-                        if random.random() * 100 < _chance:
+                        # Skip chime-in on short greetings directed at other users
+                        # e.g. "hey owo o/", "yo burnout", "hi there nick"
+                        _chimein_skip = False
+                        if len(text_for_history.split()) <= 5:
+                            _greeting_m = re.match(
+                                r'^(?:hey|hi|hello|yo|sup|wb|welcome back|o/|\\o)\s+(\S+)',
+                                text_for_history, re.IGNORECASE,
+                            )
+                            if _greeting_m:
+                                _greeted = _greeting_m.group(1).strip(',:!?').lower()
+                                if _greeted != bot.nick.lower():
+                                    _chimein_skip = True
+                        if not _chimein_skip and random.random() * 100 < _chance:
                             _chimein_last[_ch_key] = _now
                             # Build a chime-in request using recent channel context
                             _chimein_lines = []
@@ -1927,7 +1961,145 @@ def handle(bot, trigger):
 
     # ========== INSTANT CONFIG COMMANDS (no rate limiting, no busy check) ==========
     # These are processed immediately and return early - they don't queue API calls
-    
+
+    # Persistent memory: remember / forget / what do you remember
+    # This MUST come before timezone/personality handlers which could intercept
+    # messages containing "remember I prefer 12h..." etc.
+    _um_stripped = (user_message or '').strip()
+
+    # --- "remember X" ---
+    if _um_stripped and _REMEMBER_CMD_RE.match(_um_stripped) and not _REMEMBER_SKIP_RE.match(_um_stripped):
+        _rem_match = _REMEMBER_CMD_RE.match(_um_stripped)
+        _fact = _rem_match.group(1).strip().rstrip('.')
+        if _fact and len(_fact) >= 5:
+            try:
+                if len(_fact) > 300:
+                    bot.say("that's a bit much — keep it under 300 chars?", trigger.sender)
+                    return
+                _existing_profile = _db_get_user_profile(bot, trigger.nick)
+                _existing_facts = (_existing_profile or {}).get('facts', [])
+                if len(_existing_facts) >= MAX_USER_FACTS:
+                    bot.say("I'm remembering too many things already — try telling me to forget something first", trigger.sender)
+                    return
+                # Check for duplicate
+                _fact_lower = _fact.lower()
+                if any(_fact_lower == f.lower() for f in _existing_facts):
+                    bot.say("I already remember that", trigger.sender)
+                    return
+                _saved = _db_add_profile_fact(bot, trigger.nick, _fact, trigger.nick)
+                _log(bot).info('Remember: nick=%s saved=%s fact=%s', trigger.nick, _saved, _fact[:80])
+                # Also extract and save any embedded timezone/format preferences
+                try:
+                    _mtz = _TZ_SET_RE.search(user_message)
+                    if _mtz:
+                        _abbr = _mtz.group(1).upper()
+                        _iana = _TZ_ABBR_MAP.get(_abbr)
+                        if _iana:
+                            _db_set_user_pref(bot, trigger.nick, tz=_iana, tz_label=_abbr)
+                    _mfmt = _FMT_SET_RE.search(user_message)
+                    if _mfmt:
+                        _raw = _mfmt.group(1).lower().replace(' ', '').replace('-', '')
+                        _pref_fmt = '12' if _raw.startswith('12') else '24'
+                        _db_set_user_pref(bot, trigger.nick, fmt=_pref_fmt)
+                except Exception:
+                    pass
+            except Exception:
+                _log(bot).exception('Remember handler DB error')
+            # Always try to reply and always return — even if say fails
+            try:
+                _responses = [
+                    "got it, I'll remember that",
+                    "noted",
+                    "saved, won't forget",
+                    "locked in",
+                    "k I'll remember",
+                    "remembered",
+                ]
+                bot.say(random.choice(_responses), trigger.sender)
+            except Exception:
+                _log(bot).exception('Remember handler bot.say failed')
+                try:
+                    bot.reply("saved")
+                except Exception:
+                    pass
+            return
+
+    # --- "forget X" / "forget everything" ---
+    if _um_stripped:
+        _forget_match = _FORGET_CMD_RE.match(_um_stripped)
+    else:
+        _forget_match = None
+    if _forget_match:
+        _forget_what = _forget_match.group(1).strip().lower()
+        _reply_msg = None
+        try:
+            if _forget_what in ('everything', 'all', 'it all', 'all of it', 'everything about me'):
+                _existing_profile = _db_get_user_profile(bot, trigger.nick)
+                if _existing_profile and _existing_profile.get('facts'):
+                    with _DBContext(bot) as conn:
+                        c = conn.cursor()
+                        c.execute(
+                            'UPDATE grok_user_profiles SET facts = ? WHERE nick = ?',
+                            (json.dumps([]), trigger.nick.lower())
+                        )
+                    _reply_msg = "done, forgot everything"
+                else:
+                    _reply_msg = "I don't have anything saved about you"
+            else:
+                # Fuzzy match against existing facts
+                _existing_profile = _db_get_user_profile(bot, trigger.nick)
+                if _existing_profile and _existing_profile.get('facts'):
+                    _facts = _existing_profile['facts']
+                    _matched_idx = None
+                    for i, f in enumerate(_facts):
+                        if _forget_what in f.lower():
+                            _matched_idx = i
+                            break
+                    if _matched_idx is not None:
+                        _removed_fact = _facts[_matched_idx]
+                        if _db_remove_profile_fact(bot, trigger.nick, _matched_idx):
+                            _reply_msg = f"ok, forgot: {_removed_fact[:100]}"
+                        else:
+                            _reply_msg = "something went wrong trying to forget that"
+                    else:
+                        _reply_msg = "I don't remember anything about that — say 'what do you remember about me' to see what I know"
+                else:
+                    _reply_msg = "I don't have anything saved about you"
+        except Exception:
+            _log(bot).exception('Forget handler error')
+            _reply_msg = _reply_msg or "something went wrong"
+        try:
+            bot.say(_reply_msg, trigger.sender)
+        except Exception:
+            _log(bot).exception('Forget handler bot.say failed')
+        return
+
+    # --- "what do you remember about me" ---
+    if _um_stripped:
+        _what_match = _WHAT_REMEMBER_RE.search(_um_stripped)
+    else:
+        _what_match = None
+    if _what_match:
+        try:
+            _target = _what_match.group(1) or trigger.nick
+            _profile = _db_get_user_profile(bot, _target)
+            if _profile and _profile.get('facts'):
+                _facts_list = _profile['facts']
+                if len(_facts_list) <= 5:
+                    _facts_str = ' | '.join(_facts_list)
+                    bot.say(f"I remember: {_facts_str}", trigger.sender)
+                else:
+                    bot.say(f"I remember {len(_facts_list)} things about {'you' if _target.lower() == trigger.nick.lower() else _target}:", trigger.sender)
+                    for i in range(0, len(_facts_list), 5):
+                        chunk = ' | '.join(_facts_list[i:i+5])
+                        bot.say(chunk, trigger.sender)
+            else:
+                _who = 'you' if _target.lower() == trigger.nick.lower() else _target
+                bot.say(f"I don't have anything saved about {_who}", trigger.sender)
+        except Exception:
+            _log(bot).exception('What-do-you-remember handler failed')
+        return
+
     # Timezone/format preferences
     try:
         _pref_tz = None
@@ -1978,6 +2150,14 @@ def handle(bot, trigger):
         # Check for general personality command (defaults to per-user)
         _personality_match = _PERSONALITY_COMMAND_RE.search(user_message)
         if _personality_match:
+            # Guard against false positives: if the command verb (e.g. "be")
+            # appears deep in a long conversational sentence or a question,
+            # it's almost certainly NOT a personality command.
+            # e.g. "would you be happy?" should NOT set personality to "happy?"
+            _pm_pos = _personality_match.start()
+            if _pm_pos > 20 and ('?' in user_message or len(user_message) > 80):
+                _personality_match = None
+        if _personality_match:
             _personality_desc = _personality_match.group(1).strip()
             # Remove channel indicators from the description if present
             _personality_desc = _PERSONALITY_CHANNEL_INDICATOR_RE.sub('', _personality_desc).strip()
@@ -2019,7 +2199,7 @@ def handle(bot, trigger):
             return  # Reset complete, no response needed
     except Exception:
         pass
-    
+
     # ========== END INSTANT CONFIG COMMANDS ==========
 
     review_mode = bool(_REVIEW_INTENT_RE.search(user_message)) or (user_message.strip() == '^^')
@@ -2033,15 +2213,17 @@ def handle(bot, trigger):
     time_mode = bool(_TIME_INTENT_RE.search(user_message))
 
     now = time.time()
+    # Rate limit per-user-per-channel so one user's question doesn't block others
+    _rl_key = (trigger.sender, trigger.nick.lower())
     if not time_mode:
         with chan_lock:
-            last = bot.memory['grok_last'].get(trigger.sender, 0)
+            last = bot.memory['grok_last'].get(_rl_key, 0)
             if now - last < CHANNEL_RATE_LIMIT:
                 return
-            bot.memory['grok_last'][trigger.sender] = now
+            bot.memory['grok_last'][_rl_key] = now
     else:
         with chan_lock:
-            bot.memory['grok_last'][trigger.sender] = now
+            bot.memory['grok_last'][_rl_key] = now
 
     if review_mode:
         review_last = bot.memory.setdefault('grok_review_last', {})

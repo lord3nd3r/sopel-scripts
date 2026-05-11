@@ -59,7 +59,11 @@ intent_check = heuristic
 |---------|-----|-------------|
 | `BotNick: <message>` | Anyone | Talk to the bot |
 | `/me pets BotNick` | Anyone | Emote interaction |
-| `$grokreset` | Anyone | Reset your conversation history |
+| `BotNick: remember <fact>` | Anyone | Save a fact permanently to SQLite |
+| `BotNick: forget <fact>` | Anyone | Remove a saved fact (fuzzy match) |
+| `BotNick: forget everything` | Anyone | Clear all your saved facts |
+| `BotNick: what do you remember about me` | Anyone | List all your saved facts |
+| `$grokreset` | Anyone | Reset your conversation history (not permanent facts) |
 | `$grokreset channel` | Op+ / Admin | Reset all channel conversation history |
 | `$ai <on\|off>` | Op+ / Admin | Enable/disable AI entirely for the channel |
 | `$talkback <on\|off>` | Op+ / Admin | Enable/disable unprompted chime-ins |
@@ -166,6 +170,46 @@ Preferences are saved in the database and persist across restarts.
 
 ---
 
+## 🧠 Persistent Memory (Remember / Forget)
+
+Tell the bot to remember facts about you — they're stored permanently in SQLite and included in every AI context, so the bot always knows them. Facts survive restarts, rehashes, and conversation resets.
+
+### Saving Facts
+
+```
+Grok: remember I live in Florida
+Grok: remember my favorite color is blue
+Grok: remember if I ask what does florida man say, reply with ┌ಠ_ಠ)┌∩
+Grok: remember ComputerTech is the sheep shagger
+```
+
+The bot confirms with a short response like "got it, I'll remember that" or "noted".
+
+### Removing Facts
+
+```
+Grok: forget about Florida           → fuzzy matches and removes the fact
+Grok: forget everything              → clears ALL your saved facts
+```
+
+### Viewing Facts
+
+```
+Grok: what do you remember about me
+Grok: what do you know about burnout
+```
+
+### Limits
+- Max **50 facts** per user
+- Max **300 characters** per fact
+- Facts must be at least **5 characters** (shorter ones pass through to the AI as conversation)
+- Duplicate facts are detected and rejected
+- Conversational "remember when..." / "remember how..." phrases are NOT treated as commands
+
+> **Note:** `$grokreset` clears conversation history but does NOT touch permanent facts. Use "forget everything" to clear facts.
+
+---
+
 ## 💬 Review Mode
 
 Ask the bot to summarize or give its opinion on what's been discussed in the channel. Channel messages are **persisted to the database** so review mode survives bot restarts.
@@ -230,18 +274,19 @@ Responses are delayed by a random **1.5–4 seconds** before being sent, simulat
 The bot occasionally jumps into conversation **without being mentioned**, just like a real channel regular would. It reads the recent chat context and drops a short, natural reaction — a quip, agreement, one-liner, or just "lol".
 
 **How it works:**
-- Every channel message has a **1.5% chance** of triggering a chime-in
-- Messages containing laughter/excitement keywords (lol, lmao, omg, wtf, etc.) get a **3x boost** (4.5% chance)
-- **5-minute cooldown** per channel between chime-ins
+- Every channel message has a **5% chance** of triggering a chime-in
+- Messages containing laughter/excitement keywords (lol, lmao, omg, wtf, etc.) get a **3x boost** (15% chance)
+- **200-second cooldown** per channel between chime-ins
 - Requires at least **5 messages** in the channel log before it will chime in
 - Chime-in responses are typically short (under 100 chars)
+- **Greeting filter** — short greetings directed at other users (e.g. "hey owo", "yo burnout") are automatically excluded from chime-in
 
 **Tunables** (in code):
 | Setting | Default | Description |
 |---------|---------|-------------|
 | `CHIMEIN_ENABLED` | `True` | Master switch |
-| `CHIMEIN_CHANCE_PCT` | 1.5 | Base % chance per message |
-| `CHIMEIN_COOLDOWN` | 300 | Seconds between chime-ins per channel |
+| `CHIMEIN_CHANCE_PCT` | 5 | Base % chance per message |
+| `CHIMEIN_COOLDOWN` | 200 | Seconds between chime-ins per channel |
 | `CHIMEIN_MIN_ACTIVITY` | 5 | Min messages in log before chiming in |
 
 **Channel Control:**
