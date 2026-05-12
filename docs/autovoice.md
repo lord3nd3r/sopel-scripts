@@ -21,12 +21,13 @@ Activity-based auto-voicer. Tracks chat activity per user and automatically gran
 
 1. Every channel message is counted per user per channel (only in enabled channels).
 2. Once a user reaches **50 messages**, they automatically receive `+v`.
-3. A background thread sweeps every **15 minutes** to:
+3. **Auto-revoice on rejoin** — if a user who already earned `+v` parts and rejoins, they are automatically re-voiced within a few seconds.
+4. A background thread sweeps every **15 minutes** to:
    - Voice any users who crossed the threshold since the last check.
    - **Devoice** users who haven't spoken in **7 days**.
    - Clean up stale data entries (users idle for 14+ days are pruned from the data file).
-4. Users who **already have a mode** (`+v`, `+h`, `+o`, `+a`, `+q`) are **completely ignored** — the plugin never touches them.
-5. If the bot loses halfop, it simply stops making changes until it gets the privilege back.
+5. Users who **already have a mode** (`+v`, `+h`, `+o`, `+a`, `+q`) are **completely ignored** — the plugin never touches them.
+6. If the bot loses halfop, it simply stops making changes until it gets the privilege back.
 
 ---
 

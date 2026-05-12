@@ -912,6 +912,7 @@ Automatically voices active users in a channel. Off by default — enable per-ch
 ### How It Works
 - Tracks message counts per user per channel
 - After **50 messages**, a user earns `+v` automatically
+- **Auto-revoice on rejoin** — users who already earned `+v` are re-voiced within seconds of rejoining
 - If a voiced user goes **7 days** without talking, the voice is removed
 - Users who already have `+v`, `+h`, `+o`, `+a`, or `+q` are completely ignored
 - Background sweep runs every 15 minutes to sync modes

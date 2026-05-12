@@ -298,6 +298,41 @@ def track_message(bot, trigger):
         _save()
 
 
+@module.event('JOIN')
+@module.rule('.*')
+@module.priority('low')
+@plugin.thread(True)
+def on_join_revoice(bot, trigger):
+    """Re-voice users who already earned autovoice when they rejoin."""
+    if not trigger.sender or not str(trigger.sender).startswith('#'):
+        return
+    channel = str(trigger.sender).lower()
+    if not _is_enabled(channel):
+        return
+    nick = str(trigger.nick)
+    nick_lower = nick.lower()
+    if nick_lower == bot.nick.lower():
+        return
+    if not _bot_has_halfop(bot, channel):
+        return
+
+    _load()
+    with _data_lock:
+        rec = (_data or {}).get(channel, {}).get(nick_lower)
+        if not rec or not isinstance(rec, dict):
+            return
+        count = rec.get('count', 0)
+        last = rec.get('last', 0)
+
+    # Re-voice if they've earned it and aren't idle
+    if count >= MSG_THRESHOLD and (time.time() - last) < IDLE_SECONDS:
+        # Small delay so the server finishes processing the JOIN
+        time.sleep(2)
+        if not _user_has_mode(bot, channel, nick):
+            bot.write(['MODE', channel, '+v', nick])
+            LOG.info('autovoice: re-voiced %s in %s on JOIN', nick, channel)
+
+
 # ═══════════════════════════════ admin commands ══════════════════════
 
 @module.commands('autovoice')
