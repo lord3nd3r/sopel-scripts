@@ -39,8 +39,19 @@ Activity-based auto-voicer. Tracks chat activity per user and automatically gran
 | `$autovoice status` | Show on/off state, tracked user count, and threshold info |
 | `$autovoice reset <nick>` | Clear a specific user's message count and activity data |
 | `$autovoice threshold` | Display current message threshold and idle timeout |
+| `$autovoice check [nick]` | Check your (or someone's) progress toward +v |
 
-> **Permission:** All commands require **halfop+** or **bot admin**.
+> **Permission:** `on`, `off`, `reset`, `status`, and `threshold` require **halfop+** or **bot admin**. `check` is available to anyone.
+
+### Progress Check (`$vcheck`)
+
+Anyone can check autovoice progress — no special permissions needed.
+
+| Command | Description |
+|---------|-------------|
+| `$vcheck` | Check your own progress in the current channel |
+| `$vcheck <nick>` | Check another user's progress |
+| `$vcheck #channel [nick]` | Check progress in a specific channel (from PM) |
 
 ---
 
@@ -56,6 +67,36 @@ Activity-based auto-voicer. Tracks chat activity per user and automatically gran
 ```
 <User> $autovoice status
 <Glitchy> Autovoice is ON | Tracking 23 users | Threshold: 50 msgs | Idle timeout: 7d
+```
+
+**Check your progress:**
+```
+<User> $vcheck
+<Glitchy> User: 23/50 msgs (46%) — 27 more to go for +v
+```
+
+**Check someone else's progress:**
+```
+<User> $vcheck Boliver
+<Glitchy> Boliver: 48/50 msgs (96%) — 2 more to go for +v
+```
+
+**User already voiced:**
+```
+<User> $vcheck ActiveUser
+<Glitchy> ActiveUser has reached the threshold (50/50 msgs) ✓ voiced
+```
+
+**No data yet:**
+```
+<User> $vcheck newbie
+<Glitchy> No activity recorded for newbie in #chat (need 50 msgs for +v).
+```
+
+**From PM:**
+```
+<User> $vcheck #chat Boliver
+<Glitchy> Boliver: 23/50 msgs (46%) — 27 more to go for +v
 ```
 
 **Reset a user's data:**

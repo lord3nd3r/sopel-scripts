@@ -1,6 +1,6 @@
 # 🤦 Facepalm & Shrug (facepalm)
 
-Auto-trigger: when someone does `/me facepalms`, the bot replies with a random facepalm reaction. Also includes `$shrug` for the classic ¯\\\_(ツ)\_/¯.
+Auto-triggers: when someone does `/me facepalms`, the bot replies with a random facepalm reaction. When someone does `/me shrugs`, the bot replies with ¯\\\_(ツ)\_/¯. Also includes the `$shrug` command.
 
 ---
 
@@ -21,29 +21,36 @@ Auto-trigger: when someone does `/me facepalms`, the bot replies with a random f
 
 | Trigger | Description |
 |---------|-------------|
-| `/me facepalm` | Triggers a random bot reaction |
-| `/me facepalms` | Triggers a random bot reaction |
-| `/me facepalmed` | Triggers a random bot reaction |
+| `/me facepalm` | Triggers a random facepalm reaction |
+| `/me facepalms` | Triggers a random facepalm reaction |
+| `/me facepalmed` | Triggers a random facepalm reaction |
+| `/me shrug` | Bot replies with ¯\\\_(ツ)\_/¯ |
+| `/me shrugs` | Bot replies with ¯\\\_(ツ)\_/¯ |
+| `/me shrugged` | Bot replies with ¯\\\_(ツ)\_/¯ |
 
-> Only responds to `/me` ACTION messages — typing "facepalm" in regular text does nothing.
+> Only responds to `/me` ACTION messages — typing "facepalm" or "shrugs" in regular text does nothing.
 >
-> **Channel cooldown:** 15 seconds (shared across all users in the channel). If on cooldown, the bot simply stays silent.
+> **Channel cooldown:** 15 seconds (shared across all triggers in the channel). If on cooldown, the bot simply stays silent.
 >
 > **Channel only** — does not trigger in private messages.
 
 ---
 
-## Response Pool
+## Facepalm Response Pool
 
-The bot picks a random response from 15 templates. Each reply is sent as an ACTION message (`/me`). Some sample responses:
+The bot picks a random response from 15 templates. Some sample responses:
 
 ```
-* Glitchy watches User's facepalm echo across the universe 🌌🤦
-* Glitchy notes User's facepalm for the record 📋🤦
-* Glitchy gives User a sympathetic facepalm 🤝🤦
-* Glitchy slow-claps User's facepalm 👏🤦
-* Glitchy frames User's facepalm and hangs it on the wall 🖼️🤦
+User facepalms so hard the desk breaks (－‸ლ)
+User buries face into hands (ಠ_ಠ) 🤦
+User facepalms with both hands 🤦‍♂️🤦‍♀️
+User facepalms with the force of a thousand suns ☀️ (－‸ლ) ☀️
+User collapses dramatically 🤦 ...and stays there
 ```
+
+## Shrug Response
+
+The `/me shrugs` trigger always replies with a simple `¯\_(ツ)_/¯` — no random pool.
 
 ---
 
@@ -52,25 +59,25 @@ The bot picks a random response from 15 templates. Each reply is sent as an ACTI
 **Facepalm in action:**
 ```
 * User facepalms
-* Glitchy watches User's facepalm echo across the universe 🌌🤦
+<Glitchy> User facepalms so hard the desk breaks (－‸ლ)
 ```
 
 **Different response each time:**
 ```
 * User facepalmed
-* Glitchy slow-claps User's facepalm 👏🤦
+<Glitchy> User buries face into hands (ಠ_ಠ) 🤦
 ```
 
-**Another:**
+**Shrug in action:**
 ```
-* User facepalms
-* Glitchy gives User a sympathetic facepalm 🤝🤦
+* User shrugs
+<Glitchy> ¯\_(ツ)_/¯
 ```
 
 **On cooldown (no response):**
 ```
 * User facepalms
-(15 seconds haven't passed since the last facepalm — bot stays silent)
+(15 seconds haven't passed since the last reaction — bot stays silent)
 ```
 
 **Regular text — no trigger:**

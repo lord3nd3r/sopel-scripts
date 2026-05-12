@@ -795,12 +795,14 @@ An automatic profanity fine system inspired by the Demolition Man Verbal Moralit
 
 ## 🤦 facepalm — Facepalm Reactions & Shrug
 
-When someone does `/me facepalms` in chat, the bot replies with a random facepalm reaction. Also includes `$shrug`.
+When someone does `/me facepalms` in chat, the bot replies with a random facepalm reaction. When someone does `/me shrugs`, the bot replies with ¯\\_(ツ)_/¯. Also includes `$shrug`.
 
-### Trigger
+### Triggers
 ```
-/me facepalms
-/me facepalmed
+/me facepalms      → random facepalm reaction
+/me facepalmed     → random facepalm reaction
+/me shrugs         → ¯\_(ツ)_/¯
+/me shrugged       → ¯\_(ツ)_/¯
 ```
 
 ### Commands
@@ -818,7 +820,7 @@ m0n facepalms with the force of a thousand suns ☀️ (－‸ლ) ☀️
 ```
 
 ### Cooldown
-- **15 seconds** per channel
+- **15 seconds** per channel (shared across all triggers)
 
 ---
 
@@ -923,8 +925,12 @@ Automatically voices active users in a channel. Off by default — enable per-ch
 | `$autovoice status` | Show state, tracked users, and thresholds |
 | `$autovoice reset <nick>` | Clear a user's activity data |
 | `$autovoice threshold` | Show current threshold and idle settings |
+| `$autovoice check [nick]` | Check progress toward +v |
+| `$vcheck` | Check your own autovoice progress |
+| `$vcheck <nick>` | Check another user's progress |
+| `$vcheck #channel [nick]` | Check progress from PM |
 
-> **Requires:** halfop+ or bot admin to manage.
+> **Requires:** halfop+ or bot admin to manage. `$vcheck` and `$autovoice check` are available to anyone.
 
 ### Data Storage
 Activity data is stored in `~/.sopel/autovoice_data.json`.

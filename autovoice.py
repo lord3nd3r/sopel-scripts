@@ -364,5 +364,66 @@ def autovoice_cmd(bot, trigger):
         bot.say(f'Current threshold: \x02{MSG_THRESHOLD}\x02 messages to earn +v, '
                 f'\x02{IDLE_SECONDS // 86400}\x02 days idle to lose it.')
 
+    elif subcmd == 'check':
+        target = args[1].lower() if len(args) > 1 else trigger.nick.lower()
+        _vcheck_report(bot, trigger, channel, target)
+
     else:
-        bot.reply('Usage: $autovoice <on|off|status|reset <nick>|threshold>')
+        bot.reply('Usage: $autovoice <on|off|status|reset <nick>|threshold|check [nick]>')
+
+
+@module.commands('vcheck')
+@module.example('$vcheck', 'Check your own autovoice progress')
+@module.example('$vcheck Boliver', 'Check another user\'s autovoice progress')
+def vcheck_cmd(bot, trigger):
+    """Check how far a user is from earning autovoice (+v).
+
+    Usage:
+        $vcheck           — check your own progress
+        $vcheck <nick>    — check another user's progress
+    In PM:
+        $vcheck #channel [nick]
+    """
+    args = (trigger.group(2) or '').strip().split()
+    is_pm = not str(trigger.sender).startswith('#')
+
+    if is_pm:
+        if not args or not args[0].startswith('#'):
+            bot.reply('Usage from PM: $vcheck #channel [nick]')
+            return
+        channel = args[0].lower()
+        target = args[1].lower() if len(args) > 1 else trigger.nick.lower()
+    else:
+        channel = str(trigger.sender).lower()
+        target = args[0].lower() if args else trigger.nick.lower()
+
+    _vcheck_report(bot, trigger, channel, target)
+
+
+def _vcheck_report(bot, trigger, channel, target_lower):
+    """Build and send the autovoice progress report for a nick."""
+    _load()
+
+    if not _is_enabled(channel):
+        bot.say(f'Autovoice is not enabled in {channel}.')
+        return
+
+    with _data_lock:
+        chan_data = (_data or {}).get(channel, {})
+        rec = chan_data.get(target_lower)
+
+    display_nick = target_lower
+    if rec and isinstance(rec, dict):
+        display_nick = rec.get('nick', target_lower)
+        count = rec.get('count', 0)
+        remaining = max(0, MSG_THRESHOLD - count)
+        if remaining == 0:
+            bot.say(f'\x02{display_nick}\x02 has reached the threshold '
+                    f'({count}/{MSG_THRESHOLD} msgs) \x0303✓ voiced\x03')
+        else:
+            pct = int((count / MSG_THRESHOLD) * 100)
+            bot.say(f'\x02{display_nick}\x02: {count}/{MSG_THRESHOLD} msgs '
+                    f'({pct}%) — \x02{remaining}\x02 more to go for +v')
+    else:
+        bot.say(f'No activity recorded for \x02{target_lower}\x02 in {channel} '
+                f'(need {MSG_THRESHOLD} msgs for +v).')

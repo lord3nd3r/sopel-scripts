@@ -40,8 +40,9 @@ FACEPALM_RESPONSES = [
     "facepalms and mutters something about reading comprehension 📖 (－‸ლ)",
 ]
 
-# Precompile pattern for Sopel.rule compatibility across versions
+# Precompile patterns for Sopel.rule compatibility across versions
 FACEPALM_PATTERN = re.compile(r"^(?:facepalm|facepalms|facepalmed)\b", re.IGNORECASE)
+SHRUG_PATTERN = re.compile(r"^(?:shrug|shrugs|shrugged)\b", re.IGNORECASE)
 
 
 @module.rule(FACEPALM_PATTERN)
@@ -72,6 +73,27 @@ def react_facepalm(bot, trigger):
     response = random.choice(FACEPALM_RESPONSES)
     bot.say(f"{trigger.nick} {response}")
 
+
+@module.rule(SHRUG_PATTERN)
+@module.intent("ACTION")
+def react_shrug(bot, trigger):
+    """React to /me shrugs with ¯\\_(ツ)_/¯."""
+    try:
+        sender = trigger.sender or ''
+    except Exception:
+        sender = ''
+
+    if not sender.startswith('#'):
+        return
+
+    now = time.time()
+    with _lock:
+        last = _channel_last.get(sender, 0)
+        if now - last < COOLDOWN_SECONDS:
+            return
+        _channel_last[sender] = now
+
+    bot.say("¯\\_(ツ)_/¯")
 
 @module.commands('shrug')
 @module.example('$shrug', 'Bot outputs ¯\\_(ツ)_/¯')
