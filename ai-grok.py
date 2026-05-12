@@ -1238,7 +1238,8 @@ def _format_profile_for_context(nick, profile):
     if profile.get('weather_location'):
         parts.append(f"Weather location: {profile['weather_location']}")
     if profile.get('facts'):
-        parts.append(f"Notable facts: {'; '.join(profile['facts'])}")
+        facts_formatted = "\n- ".join(profile['facts'])
+        parts.append(f"Notable facts:\n- {facts_formatted}")
     
     if not parts:
         return None
