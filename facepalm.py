@@ -71,3 +71,15 @@ def react_facepalm(bot, trigger):
 
     response = random.choice(FACEPALM_RESPONSES)
     bot.say(f"{trigger.nick} {response}")
+
+
+@module.commands('shrug')
+@module.example('$shrug', 'Bot outputs ¯\\_(ツ)_/¯')
+def shrug(bot, trigger):
+    """Output ¯\\_(ツ)_/¯ optionally directed at someone."""
+    target = trigger.group(2)
+    shrug_text = "¯\\_(ツ)_/¯"
+    if target and target.strip():
+        bot.say(f"{target.strip()}: {shrug_text}")
+    else:
+        bot.say(shrug_text)

@@ -2977,4 +2977,227 @@ def show_last_extraction(bot, trigger):
 
 # ==================== END USER PROFILE COMMANDS ====================
 
+
+# ==================== SCHECK — SCHIZO DETECTION TOOL ====================
+
+def _scheck_worker(bot, requester, channel, target_nick, messages_text):
+    """Background worker: sends chat lines to Grok for schizo analysis, PMs results."""
+    try:
+        api_key = bot.config.grok.api_key
+        model = bot.config.grok.model
+        if not api_key:
+            bot.say("No API key configured.", requester)
+            return
+
+        if target_nick:
+            scope = f"from user '{target_nick}'"
+        else:
+            scope = "from all users"
+
+        system_prompt = (
+            "You are a channel moderation assistant. You are analyzing IRC chat messages "
+            f"{scope} in {channel}. Your job is to identify messages that are incoherent, "
+            "delusional, paranoid, conspiratorial (flat earth, QAnon, etc.), schizophrenic-sounding, "
+            "or otherwise disconnected from reality. Look for:\n"
+            "- Incoherent word salad or nonsensical ramblings\n"
+            "- Paranoid delusions (government watching me, mind control, etc.)\n"
+            "- Extreme conspiratorial thinking presented as fact\n"
+            "- Threatening or disturbing content\n"
+            "- Rapid topic switching with no coherence\n\n"
+            "Respond with a brief assessment. If you find concerning messages, quote the worst "
+            "examples (max 3) with the username. If nothing stands out, say so clearly. "
+            "Keep your response under 300 characters total — this is IRC. "
+            "Do NOT diagnose anyone. This is for moderation purposes only. "
+            "Be direct and concise."
+        )
+
+        response = requests.post(
+            'https://api.x.ai/v1/chat/completions',
+            headers={'Authorization': f'Bearer {api_key}', 'Content-Type': 'application/json'},
+            json={
+                'model': model,
+                'messages': [
+                    {'role': 'system', 'content': system_prompt},
+                    {'role': 'user', 'content': f"Analyze these messages:\n\n{messages_text}"},
+                ],
+                'temperature': 0.3,
+                'max_tokens': 250,
+            },
+            timeout=20,
+        )
+
+        if response.status_code != 200:
+            bot.say(f"API error: HTTP {response.status_code}", requester)
+            return
+
+        result = response.json()
+        content = result['choices'][0]['message']['content'].strip()
+
+        # Clean for IRC (single line)
+        content = re.sub(r'\s*\n\s*', ' | ', content)
+
+        # PM results to the requester
+        bot.say(f"\x02[scheck {channel}]\x02 {content}", requester)
+
+        # If a specific user was targeted, offer kick/ban options
+        if target_nick:
+            bot.say(
+                f"\x0314Actions: \x02$skick {target_nick} {channel}\x02 or "
+                f"\x02$skban {target_nick} {channel}\x02\x0f",
+                requester,
+            )
+
+    except Exception as e:
+        _log(bot).exception('scheck worker error')
+        try:
+            bot.say(f"scheck error: {type(e).__name__}: {str(e)[:100]}", requester)
+        except Exception:
+            pass
+
+
+@plugin.command('scheck')
+def scheck(bot, trigger):
+    """Scan channel chat for schizo/incoherent posts. Admin/Op only.
+
+    Usage:
+        $scheck           — scan last 100 messages from all users
+        $scheck <nick>    — scan last 100 messages, filter to <nick> only
+    """
+    if not (_is_admin(bot, trigger) or _is_channel_op(bot, trigger)):
+        return
+
+    is_pm = _is_pm(trigger)
+
+    if is_pm:
+        # PM mode: $scheck #channel [nick]  — admin only
+        if not _is_admin(bot, trigger):
+            bot.say("Admin only from PM.")
+            return
+        args = (trigger.group(2) or '').strip().split()
+        if not args or not args[0].startswith('#'):
+            bot.say("Usage from PM: $scheck #channel [nick]")
+            return
+        channel = args[0]
+        target_nick = args[1] if len(args) > 1 else None
+    else:
+        # Channel mode: $scheck [nick]
+        channel = trigger.sender
+        args = (trigger.group(2) or '').strip()
+        target_nick = args.split()[0] if args else None
+
+    # Get channel log
+    chan_key = channel.lower()
+    chan_log = bot.memory.get('grok_channel_log', {}).get(chan_key)
+    if not chan_log or len(chan_log) < 5:
+        bot.say("Not enough channel history to analyze.")
+        return
+
+    # Pull last 100 messages
+    recent = list(chan_log)[-100:]
+
+    # Filter to target nick if specified
+    if target_nick:
+        filtered = [(n, t) for n, t in recent if n.lower() == target_nick.lower()]
+        if not filtered:
+            bot.say(f"No recent messages from {target_nick} in the log.")
+            return
+        recent = filtered
+
+    # Format for AI
+    lines = [f"<{n}> {t}" for n, t in recent]
+    messages_text = "\n".join(lines)
+
+    # Truncate if too long
+    if len(messages_text) > 6000:
+        messages_text = messages_text[-6000:]
+
+    # Confirmation — in channel or PM depending on where it was invoked
+    scan_msg = f"🔍 Scanning {len(recent)} messages{' from ' + target_nick if target_nick else ''} in {channel}... results via PM."
+    if is_pm:
+        bot.say(scan_msg, trigger.nick)
+    else:
+        bot.say(scan_msg)
+
+    # Run in background thread
+    t = threading.Thread(
+        target=_scheck_worker,
+        args=(bot, trigger.nick, channel, target_nick, messages_text),
+        daemon=True,
+        name=f"scheck_{trigger.nick}_{chan_key}",
+    )
+    t.start()
+
+
+@plugin.command('skick')
+def scheck_kick(bot, trigger):
+    """Kick a user from a channel. Admin/Op only.
+
+    Usage: $skick <nick> <#channel>
+    """
+    if not (_is_admin(bot, trigger) or _is_channel_op(bot, trigger)):
+        return
+
+    args = (trigger.group(2) or '').strip().split()
+    if len(args) < 2:
+        bot.say("Usage: $skick <nick> <#channel>")
+        return
+
+    target = args[0]
+    channel = args[1]
+
+    if not channel.startswith('#'):
+        bot.say("Invalid channel. Must start with #.")
+        return
+
+    try:
+        bot.write(['KICK', channel, target, ':Removed by moderator'])
+        bot.say(f"✅ Kicked {target} from {channel}", trigger.nick)
+    except Exception as e:
+        bot.say(f"❌ Failed to kick: {e}", trigger.nick)
+
+
+@plugin.command('skban')
+def scheck_kickban(bot, trigger):
+    """Kick-ban a user from a channel. Admin/Op only.
+
+    Usage: $skban <nick> <#channel>
+    """
+    if not (_is_admin(bot, trigger) or _is_channel_op(bot, trigger)):
+        return
+
+    args = (trigger.group(2) or '').strip().split()
+    if len(args) < 2:
+        bot.say("Usage: $skban <nick> <#channel>")
+        return
+
+    target = args[0]
+    channel = args[1]
+
+    if not channel.startswith('#'):
+        bot.say("Invalid channel. Must start with #.")
+        return
+
+    try:
+        # Set ban first, then kick
+        # Try to get the user's host for a proper ban mask
+        ban_mask = f"{target}!*@*"
+        try:
+            chan_obj = getattr(bot, 'channels', {}).get(channel)
+            if chan_obj:
+                users = getattr(chan_obj, 'users', {})
+                user_obj = users.get(target) or users.get(target.lower())
+                if user_obj and hasattr(user_obj, 'host') and user_obj.host:
+                    ban_mask = f"*!*@{user_obj.host}"
+        except Exception:
+            pass
+
+        bot.write(['MODE', channel, '+b', ban_mask])
+        bot.write(['KICK', channel, target, ':Banned by moderator'])
+        bot.say(f"✅ Kick-banned {target} from {channel} ({ban_mask})", trigger.nick)
+    except Exception as e:
+        bot.say(f"❌ Failed to kick-ban: {e}", trigger.nick)
+
+
+# ==================== END SCHECK ====================
+
 # Force reload

@@ -78,6 +78,27 @@ intent_check = heuristic
 | `$ignore <nick>` | Add nick to ignore list |
 | `$unignore <nick>` | Remove nick from ignore list |
 
+### 🔍 Moderation: Schizo Check
+
+AI-powered chat analysis for channel moderation. Scans recent messages for incoherent, delusional, or conspiratorial content.
+
+| Command | Who | Description |
+|---------|-----|-------------|
+| `$scheck` | Op+ / Admin | Scan last 100 messages from all users (in channel) |
+| `$scheck <nick>` | Op+ / Admin | Scan only that user's messages (in channel) |
+| `$scheck #channel [nick]` | Admin | Scan from PM (no channel visibility) |
+| `$skick <nick> <#channel>` | Op+ / Admin | Kick user from channel |
+| `$skban <nick> <#channel>` | Op+ / Admin | Kick-ban user from channel |
+
+**How it works:**
+1. Op/admin runs `$scheck` or `$scheck SomeUser`
+2. Bot sends "Scanning..." confirmation
+3. AI analyzes the messages and PMs results to the requester
+4. If a user was targeted, PM includes `$skick` / `$skban` action commands
+5. Op can run the action to kick or kickban
+
+> **Note:** Results are always sent via PM, never in the channel. PM mode (`$scheck #channel nick`) is admin-only.
+
 ---
 
 ## 🔍 Web Search (Automatic)

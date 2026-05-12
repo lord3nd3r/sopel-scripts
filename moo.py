@@ -359,6 +359,24 @@ moos = [
     "ln -s /usr/bin/cowsay /usr/local/bin/moo",
     "grep -R \"moo\" /etc 2>/dev/null",
     "ps aux | awk '/moo/ {print $2}' | xargs kill",
+
+    # cowsay style one-liners
+    "< moo > \\ ^__^ (oo)\\_______",
+    "( oo ) < deal with it. > 😎",
+    "^__^ < have you tried turning the cow off and on again? >",
+    "< moo > — brought to you by cowsay(1)",
+    "(oo) < I'm not a regular cow, I'm a cool cow >",
+    "< this moo is certified organic > 🐄",
+    "^__^ < moo is just cow for hello >",
+    "< one small moo for man, one giant moo for cowkind > 🚀",
+    "(oo) < I was told there would be grass >",
+    "< moo > — this is the way 🐄",
+    "^__^ < in a world of baas, dare to moo >",
+    "< the cow whisperer has entered the chat > (oo)",
+    "( oo ) < my other ride is a tractor > 🚜",
+    "< moo loud, moo proud > ^__^",
+    "(oo)\\_______  < I see you mooing over there >",
+    "< excuse me sir, do you have a moment to talk about moo? > 🐄",
 ]
 
 

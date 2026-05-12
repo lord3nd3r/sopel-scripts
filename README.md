@@ -74,6 +74,10 @@ An AI chatbot powered by the **xAI Grok API**. The bot responds when mentioned b
 | `$ai <on\|off>` | Enable/disable AI for the channel (admin/op) | `$ai off` |
 | `$talkback <on\|off>` | Enable/disable chime-ins (admin/op) | `$talkback off` |
 | `$testemote` | Verify emote plugin is loaded | `$testemote` |
+| `$scheck [nick]` | Scan last 100 messages for incoherent content (op/admin) | `$scheck SomeUser` |
+| `$scheck #channel [nick]` | Same, but from PM (admin only) | `$scheck #preppers SomeUser` |
+| `$skick <nick> <#channel>` | Kick a user (op/admin) | `$skick troll #chat` |
+| `$skban <nick> <#channel>` | Kick-ban a user (op/admin) | `$skban troll #chat` |
 
 ### 🔍 Web Search (Automatic)
 
@@ -789,15 +793,22 @@ An automatic profanity fine system inspired by the Demolition Man Verbal Moralit
 
 ---
 
-## 🤦 facepalm — Facepalm Reactions
+## 🤦 facepalm — Facepalm Reactions & Shrug
 
-When someone does `/me facepalms` in chat, the bot replies with a random facepalm reaction.
+When someone does `/me facepalms` in chat, the bot replies with a random facepalm reaction. Also includes `$shrug`.
 
 ### Trigger
 ```
 /me facepalms
 /me facepalmed
 ```
+
+### Commands
+
+| Command | Description |
+|---------|-------------|
+| `$shrug` | Output ¯\\_(ツ)_/¯ |
+| `$shrug <nick>` | Direct the shrug at someone |
 
 ### Example Output
 ```

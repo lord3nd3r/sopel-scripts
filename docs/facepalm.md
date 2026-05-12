@@ -1,6 +1,6 @@
-# 🤦 Facepalm (facepalm)
+# 🤦 Facepalm & Shrug (facepalm)
 
-Auto-trigger: when someone does `/me facepalms`, `/me facepalmed`, or `/me facepalm`, the bot replies with a random facepalm reaction from a pool of 15 responses.
+Auto-trigger: when someone does `/me facepalms`, the bot replies with a random facepalm reaction. Also includes `$shrug` for the classic ¯\\\_(ツ)\_/¯.
 
 ---
 
@@ -77,4 +77,22 @@ The bot picks a random response from 15 templates. Each reply is sent as an ACTI
 ```
 <User> I just facepalmed so hard
 (no response — only /me actions trigger the bot)
+```
+
+---
+
+## Shrug Command
+
+| Command | Description |
+|---------|-------------|
+| `$shrug` | Output ¯\\\_(ツ)\_/¯ |
+| `$shrug <nick>` | Direct the shrug at someone |
+
+**Examples:**
+```
+<User> $shrug
+<Glitchy> ¯\_(ツ)_/¯
+
+<User> $shrug burnout
+<Glitchy> burnout: ¯\_(ツ)_/¯
 ```

@@ -1,6 +1,6 @@
 # 🐄 Moo Counter (moo)
 
-Say `moo` in chat to increment your counter. Full network leaderboards.
+Say `moo` in chat to increment your counter. Full network leaderboards. Includes cowsay-style one-liners, linux nerd moos, legendary moos, and sudo moo gambles.
 
 ---
 

@@ -144,11 +144,12 @@ def country_code_to_flag(country_code: str) -> str:
         return "🌍"  # Fallback to globe
 
 
-def weather_emoji(summary: str) -> str:
-    """Select emoji based on weather summary text."""
+def weather_emoji(summary: str, icon: str = "") -> str:
+    """Select emoji based on weather summary text and optional icon for night detection."""
     if not summary:
         return "🌤️"  # Default neutral emoji
     s = summary.lower()
+    is_night = "night" in icon.lower() if icon else False
     # Check in order of specificity
     if any(word in s for word in ["thunderstorm", "thunder", "lightning"]):
         return "⛈️"
@@ -161,9 +162,9 @@ def weather_emoji(summary: str) -> str:
     elif any(word in s for word in ["overcast", "mostly cloudy"]):
         return "☁️"
     elif any(word in s for word in ["partly cloudy", "scattered"]):
-        return "⛅"
+        return "🌙☁️" if is_night else "⛅"
     elif any(word in s for word in ["clear", "sunny", "fair", "mostly clear"]):
-        return "☀️"
+        return "🌙" if is_night else "☀️"
     else:
         return "🌤️"  # Default to sun behind small cloud (neutral)
 
@@ -432,38 +433,68 @@ def current_weather(bot, trigger):
 
     c = data["currently"]
     temp_c = c.get("temperature", 0.0)
-    pressure = c.get("pressure", 0.0)
+    temp_f = temp_c * 9 / 5 + 32
+    feels_c = c.get("apparentTemperature", temp_c)
+    feels_f = feels_c * 9 / 5 + 32
     humidity = c.get("humidity", 0.0) * 100
-    wind_speed = c.get("windSpeed", 0.0)
+    wind_speed_ms = c.get("windSpeed", 0.0)
     wind_bearing = c.get("windBearing")
     wind_dir = wind_direction(wind_bearing)
-    clouds = c.get("cloudCover", 0.0) * 100
-    precipitation = c.get("precipIntensity", 0.0)
+    uv_index = c.get("uvIndex", 0)
+    visibility_km = c.get("visibility", 0.0)
+    visibility_mi = visibility_km * 0.621371
     summary = c.get("summary", "Unknown")
-    emoji = weather_emoji(summary)
+    icon = c.get("icon", "")
+    emoji = weather_emoji(summary, icon)
 
-    wind_speed_kmh = wind_speed * 3.6
-    wind_speed_mph = wind_speed * 2.23694
+    wind_speed_kmh = wind_speed_ms * 3.6
+    wind_speed_mph = wind_speed_ms * 2.23694
 
-    color_temp = colorize_temperature(temp_c)
+    # UV severity label
+    if uv_index <= 2:
+        uv_label = "Low"
+    elif uv_index <= 5:
+        uv_label = "Moderate"
+    elif uv_index <= 7:
+        uv_label = "High"
+    elif uv_index <= 10:
+        uv_label = "Very High"
+    else:
+        uv_label = "Extreme"
 
-    # Wind direction arrow
-    arrow_map = {"N": "↑", "NE": "↗", "E": "→", "SE": "↘", "S": "↓", "SW": "↙", "W": "←", "NW": "↖"}
-    wind_arrow = arrow_map.get(wind_dir, "")
+    # Temperature color based on Celsius
+    if temp_c < 0:
+        temp_color = "02"   # Dark blue (freezing)
+    elif temp_c < 10:
+        temp_color = "12"   # Blue (cold)
+    elif temp_c < 20:
+        temp_color = "09"   # Light green (mild)
+    elif temp_c < 30:
+        temp_color = "08"   # Yellow (warm)
+    elif temp_c < 35:
+        temp_color = "07"   # Orange (hot)
+    else:
+        temp_color = "04"   # Red (extreme)
+
+    # Pre-format colored temperature strings to avoid IRC color code eating digits
+    # Using \x0f (reset all) instead of \x03 before digits
+    temp_str = f"\x03{temp_color}{temp_f:.1f}°F/{temp_c:.1f}°C\x0f"
+    feels_str = f"\x03{temp_color}\x02{feels_f:.1f}°F/{feels_c:.1f}°C\x02\x0f"
 
     # Use country flag or globe emoji
     location_emoji = country_code_to_flag(country_code) if country_code else "🌍"
 
-    sep = "\x0314 · \x03"
+    # Pipe separator with grey color
+    sep = " \x0314|\x0f "
+
     output = (
-        f"{location_emoji} \x02{display_name}\x02{sep}"
-        f"{emoji} \x02{summary}\x02{sep}"
-        f"🌡️ {color_temp}{sep}"
-        f"💧 \x02{humidity:.0f}%\x02 humidity{sep}"
-        f"🌬️ \x02{wind_speed_kmh:.1f}\x02 km/h (\x02{wind_speed_mph:.1f}\x02 mph) {wind_arrow}{wind_dir}{sep}"
-        f"☁️ \x02{clouds:.0f}%\x02 cloud{sep}"
-        f"🌧️ \x02{precipitation:.1f}\x02 mm/hr{sep}"
-        f"📊 \x02{pressure:.0f}\x02 hPa"
+        f"{location_emoji} \x02{display_name}\x02 :: "
+        f"{emoji} {temp_str} {summary} (Humidity: {humidity:.0f}%)"
+        f"{sep}Feels like: {feels_str}"
+        f"{sep}Wind: \x02{wind_speed_mph:.0f}mph\x02 / {wind_speed_kmh:.1f}km/h {wind_dir}"
+        f"{sep}UV: \x02{uv_index}\x02 ({uv_label})"
+        f"{sep}Visibility: \x02{visibility_mi:.0f}mi\x02 / {visibility_km:.1f}km"
+        f"{sep}\x0314Powered by \x02PirateWeather\x02\x0f"
     )
     bot.say(output)
 
@@ -595,12 +626,15 @@ def forecast_weather(bot, trigger):
         return
 
     daily_data = data["daily"]["data"][:4]
-    sep = "\x0314 · \x03"
+    sep = " \x0314|\x0f "
 
-    # Line 1: header
-    bot.say(f"📅 \x024-Day Forecast\x02{sep}\x02{display_name}\x02")
+    # Use country flag or globe emoji
+    location_emoji = country_code_to_flag(country_code) if country_code else "🌍"
 
-    # Line 2: all 4 days compact — emoji + short day name + high/low
+    # Line 1: header with location
+    bot.say(f"{location_emoji} \x024-Day Forecast\x02 :: \x02{display_name}\x02 \x0314|\x0f \x0314Powered by \x02PirateWeather\x02\x0f")
+
+    # Line 2: all 4 days compact on one line
     day_parts = []
     for day in daily_data:
         dt = datetime.datetime.fromtimestamp(day["time"])
@@ -608,11 +642,47 @@ def forecast_weather(bot, trigger):
         summary = day.get("summary", "Unknown")
         temp_min = day.get("temperatureMin", 0.0)
         temp_max = day.get("temperatureMax", 0.0)
+        precip_prob = day.get("precipProbability", 0.0) * 100
         emoji = weather_emoji(summary)
-        max_temp_str = colorize_temperature(temp_max)
-        min_temp_str = colorize_temperature(temp_min)
 
-        day_parts.append(f"{emoji} \x02{weekday}\x02 ↑{max_temp_str} ↓{min_temp_str}")
+        # Temp conversions
+        max_f = temp_max * 9 / 5 + 32
+        min_f = temp_min * 9 / 5 + 32
+
+        # High temp color
+        if temp_max < 0:
+            hi_color = "02"
+        elif temp_max < 10:
+            hi_color = "12"
+        elif temp_max < 20:
+            hi_color = "09"
+        elif temp_max < 30:
+            hi_color = "08"
+        elif temp_max < 35:
+            hi_color = "07"
+        else:
+            hi_color = "04"
+
+        # Low temp color
+        if temp_min < 0:
+            lo_color = "02"
+        elif temp_min < 10:
+            lo_color = "12"
+        elif temp_min < 20:
+            lo_color = "09"
+        elif temp_min < 30:
+            lo_color = "08"
+        elif temp_min < 35:
+            lo_color = "07"
+        else:
+            lo_color = "04"
+
+        hi_str = f"\x03{hi_color}↑{max_f:.0f}°F/{temp_max:.0f}°C\x0f"
+        lo_str = f"\x03{lo_color}↓{min_f:.0f}°F/{temp_min:.0f}°C\x0f"
+
+        precip_str = f" 💧{precip_prob:.0f}%" if precip_prob >= 10 else ""
+
+        day_parts.append(f"{emoji} \x02{weekday}\x02 {hi_str} {lo_str}{precip_str}")
 
     bot.say(sep.join(day_parts))
 
