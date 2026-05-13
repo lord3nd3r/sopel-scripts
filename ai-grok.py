@@ -82,7 +82,7 @@ _WANTS_SOURCES_RE = re.compile(
 
 _TIME_INTENT_RE = re.compile(
     r'\b(what(?:\s+is|s|\u2019s)?\s+(the\s+)?(time|date|day)|'
-    r'current\s+(time|date)|what\s+time|what\s+day|today(?:\s+is|\s+date)?|'
+    r'current\s+(time|date)|what\s+time|what\s+day|today(?:\s+is|\s+the\s+date|s\s+date)|'
     r'whats?\s+today|day\s+is\s+it|time\s+is\s+it|date\s+is\s+it)\b',
     re.IGNORECASE,
 )
