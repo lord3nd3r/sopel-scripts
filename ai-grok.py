@@ -306,10 +306,18 @@ def setup(bot):
         except Exception:
             pass
     _log(bot).info('setup: key_len=%s prefix=%s', len(_raw_key) if _raw_key else 0, (_raw_key[:8] if _raw_key else 'NONE'))
-    bot.memory['grok_headers'] = {
+    session = requests.Session()
+    adapter = requests.adapters.HTTPAdapter(
+        pool_connections=10,
+        pool_maxsize=20,
+        max_retries=2
+    )
+    session.mount('https://', adapter)
+    session.headers.update({
         "Authorization": f"Bearer {_raw_key}",
         "Content-Type": "application/json",
-    }
+    })
+    bot.memory['grok_session'] = session
     # Per-conversation rolling history & last-response time
     bot.memory['grok_history'] = {}
     bot.memory['grok_last'] = {}
@@ -730,7 +738,7 @@ def sanitize_reply(bot, trigger, reply):
 
     return reply
 
-def _call_responses_api(bot, messages, model, temp, max_toks, search_mode=False):
+def _call_responses_api(bot, messages, model, temp, max_toks, search_mode=False, conv_id=None):
     """Call Responses API with request validation and response schema validation."""
     if not messages or not isinstance(messages, list):
         raise ValueError('messages must be a non-empty list')
@@ -763,9 +771,17 @@ def _call_responses_api(bot, messages, model, temp, max_toks, search_mode=False)
     if instructions_parts:
         payload["instructions"] = " ".join(instructions_parts)
 
-    r = requests.post(
+    session = bot.memory.get('grok_session')
+    if not session:
+        session = requests.Session()
+    
+    headers = {}
+    if conv_id:
+        headers["x-grok-conv-id"] = conv_id
+
+    r = session.post(
         "https://api.x.ai/v1/responses",
-        headers=bot.memory['grok_headers'],
+        headers=headers,
         json=payload,
         timeout=(10, 120),
     )
@@ -863,11 +879,17 @@ def _api_worker(bot, trigger, messages, review_mode, is_pm, bot_nick, chan_lock,
         max_toks = 900 if not review_mode else 800
         model = bot.config.grok.model
 
+        conv_id = None
+        if is_pm:
+            conv_id = f"pm-{trigger.nick.lower()}"
+        else:
+            conv_id = f"chan-{trigger.sender.lower()}-{trigger.nick.lower()}"
+
         for attempt in range(1, attempts + 1):
             try:
                 reply, citations = _call_responses_api(
                     bot, messages, model, temp, max_toks,
-                    search_mode=search_mode,
+                    search_mode=search_mode, conv_id=conv_id,
                 )
                 # Reset failure count on success
                 if channel in api_failures:
@@ -1390,9 +1412,13 @@ Rules:
         model = bot.config.grok.model
         _log(bot).info('Extracting facts for %s from %d messages using model %s', user_nick, len(channel_log), model)
         
-        response = requests.post(
+        session = bot.memory.get('grok_session')
+        if not session:
+            session = requests.Session()
+            session.headers.update({'Authorization': f'Bearer {api_key}', 'Content-Type': 'application/json'})
+            
+        response = session.post(
             'https://api.x.ai/v1/chat/completions',
-            headers={'Authorization': f'Bearer {api_key}', 'Content-Type': 'application/json'},
             json={
                 'model': model,
                 'messages': [{'role': 'user', 'content': extraction_prompt}],
@@ -2935,9 +2961,13 @@ def test_api(bot, trigger):
         
         model = bot.config.grok.model
         bot.say(f"Testing API with simple request using model {model}...")
-        response = requests.post(
+        session = bot.memory.get('grok_session')
+        if not session:
+            session = requests.Session()
+            session.headers.update({'Authorization': f'Bearer {api_key}', 'Content-Type': 'application/json'})
+            
+        response = session.post(
             'https://api.x.ai/v1/chat/completions',
-            headers={'Authorization': f'Bearer {api_key}', 'Content-Type': 'application/json'},
             json={
                 'model': model,
                 'messages': [{'role': 'user', 'content': 'Say only the word "test" and nothing else.'}],
@@ -3012,9 +3042,13 @@ def _scheck_worker(bot, requester, channel, target_nick, messages_text):
             "Be direct and concise."
         )
 
-        response = requests.post(
+        session = bot.memory.get('grok_session')
+        if not session:
+            session = requests.Session()
+            session.headers.update({'Authorization': f'Bearer {api_key}', 'Content-Type': 'application/json'})
+            
+        response = session.post(
             'https://api.x.ai/v1/chat/completions',
-            headers={'Authorization': f'Bearer {api_key}', 'Content-Type': 'application/json'},
             json={
                 'model': model,
                 'messages': [
