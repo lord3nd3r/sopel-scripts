@@ -1,4 +1,4 @@
-# grok.py — v5.3: expanded search intent detection + function_call XML sanitization + auto-retry
+# grok.py — v6.0: memory-safe refactor, proper shutdown, thread-safe caches
 from sopel import plugin
 from sopel.config import types
 from collections import deque
@@ -13,8 +13,56 @@ import random
 import logging
 import queue
 import json
-import atexit
 from zoneinfo import ZoneInfo
+
+
+class _BoundedTTLCache:
+    """Thread-safe bounded cache with TTL eviction.
+
+    Used for dedup keys, per-user timestamps, and other ephemeral data
+    that must not grow without bound.
+    """
+    __slots__ = ('_data', '_lock', '_maxsize', '_ttl')
+
+    def __init__(self, maxsize=2000, ttl=60.0):
+        self._data = {}        # key -> (value, expiry)
+        self._lock = threading.Lock()
+        self._maxsize = maxsize
+        self._ttl = ttl
+
+    def get(self, key, default=None):
+        with self._lock:
+            entry = self._data.get(key)
+            if entry is None:
+                return default
+            val, expiry = entry
+            if time.monotonic() > expiry:
+                del self._data[key]
+                return default
+            return val
+
+    def set(self, key, value):
+        now = time.monotonic()
+        with self._lock:
+            self._data[key] = (value, now + self._ttl)
+            # Evict expired + oldest if over capacity
+            if len(self._data) > self._maxsize:
+                self._evict(now)
+
+    def _evict(self, now):
+        # Remove all expired entries
+        expired = [k for k, (_, exp) in self._data.items() if now > exp]
+        for k in expired:
+            del self._data[k]
+        # If still over capacity, remove oldest entries
+        if len(self._data) > self._maxsize:
+            by_age = sorted(self._data.items(), key=lambda kv: kv[1][1])
+            to_remove = len(self._data) - (self._maxsize // 2)
+            for k, _ in by_age[:to_remove]:
+                del self._data[k]
+
+    def __len__(self):
+        return len(self._data)
 
 # Tunables / constants
 MAX_SEND_LEN = 440
@@ -70,13 +118,13 @@ _SEARCH_INTENT_RE = re.compile(
 )
 
 _WANTS_SOURCES_RE = re.compile(
-    r'\b(show\s+(me\s+)?(the\s+)?(links?|sources?|citations?|refs?|references?|urls?)'
-    r'|give\s+(me\s+)?(the\s+)?(links?|sources?|citations?|refs?|references?|urls?)'
-    r'|i\s+want\s+(the\s+)?(links?|sources?|citations?|refs?|references?|urls?)'
-    r'|include\s+(the\s+)?(links?|sources?|citations?|refs?|references?|urls?)'
-    r'|with\s+(the\s+)?(links?|sources?|citations?|refs?|references?|urls?)'
-    r'|\bsources?\s*\??\s*$'
-    r'|\blinks?\s*\??\s*$)\b',
+    r'\b(?:show\s+(?:me\s+)?(?:the\s+)?(?:links?|sources?|citations?|refs?|references?|urls?)'
+    r'|give\s+(?:me\s+)?(?:the\s+)?(?:links?|sources?|citations?|refs?|references?|urls?)'
+    r'|i\s+want\s+(?:the\s+)?(?:links?|sources?|citations?|refs?|references?|urls?)'
+    r'|include\s+(?:the\s+)?(?:links?|sources?|citations?|refs?|references?|urls?)'
+    r'|with\s+(?:the\s+)?(?:links?|sources?|citations?|refs?|references?|urls?)'
+    r'|sources?\s*\??\s*$'
+    r'|links?\s*\??\s*$)',
     re.IGNORECASE,
 )
 
@@ -175,15 +223,18 @@ _FMT_SET_RE = re.compile(
 # Bounded queue and worker threads to process API requests without unbounded threads
 API_TASK_QUEUE = queue.Queue(maxsize=API_QUEUE_MAXSIZE)
 API_WORKER_SHUTDOWN = False
+# Semaphore to limit concurrent background tasks (learning, scheck) to 2
+_BG_TASK_SEMAPHORE = threading.Semaphore(2)
 
 def _api_worker_loop():
+    """Main loop for API worker threads. Tasks are dicts with named keys."""
     while not API_WORKER_SHUTDOWN:
         try:
             task = API_TASK_QUEUE.get(timeout=0.5)
             if task is None:
                 break
             try:
-                _api_worker(*task)
+                _api_worker(**task)
             except Exception:
                 logging.getLogger('Grok').exception('API worker loop task failed')
             finally:
@@ -290,8 +341,6 @@ def setup(bot):
     bot.config.define_section('grok', GrokSection)
     # Read API key directly from the underlying configparser - the ibot shim
     # wraps returned values in objects whose __str__ returns '***' for security.
-    # bot.config.parser  = raw configparser on the config object
-    # bot.config.grok._parser = same configparser, via the StaticSection instance
     _raw_key = None
     for _getter in (
         lambda: bot.config.parser.get('grok', 'api_key'),
@@ -305,7 +354,16 @@ def setup(bot):
                 break
         except Exception:
             pass
-    _log(bot).info('setup: key_len=%s prefix=%s', len(_raw_key) if _raw_key else 0, (_raw_key[:8] if _raw_key else 'NONE'))
+    _log(bot).info('setup: api_key_present=%s key_len=%d', bool(_raw_key), len(_raw_key) if _raw_key else 0)
+
+    # Close any previous session (handles plugin reload gracefully)
+    old_session = bot.memory.get('grok_session')
+    if old_session:
+        try:
+            old_session.close()
+        except Exception:
+            pass
+
     session = requests.Session()
     adapter = requests.adapters.HTTPAdapter(
         pool_connections=10,
@@ -318,23 +376,30 @@ def setup(bot):
         "Content-Type": "application/json",
     })
     bot.memory['grok_session'] = session
+
     # Per-conversation rolling history & last-response time
     bot.memory['grok_history'] = {}
     bot.memory['grok_last'] = {}
     bot.memory['grok_locks'] = {}
     bot.memory['grok_locks_lock'] = threading.Lock()
-    bot.memory['grok_busy'] = {}  # unused, kept for compatibility
     bot.memory['grok_channel_log'] = {}  # per-channel chronological message log
     bot.memory['grok_say_lock'] = threading.Lock()  # thread-safe say wrapper lock
     bot.memory['grok_api_failures'] = {}  # circuit breaker: channel -> failure count
     bot.memory['grok_chimein_last'] = {}  # per-channel last chime-in timestamp
     bot.memory['grok_channel_personality'] = {}  # per-channel dynamic personality overrides
     bot.memory['grok_user_personality'] = {}  # per-user personalities: {channel: {nick: personality}}
+    # Bounded TTL caches for ephemeral data (replaces unbounded bot.memory keys)
+    bot.memory['grok_dedup_cache'] = _BoundedTTLCache(maxsize=2000, ttl=2.0)
+    bot.memory['grok_user_last_cache'] = _BoundedTTLCache(maxsize=5000, ttl=300.0)
+    bot.memory['grok_learn_counters'] = {}  # per-channel learn counter (bounded by # channels)
 
     # Wrap bot.say so ALL bot output (from every plugin) is captured in channel log.
     # This lets the AI see game results, mug outcomes, bet payouts, etc.
-    # Use a lock to ensure thread-safe access to memory structures.
-    _original_say = bot.say
+    # Guard against stacking on reload: only wrap if not already wrapped.
+    if not hasattr(bot, '_grok_original_say'):
+        bot._grok_original_say = bot.say
+    _original_say = bot._grok_original_say
+
     def _grok_say_wrapper(text, target=None, *args, **kwargs):
         _original_say(text, target, *args, **kwargs)
         try:
@@ -361,23 +426,49 @@ def setup(bot):
         _log(bot).exception('Failed to initialize Grok DB')
 
     # Start API worker threads
+    global API_WORKER_SHUTDOWN
+    API_WORKER_SHUTDOWN = False
     for _ in range(API_WORKER_COUNT):
         t = threading.Thread(target=_api_worker_loop, daemon=True)
         t.start()
-    
-    # Register shutdown handler for graceful worker shutdown
-    def _shutdown_handler():
-        global API_WORKER_SHUTDOWN
-        API_WORKER_SHUTDOWN = True
-        # Drain the queue
+
+
+def shutdown(bot):
+    """Sopel calls this on plugin unload/reload. Clean up all resources."""
+    global API_WORKER_SHUTDOWN
+    API_WORKER_SHUTDOWN = True
+
+    # Send poison pills to stop workers
+    for _ in range(API_WORKER_COUNT):
         try:
-            while not API_TASK_QUEUE.empty():
-                API_TASK_QUEUE.get_nowait()
-                API_TASK_QUEUE.task_done()
-        except queue.Empty:
+            API_TASK_QUEUE.put_nowait(None)
+        except queue.Full:
             pass
-    
-    atexit.register(_shutdown_handler)
+
+    # Drain any remaining tasks
+    try:
+        while not API_TASK_QUEUE.empty():
+            API_TASK_QUEUE.get_nowait()
+            API_TASK_QUEUE.task_done()
+    except queue.Empty:
+        pass
+
+    # Close the HTTP session
+    session = bot.memory.pop('grok_session', None)
+    if session:
+        try:
+            session.close()
+        except Exception:
+            pass
+
+    # Restore original bot.say to prevent stacking on reload
+    original = getattr(bot, '_grok_original_say', None)
+    if original:
+        bot.say = original
+        del bot._grok_original_say
+
+    _log(bot).info('Grok plugin shut down cleanly')
+
 
 def send(bot, channel, text):
     max_len = MAX_SEND_LEN
@@ -812,25 +903,16 @@ def _call_responses_api(bot, messages, model, temp, max_toks, search_mode=False,
                             if text:
                                 reply += text
             
-    # EXTREME EXTRACTION: Global Regex Scan on the entire raw JSON response 
-    # to find every URL present anywhere in the API's returned data.
+    # URL extraction: scan the raw JSON response for all URLs.
     try:
-        import json as json_mod
-        raw_json_str = json_mod.dumps(data, default=str)
-        # Regex to find everything starting with http/https up to a break character
+        raw_json_str = json.dumps(data, default=str)
         raw_urls = re.findall(r'https?://[^\s()<>\[\]{}"]+', raw_json_str)
         for u in raw_urls:
-            # Clean up JSON escapes and trailing punctuation
             u = u.replace('\\/', '/').strip(').,;:!?\'">')
-            # Filter out known API/System URLs
             if u and 'x.ai' not in u.lower() and 'google.com' not in u.lower():
                 citations.append({"url": u, "title": ""})
-        
-        # Write full response to a file for manual audit
-        with open('/home/ender/.sopel/scripts/grok_api_last_response.json', 'w') as f:
-            json_mod.dump(data, f, indent=2, default=str)
     except Exception as e:
-        _log(bot).error('Extreme extraction failed: %s', str(e))
+        _log(bot).error('URL extraction failed: %s', str(e))
 
     # Cleanup and dedupe raw extraction
     seen_raw = set()
@@ -841,7 +923,6 @@ def _call_responses_api(bot, messages, model, temp, max_toks, search_mode=False,
             continue
         u_low = u.lower().rstrip('/')
         if u_low not in seen_raw:
-            # Keep the one with a title if we have multiple for same URL
             existing = next((x for x in cleaned_citations if x['url'].lower().rstrip('/') == u_low), None)
             if existing:
                 if not existing['title'] and c['title']:
@@ -851,15 +932,22 @@ def _call_responses_api(bot, messages, model, temp, max_toks, search_mode=False,
             cleaned_citations.append(c)
     citations = cleaned_citations
 
-    # Debug: log the raw citations count
-    try:
-        item_types = [item.get('type', '?') for item in (output_items or []) if isinstance(item, dict)]
-        _log(bot).info('DEBUG: API item types: %s, RAW EXTRACT COUNT: %d', item_types, len(citations))
-    except Exception:
-        pass
+    _log(bot).debug('API citations extracted: %d', len(citations))
     return reply.strip(), citations
 
-def _api_worker(bot, trigger, messages, review_mode, is_pm, bot_nick, chan_lock, search_mode=False, wants_sources=False, is_chimein=False, is_action=False):
+def _url_to_title(url):
+    """Generate a fallback title from a URL slug."""
+    try:
+        from urllib.parse import urlparse
+        p = urlparse(url)
+        slug = p.path.strip('/').split('/')[-1]
+        if not slug or '.' in slug:
+            return p.netloc
+        return slug.replace('-', ' ').replace('_', ' ').title()
+    except Exception:
+        return ""
+
+def _api_worker(*, bot, trigger, messages, review_mode, is_pm, bot_nick, chan_lock, search_mode=False, wants_sources=False, is_chimein=False, is_action=False):
     try:
         # Circuit breaker: check if channel has too many failures
         channel = trigger.sender
@@ -1025,18 +1113,6 @@ def _api_worker(bot, trigger, messages, review_mode, is_pm, bot_nick, chan_lock,
             if full_citations:
                 source_parts = []
                 for idx, c in enumerate(full_citations[:10], 1):
-                    # Helper to generate a fall-back title from a URL slug
-                    def _url_to_title(url):
-                        try:
-                            from urllib.parse import urlparse
-                            p = urlparse(url)
-                            slug = p.path.strip('/').split('/')[-1]
-                            if not slug or '.' in slug:
-                                return p.netloc
-                            return slug.replace('-', ' ').replace('_', ' ').title()
-                        except Exception:
-                            return ""
-
                     title = c.get("title", "").strip()
                     url = c.get("url", "")
                     if not title:
@@ -1051,15 +1127,16 @@ def _api_worker(bot, trigger, messages, review_mode, is_pm, bot_nick, chan_lock,
                 
                 reply += ' | Sources: ' + ' | '.join(source_parts)
             else:
-                # Canary message for debugging
-                reply += f' [DEBUG: 0 citations found (Cache: {"Yes" if channel in cache else "No"})]'
+                reply += ' (no sources found)'
 
         try:
-            user_last = bot.memory.setdefault('grok_user_last', {}).setdefault(trigger.sender, {})
-            last_user = user_last.get(trigger.nick, 0)
-            if time.time() - last_user < USER_SAFETY_SECONDS:
-                return
-            user_last[trigger.nick] = time.time()
+            _ulc = bot.memory.get('grok_user_last_cache')
+            if _ulc:
+                _ulc_key = f"{trigger.sender}:{trigger.nick}"
+                _last_ts = _ulc.get(_ulc_key, 0)
+                if time.time() - _last_ts < USER_SAFETY_SECONDS:
+                    return
+                _ulc.set(_ulc_key, time.time())
         except Exception:
             pass
 
@@ -1102,14 +1179,20 @@ def _api_worker(bot, trigger, messages, review_mode, is_pm, bot_nick, chan_lock,
     finally:
         pass
 
-def _db_get_recent(bot, nick, limit=MAX_HISTORY_PER_USER):
+def _db_get_recent(bot, nick, channel=None, limit=MAX_HISTORY_PER_USER):
     try:
         with _DBContext(bot) as conn:
             c = conn.cursor()
-            c.execute(
-                'SELECT role, text FROM grok_user_history WHERE nick = ? ORDER BY id DESC LIMIT ?',
-                (nick.lower(), limit),
-            )
+            if channel:
+                c.execute(
+                    'SELECT role, text FROM grok_user_history WHERE nick = ? AND source = ? ORDER BY id DESC LIMIT ?',
+                    (nick.lower(), channel, limit),
+                )
+            else:
+                c.execute(
+                    'SELECT role, text FROM grok_user_history WHERE nick = ? ORDER BY id DESC LIMIT ?',
+                    (nick.lower(), limit),
+                )
             rows = c.fetchall()
             return list(reversed([(r[0], r[1]) for r in rows]))
     except Exception:
@@ -1248,7 +1331,7 @@ def _db_delete_user_profile(bot, nick):
         _log(bot).exception('Failed to delete profile for %s', nick)
         return False
 
-def _format_profile_for_context(nick, profile):
+def _format_profile_for_context(nick, profile, include_facts=True):
     """Format user profile data for inclusion in AI context."""
     if not profile:
         return None
@@ -1259,7 +1342,7 @@ def _format_profile_for_context(nick, profile):
         parts.append(f"Location: {profile['location']}")
     if profile.get('weather_location'):
         parts.append(f"Weather location: {profile['weather_location']}")
-    if profile.get('facts'):
+    if include_facts and profile.get('facts'):
         facts_formatted = "\n- ".join(profile['facts'])
         parts.append(f"Notable facts:\n- {facts_formatted}")
     
@@ -1272,6 +1355,7 @@ def _format_profile_for_context(nick, profile):
 
 def _db_add_fact_suggestion(bot, nick, fact, confidence, context):
     """Store a suggested fact for later review. Confidence is 0.0-1.0."""
+    auto_approve = False
     try:
         with _DBContext(bot) as conn:
             c = conn.cursor()
@@ -1290,16 +1374,19 @@ def _db_add_fact_suggestion(bot, nick, fact, confidence, context):
                 (nick.lower(), fact, confidence, context, now_ts)
             )
             
-            # Auto-approve high confidence facts
+            # Mark as approved in suggestions table, but defer the profile write
+            # until AFTER this connection closes to avoid a nested-connection deadlock.
             if confidence >= 0.9:
                 suggestion_id = c.lastrowid
                 c.execute(
                     'UPDATE grok_profile_suggestions SET reviewed = 1, approved = 1 WHERE id = ?',
                     (suggestion_id,)
                 )
-                _db_add_profile_fact(bot, nick, fact, 'auto-learned')
-            
-            return True
+                auto_approve = True
+        # Outer connection is now committed and closed — safe to open a new one.
+        if auto_approve:
+            _db_add_profile_fact(bot, nick, fact, 'auto-learned')
+        return True
     except Exception:
         _log(bot).exception('Failed to add fact suggestion for %s', nick)
         return False
@@ -1331,7 +1418,12 @@ def _db_get_pending_suggestions(bot, limit=20):
         return []
 
 def _db_approve_suggestion(bot, suggestion_id, approver):
-    """Approve a fact suggestion and add it to the user's profile."""
+    """Approve a fact suggestion and add it to the user's profile.
+    
+    The profile write is deferred until after the suggestion connection closes
+    to avoid a nested-connection deadlock with SQLite.
+    """
+    nick = fact = None
     try:
         with _DBContext(bot) as conn:
             c = conn.cursor()
@@ -1348,11 +1440,13 @@ def _db_approve_suggestion(bot, suggestion_id, approver):
                 'UPDATE grok_profile_suggestions SET reviewed = 1, approved = 1 WHERE id = ?',
                 (suggestion_id,)
             )
-            _db_add_profile_fact(bot, nick, fact, approver)
-            return True
     except Exception:
         _log(bot).exception('Failed to approve suggestion %s', suggestion_id)
         return False
+    # Connection is now closed — safe to open a new one for the profile write
+    if nick and fact:
+        _db_add_profile_fact(bot, nick, fact, approver)
+    return True
 
 def _db_reject_suggestion(bot, suggestion_id):
     """Reject a fact suggestion."""
@@ -1403,19 +1497,14 @@ Rules:
 - Skip temporary states (e.g., "is tired")"""
 
     try:
-        # Make a simple API call to extract facts
-        api_key = bot.config.grok.api_key
-        if not api_key:
-            _log(bot).warning('No Grok API key configured for fact extraction')
+        # Use the shared session (which has auth headers set in setup)
+        session = bot.memory.get('grok_session')
+        if not session:
+            _log(bot).warning('No Grok session available for fact extraction')
             return []
         
         model = bot.config.grok.model
         _log(bot).info('Extracting facts for %s from %d messages using model %s', user_nick, len(channel_log), model)
-        
-        session = bot.memory.get('grok_session')
-        if not session:
-            session = requests.Session()
-            session.headers.update({'Authorization': f'Bearer {api_key}', 'Content-Type': 'application/json'})
             
         response = session.post(
             'https://api.x.ai/v1/chat/completions',
@@ -1676,13 +1765,17 @@ def _heuristic_intent_check(bot, trigger, line, bot_nick):
 def handle(bot, trigger):
     # ibot dispatches PRIVMSG to both event_handlers AND rule_handlers.
     # Deduplicate: ignore the rule-handler call when the event-handler already ran.
-    _dedup_key = f'_grok_dedup_{trigger.nick}_{trigger.sender}_{trigger.group(0)[:40]}'
-    import time as _time
-    _now = _time.monotonic()
-    _last = bot.memory.get(_dedup_key, 0)
-    if _now - _last < 0.5:
-        return
-    bot.memory[_dedup_key] = _now
+    # Uses bounded TTL cache instead of polluting bot.memory with unbounded keys.
+    _dedup_key = f'{trigger.nick}:{trigger.sender}:{trigger.group(0)[:40]}'
+    _now = time.monotonic()
+    _dedup_cache = bot.memory.get('grok_dedup_cache')
+    if _dedup_cache:
+        if _now - (_dedup_cache.get(_dedup_key, 0) or 0) < 0.5:
+            return
+        _dedup_cache.set(_dedup_key, _now)
+    else:
+        # Fallback if cache wasn't initialized (shouldn't happen)
+        pass
 
     is_pm = _is_pm(trigger)
 
@@ -1748,13 +1841,13 @@ def handle(bot, trigger):
                 _cl_dq.append((trigger.nick, line.strip()))
                 
                 # Auto-learning: periodically extract facts about active users
-                _learn_counter_key = f'grok_learn_counter_{_cl_key}'
-                _learn_counter = bot.memory.get(_learn_counter_key, 0) + 1
-                bot.memory[_learn_counter_key] = _learn_counter
+                _learn_counters = bot.memory.get('grok_learn_counters', {})
+                _learn_count = _learn_counters.get(_cl_key, 0) + 1
+                _learn_counters[_cl_key] = _learn_count
                 
                 # Every 100 messages, pick a random active user and try to learn facts
-                if _learn_counter >= 100:
-                    bot.memory[_learn_counter_key] = 0
+                if _learn_count >= 100:
+                    _learn_counters[_cl_key] = 0
                     
                     # Find active users (who have spoken at least 5 times in recent history)
                     nick_counts = {}
@@ -1764,20 +1857,24 @@ def handle(bot, trigger):
                     
                     active_users = [n for n, count in nick_counts.items() if count >= 5]
                     if active_users:
-                        # Pick a random user to learn about
                         target_user = random.choice(active_users)
+                        _snapshot = list(_cl_dq)
+                        _sender = trigger.sender
                         
-                        # Run fact extraction in background to avoid blocking
-                        def _background_learn():
+                        # Run fact extraction with semaphore to limit concurrent background tasks
+                        def _background_learn(_user=target_user, _log_snapshot=_snapshot, _chan=_sender):
+                            if not _BG_TASK_SEMAPHORE.acquire(blocking=False):
+                                return  # Skip if too many background tasks already running
                             try:
-                                facts = _extract_facts_from_conversation(bot, list(_cl_dq), target_user)
+                                facts = _extract_facts_from_conversation(bot, _log_snapshot, _user)
                                 for fact, confidence in facts:
-                                    context = f"Auto-learned from {trigger.sender}"
-                                    _db_add_fact_suggestion(bot, target_user, fact, confidence, context)
+                                    context = f"Auto-learned from {_chan}"
+                                    _db_add_fact_suggestion(bot, _user, fact, confidence, context)
                             except Exception:
-                                _log(bot).exception('Background fact learning failed for %s', target_user)
+                                _log(bot).exception('Background fact learning failed for %s', _user)
+                            finally:
+                                _BG_TASK_SEMAPHORE.release()
                         
-                        # Start background thread
                         learn_thread = threading.Thread(target=_background_learn, daemon=True)
                         learn_thread.start()
                         
@@ -1950,7 +2047,9 @@ def handle(bot, trigger):
                                 "Do NOT address anyone by name unless it's natural. Do NOT start with your own name. "
                                 "Talk like a real IRC user: lowercase ok, slang ok, 'lol' 'ngl' 'tbh' 'fr' ok. "
                                 "Sometimes just react with one word. Do NOT summarize or explain what people said. "
-                                "Single line only — this is IRC."
+                                "Single line only — this is IRC. "
+                                "IMPORTANT: You only know what has been said in THIS channel's recent log shown below. "
+                                "Do NOT reference events, facts, or conversations from other channels."
                             )
                             _chimein_msgs = [
                                 {"role": "system", "content": _chimein_sys},
@@ -1962,17 +2061,17 @@ def handle(bot, trigger):
                             ]
                             _chimein_lock = _get_channel_lock(bot, trigger.sender)
                             try:
-                                if bot.memory['grok_busy'].get(trigger.sender, 0) < 1:
-                                    bot.memory['grok_busy'][trigger.sender] = 1
-                                    API_TASK_QUEUE.put_nowait((
-                                        bot, trigger, _chimein_msgs, False, False,
-                                        _bot_nick, _chimein_lock, False, False, True,
-                                    ))
-                                    bot.memory['grok_busy'].pop(trigger.sender, None)
+                                API_TASK_QUEUE.put_nowait({
+                                    'bot': bot, 'trigger': trigger, 'messages': _chimein_msgs,
+                                    'review_mode': False, 'is_pm': False,
+                                    'bot_nick': _bot_nick, 'chan_lock': _chimein_lock,
+                                    'search_mode': False, 'wants_sources': False,
+                                    'is_chimein': True, 'is_action': False,
+                                })
                             except queue.Full:
-                                bot.memory['grok_busy'].pop(trigger.sender, None)
+                                pass
                             except Exception:
-                                bot.memory['grok_busy'].pop(trigger.sender, None)
+                                pass
             except Exception:
                 pass
         return
@@ -1999,6 +2098,8 @@ def handle(bot, trigger):
         _rem_match = _REMEMBER_CMD_RE.match(_um_stripped)
         _fact = _rem_match.group(1).strip().rstrip('.')
         if _fact and len(_fact) >= 5:
+            # Always store in the speaker's own profile — these are personal notes
+            # (including notes about other people, e.g. "ComputerTech is the sheep shagger")
             try:
                 if len(_fact) > 300:
                     bot.say("that's a bit much — keep it under 300 chars?", trigger.sender)
@@ -2011,7 +2112,7 @@ def handle(bot, trigger):
                 # Check for duplicate
                 _fact_lower = _fact.lower()
                 if any(_fact_lower == f.lower() for f in _existing_facts):
-                    bot.say("I already remember that", trigger.sender)
+                    bot.say("yeah, I've already got that", trigger.sender)
                     return
                 _saved = _db_add_profile_fact(bot, trigger.nick, _fact, trigger.nick)
                 _log(bot).info('Remember: nick=%s saved=%s fact=%s', trigger.nick, _saved, _fact[:80])
@@ -2276,8 +2377,13 @@ def handle(bot, trigger):
         # Fallback to UTC if timezone is invalid
         now_str = datetime.datetime.now(datetime.timezone.utc).strftime('%A, %B %d, %Y at %H:%M UTC')
 
-    # For pure time/date queries, answer directly without hitting the API
-    if time_mode and len(user_message.split()) <= 8:
+    # For pure time/date queries, answer directly without hitting the API.
+    # Skip the shortcut if the question specifies a location (e.g. "what time is it in mesa arizona?")
+    # so the API can resolve the correct timezone for that place.
+    _time_is_location_query = time_mode and bool(
+        re.search(r'\bin\s+[a-z]', user_message, re.IGNORECASE)
+    )
+    if time_mode and not _time_is_location_query and len(user_message.split()) <= 8:
         bot.say(now_str, trigger.sender)
         return
     
@@ -2318,7 +2424,7 @@ def handle(bot, trigger):
         {
             "role": "system",
             "content": (
-                f"Current date/time: {now_str}. When asked what time or date it is, state this directly. "
+                f"Current date/time for {trigger.nick}: {now_str}. Use this ONLY if {trigger.nick} explicitly asks for the time or date in their message — do NOT volunteer it unprompted. "
                 f"Your IRC nick is '{bot_nick}'. You're talking to {trigger.nick}. "
                 f"You also run game/utility plugins ($ commands like $bet, $mug, $coins, etc.). "
                 f"Messages from '{bot_nick}' in the channel log are things you said — reference "
@@ -2332,9 +2438,12 @@ def handle(bot, trigger):
     ]
 
     # Inject user profile data if available
+    # In channels, suppress auto-learned facts to avoid cross-channel leakage
     user_profile = _db_get_user_profile(bot, trigger.nick)
     if user_profile:
-        profile_text = _format_profile_for_context(trigger.nick, user_profile)
+        # Always include the asker's own facts — these are intentional user-stored notes
+        # (auto-learned facts go into the *subject's* profile, so the asker's facts are safe)
+        profile_text = _format_profile_for_context(trigger.nick, user_profile, include_facts=True)
         if profile_text:
             messages.append({"role": "system", "content": profile_text})
     
@@ -2361,17 +2470,18 @@ def handle(bot, trigger):
             pass
     
     # Add profiles for mentioned users
+    # In channels, suppress auto-learned facts to avoid cross-channel leakage
     for mentioned_nick in mentioned_nicks:
         mentioned_profile = _db_get_user_profile(bot, mentioned_nick)
         if mentioned_profile:
-            profile_text = _format_profile_for_context(mentioned_nick, mentioned_profile)
+            profile_text = _format_profile_for_context(mentioned_nick, mentioned_profile, include_facts=is_pm)
             if profile_text:
                 messages.append({"role": "system", "content": profile_text})
 
 
     relevant_turns = []
     if not review_mode:
-        db_entries = _db_get_recent(bot, trigger.nick, limit=20)
+        db_entries = _db_get_recent(bot, trigger.nick, channel='PM' if is_pm else str(trigger.sender), limit=20)
         if db_entries:
             for role, text in db_entries:
                 nick = bot_nick if role == 'assistant' else trigger.nick
@@ -2515,7 +2625,17 @@ def handle(bot, trigger):
                 "Respond as a short third-person action yourself (e.g. 'purrs contentedly' or 'wags tail'). "
                 "Do NOT start with your nick. Do NOT use quotes. Just the action text, plain and brief."
             })
-        API_TASK_QUEUE.put_nowait((bot, trigger, messages, review_mode, is_pm, bot_nick, chan_lock, search_mode, wants_sources, False, action_bot_mentioned))
+        API_TASK_QUEUE.put_nowait({
+            'bot': bot, 'trigger': trigger, 'messages': messages,
+            'review_mode': review_mode, 'is_pm': is_pm,
+            'bot_nick': bot_nick, 'chan_lock': chan_lock,
+            'search_mode': search_mode, 'wants_sources': wants_sources,
+            'is_chimein': False, 'is_action': action_bot_mentioned,
+        })
+        # Reset chimein cooldown so talkback doesn't fire right after a direct response
+        if not is_pm:
+            _chimein_ts = bot.memory.get('grok_chimein_last', {})
+            _chimein_ts[trigger.sender.lower()] = time.time()
     except queue.Full:
         try:
             bot.say('Grok is super busy right now — try again in a minute?', trigger.sender)
@@ -2897,9 +3017,7 @@ def learn_facts_now(bot, trigger):
         bot.reply("Fact learning only works in channels.")
         return
     
-    chan_lock = bot.memory.setdefault('grok_channel_log_lock', {}).setdefault(
-        trigger.sender.lower(), threading.Lock()
-    )
+    chan_lock = _get_channel_lock(bot, trigger.sender)
     
     with chan_lock:
         chan_log_dq = bot.memory.get('grok_channel_log', {}).get(trigger.sender.lower())
@@ -2954,18 +3072,13 @@ def test_api(bot, trigger):
         return
     
     try:
-        api_key = bot.config.grok.api_key
-        if not api_key:
-            bot.say("No API key configured")
+        session = bot.memory.get('grok_session')
+        if not session:
+            bot.say("No Grok session configured")
             return
         
         model = bot.config.grok.model
         bot.say(f"Testing API with simple request using model {model}...")
-        session = bot.memory.get('grok_session')
-        if not session:
-            session = requests.Session()
-            session.headers.update({'Authorization': f'Bearer {api_key}', 'Content-Type': 'application/json'})
-            
         response = session.post(
             'https://api.x.ai/v1/chat/completions',
             json={
@@ -3012,12 +3125,18 @@ def show_last_extraction(bot, trigger):
 # ==================== SCHECK — SCHIZO DETECTION TOOL ====================
 
 def _scheck_worker(bot, requester, channel, target_nick, messages_text):
-    """Background worker: sends chat lines to Grok for schizo analysis, PMs results."""
+    """Background worker: sends chat lines to Grok for analysis, PMs results."""
+    if not _BG_TASK_SEMAPHORE.acquire(blocking=False):
+        try:
+            bot.say("Too many background tasks running — try again in a moment.", requester)
+        except Exception:
+            pass
+        return
     try:
-        api_key = bot.config.grok.api_key
         model = bot.config.grok.model
-        if not api_key:
-            bot.say("No API key configured.", requester)
+        session = bot.memory.get('grok_session')
+        if not session:
+            bot.say("No Grok session configured.", requester)
             return
 
         if target_nick:
@@ -3041,11 +3160,6 @@ def _scheck_worker(bot, requester, channel, target_nick, messages_text):
             "Do NOT diagnose anyone. This is for moderation purposes only. "
             "Be direct and concise."
         )
-
-        session = bot.memory.get('grok_session')
-        if not session:
-            session = requests.Session()
-            session.headers.update({'Authorization': f'Bearer {api_key}', 'Content-Type': 'application/json'})
             
         response = session.post(
             'https://api.x.ai/v1/chat/completions',
@@ -3088,6 +3202,8 @@ def _scheck_worker(bot, requester, channel, target_nick, messages_text):
             bot.say(f"scheck error: {type(e).__name__}: {str(e)[:100]}", requester)
         except Exception:
             pass
+    finally:
+        _BG_TASK_SEMAPHORE.release()
 
 
 @plugin.command('scheck')

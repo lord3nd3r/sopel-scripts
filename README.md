@@ -39,7 +39,7 @@ A collection of custom [Sopel](https://sopel.chat/) IRC bot plugins for fun, uti
 
 ---
 
-## 🧠 ai-grok — AI Chatbot
+## 🧠 ai-grok — AI Chatbot (v6.0)
 
 An AI chatbot powered by the **xAI Grok API**. The bot responds when mentioned by name, handles emotes/actions, supports web search for current events, and maintains per-user conversation history.
 
@@ -51,12 +51,14 @@ An AI chatbot powered by the **xAI Grok API**. The bot responds when mentioned b
 - **Automatic web search** for news, scores, current events, and time-sensitive queries
 - Per-user conversation history stored in SQLite
 - **Persistent memory** — users can tell the bot to "remember" facts permanently in SQLite; facts survive restarts and are always included in AI context
+- **Auto-learning** — periodically extracts facts about active users from conversation (semaphore-gated, max 2 concurrent background tasks)
 - **Review mode** — summarize what has been discussed in channel (persisted to DB across restarts)
 - **Time/date awareness** with per-user timezone and format preferences
 - Admin commands via PM
 - Heuristic intent detection to avoid responding to incidental mentions
 - **Per-user rate limiting** — each user has an independent cooldown, so one user's question doesn't block another
 - Context window: up to 150 lines / 6,000 char budget for background channel context
+- **v6.0 Stability**: Bounded TTL caches for all ephemeral data, proper `shutdown()` lifecycle hook, dict-based worker tasks, semaphore-gated background threads, no API key leakage in logs
 
 ### Commands
 

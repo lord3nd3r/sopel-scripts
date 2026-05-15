@@ -1,6 +1,6 @@
 # 🧠 AI Chatbot (ai-grok)
 
-Talks to you when mentioned by name. Uses xAI Grok with web search.
+Talks to you when mentioned by name. Uses xAI Grok with web search. **v6.0** — memory-safe, proper lifecycle, thread-safe caches.
 
 ---
 
@@ -326,6 +326,86 @@ The system prompt instructs the bot to:
 - Be blunt, funny, or deadpan depending on the conversational vibe
 
 ---
+
+## ⚙️ Architecture & Internals (v6.0)
+
+This section documents the internal design for developers and maintainers.
+
+### Resource Lifecycle
+
+| Phase | What happens |
+|-------|--------------|
+| `setup(bot)` | Reads API key from raw configparser (bypasses ibot's `***` mask), creates a `requests.Session` with connection pooling (10/20 pool), initializes all `bot.memory` structures, wraps `bot.say`, starts 3 worker threads |
+| `shutdown(bot)` | Sets `API_WORKER_SHUTDOWN`, sends poison pills to workers, drains the queue, closes the `requests.Session`, restores `bot.say` to its original function |
+
+On **plugin reload**, `setup()` automatically closes any previous session before creating a new one, and guards against `bot.say` wrapper stacking via `hasattr(bot, '_grok_original_say')`.
+
+### Memory Management
+
+All ephemeral per-message and per-user data uses `_BoundedTTLCache` — a thread-safe dict with automatic TTL expiration and capacity limits:
+
+| Cache | Maxsize | TTL | Purpose |
+|-------|---------|-----|----------|
+| `grok_dedup_cache` | 2,000 | 2s | Prevents duplicate PRIVMSG handler invocations |
+| `grok_user_last_cache` | 5,000 | 5min | Per-user safety rate limiter |
+
+Long-lived structures like `grok_history`, `grok_locks`, and `grok_channel_log` are bounded by the number of active channels/users (not per-message), so they don't grow without bound.
+
+### Threading Model
+
+```
+┌─────────────────┐
+│ Sopel handler    │──► API_TASK_QUEUE (maxsize=50)
+│ threads (N)      │         │
+└─────────────────┘         ▼
+                     ┌──────────────┐
+                     │ Worker Pool  │ (3 daemon threads)
+                     │ _api_worker()│
+                     └──────────────┘
+                            │
+                     ┌──────────────┐
+                     │ Background   │ (learning, scheck)
+                     │ Semaphore(2) │ ← limits concurrent bg tasks
+                     └──────────────┘
+```
+
+- **Worker tasks** are `dict` objects with named keys (not positional tuples) for type safety
+- **Background tasks** (fact learning, scheck analysis) are gated by `_BG_TASK_SEMAPHORE(2)` to prevent thread exhaustion
+- All SQLite access goes through `_DBContext`, which opens a fresh connection per operation in WAL mode
+
+### Security
+
+- API key is read from the raw configparser and set on the session's `Authorization` header once. **Never** logged (only key presence and length are logged).
+- All utility functions (`_extract_facts_from_conversation`, `_scheck_worker`, `test_api`) use `bot.memory['grok_session']` instead of reading `bot.config.grok.api_key` (which returns `***` through the ibot shim).
+- The debug response file write has been removed — no API responses are written to disk.
+
+### Database
+
+- SQLite3 in WAL mode (`journal_mode=WAL`) for concurrent read support
+- `_DBContext` context manager ensures connections are committed/rolled back and closed
+- Nested connections are avoided — `_db_approve_suggestion` defers its profile write until after the suggestion connection closes
+
+### Configuration
+
+| Setting | Type | Default | Description |
+|---------|------|---------|-------------|
+| `api_key` | string | — | xAI API key (**required**) |
+| `model` | choice | `grok-4-1-fast-reasoning` | AI model |
+| `system_prompt` | string | (see code) | Bot personality |
+| `blocked_channels` | list | — | Channels where AI won't respond |
+| `banned_nicks` | list | — | Nicks completely blocked |
+| `ignored_nicks` | list | — | Nicks silently ignored |
+| `intent_check` | choice | `heuristic` | Mention detection mode |
+
+| Env Variable | Description |
+|--------------|-------------|
+| `AI_GROK_DIR` | Override data directory (default: `grok_data/` next to script) |
+
+| File | Description |
+|------|-------------|
+| `grok_channel_prompts.json` | Per-channel system prompt overrides |
+| `grok_data/grok.sqlite3` | SQLite database (auto-created) |
+
 
 ## Examples
 
