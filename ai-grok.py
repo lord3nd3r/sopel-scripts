@@ -45,9 +45,26 @@ class _BoundedTTLCache:
         now = time.monotonic()
         with self._lock:
             self._data[key] = (value, now + self._ttl)
-            # Evict expired + oldest if over capacity
             if len(self._data) > self._maxsize:
                 self._evict(now)
+
+    def check_and_set(self, key, value, window):
+        """Atomically check if key was set within `window` seconds, then set it.
+
+        Returns True if the key already exists within the window (duplicate).
+        Returns False if freshly set (first occurrence).
+        """
+        now = time.monotonic()
+        with self._lock:
+            entry = self._data.get(key)
+            if entry is not None:
+                val, expiry = entry
+                if now <= expiry and now - val < window:
+                    return True  # duplicate
+            self._data[key] = (value, now + self._ttl)
+            if len(self._data) > self._maxsize:
+                self._evict(now)
+            return False  # fresh
 
     def _evict(self, now):
         # Remove all expired entries
@@ -1770,12 +1787,8 @@ def handle(bot, trigger):
     _now = time.monotonic()
     _dedup_cache = bot.memory.get('grok_dedup_cache')
     if _dedup_cache:
-        if _now - (_dedup_cache.get(_dedup_key, 0) or 0) < 0.5:
-            return
-        _dedup_cache.set(_dedup_key, _now)
-    else:
-        # Fallback if cache wasn't initialized (shouldn't happen)
-        pass
+        if _dedup_cache.check_and_set(_dedup_key, _now, 0.5):
+            return  # duplicate — already handled
 
     is_pm = _is_pm(trigger)
 
