@@ -617,6 +617,58 @@ def weed_inline(bot, trigger):
         LOG.error(f"Error starting inline countdown thread for ${cmd}: {e}")
 
 
+# =======================
+# PASS Command
+# =======================
+PASS_ACTIONS = [
+    "takes a fat rip from a bong 🫧💨 and passes it to {target}",
+    "hits the joint, holds it… exhales a cloud ☁️ and slides it to {target}",
+    "sparks a bowl, takes a deep toke 🔥💨 and hands the pipe to {target}",
+    "lights a blunt, puffs twice 🌿🔥 and passes it left to {target}",
+    "torches a one-hitter 🎯💨 then packs a fresh one for {target}",
+    "milks the bong until it's white 🥛💨 clears it… and hands it to {target}",
+    "pulls from the chillum 🪈💨 and passes the peace pipe to {target}",
+    "takes a long drag off a spliff 🚬☁️ and offers it to {target}",
+    "rips the bubbler 🫧🔥 coughs a little… passes it to {target}",
+    "corners the bowl perfectly 🌿🔥 takes a smooth hit and nudges the pipe to {target}",
+]
+
+
+@module.commands('pass')
+@module.example('$pass username', 'Take a hit and pass it to someone')
+def pass_command(bot, trigger):
+    """Take a hit and pass something to a user."""
+    target = (trigger.group(2) or '').strip()
+    if not target:
+        bot.notice("Usage: $pass <nick>", trigger.nick)
+        return
+
+    channel = trigger.sender
+    if not channel.startswith('#'):
+        bot.notice("$pass only works in channels.", trigger.nick)
+        return
+
+    # Check target is in the channel
+    chan_obj = bot.channels.get(str(channel))
+    if chan_obj and target.lower() not in [u.lower() for u in chan_obj.users.keys()]:
+        bot.notice(f"{target} isn't in the channel.", trigger.nick)
+        return
+
+    # Per-user cooldown
+    now = time.time()
+    user_id = trigger.account or trigger.nick
+    key = (channel, user_id, 'pass')
+    with LOCK:
+        last = PER_USER_LAST.get(key)
+        if last and (now - last) < PER_USER_COOLDOWN:
+            remaining = PER_USER_COOLDOWN - (now - last)
+            bot.notice(f"Wait {_format_remaining(remaining)} before passing again.", trigger.nick)
+            return
+        PER_USER_LAST[key] = now
+
+    bot.action(random.choice(PASS_ACTIONS).format(target=target))
+
+
 # Register cleanup handler for graceful shutdown
 atexit.register(_cleanup_threads)
 
