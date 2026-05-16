@@ -1165,7 +1165,15 @@ def _api_worker(*, bot, trigger, messages, review_mode, is_pm, bot_nick, chan_lo
         except Exception:
             pass
 
-        if is_action:
+        # Detect action-style replies: AI responded with a third-person verb
+        # e.g. "farts on End3r", "hugs End3r warmly", "waves at everyone"
+        # These should be sent as /me actions, not prefixed with the requester's nick.
+        _reply_is_action = bool(re.match(
+            r'^[a-z]+(?:e?s)?\s+(?:on|at|to|toward|with|for|from|around|into)\s',
+            reply
+        ))
+
+        if is_action or _reply_is_action:
             final_reply = reply
         elif not is_chimein and trigger.nick.lower() not in reply.lower() and not _is_owner(bot, trigger):
             final_reply = f"{trigger.nick}: {reply}"
@@ -1176,7 +1184,7 @@ def _api_worker(*, bot, trigger, messages, review_mode, is_pm, bot_nick, chan_lo
         _typing_delay = random.uniform(TYPING_DELAY_MIN, TYPING_DELAY_MAX)
         time.sleep(_typing_delay)
 
-        if is_action:
+        if is_action or _reply_is_action:
             bot.action(final_reply, trigger.sender)
         else:
             send(bot, trigger.sender, final_reply)
