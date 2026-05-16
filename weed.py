@@ -8,7 +8,7 @@ from sopel import module, formatting
 """weed.py — Sopel command to share lighthearted "weed" messages.
 
 Features:
-- Commands: weed, bong, joint, keef, kief, trip, shrooms, acid, peyote
+- Commands: weed, bong, joint, keef, kief, trip, shrooms, acid, peyote, toke
 - Channel-level and per-user-per-channel cooldowns (thread-safe)
 - Non-blocking countdown via background thread with graceful shutdown
 - Module-level constants for easy editing
@@ -352,6 +352,40 @@ PEYOTE_COUNTDOWN = [
 ]
 
 
+# =======================
+# TOKE Content (flower only)
+# =======================
+TOKE_GIFTS = [
+    "a fat bowl of OG Kush 🔥🌿",
+    "a freshly packed one-hitter 🎯💨",
+    "a pipe loaded with Purple Haze 💜🌬️",
+    "a spoon pipe of Sour Diesel ⛽🔥",
+    "a chillum packed with Girl Scout Cookies 🍪🌿",
+]
+
+TOKE_ACTION_MESSAGES = [
+    "packs a bowl and passes the pipe to {target} 🔥💨",
+    "lights up {gift} and hands it to {target} — toke up 🌿",
+    "loads {gift} and slides the pipe to {target} 🌬️",
+    "sparks {gift} for {target} — hit it and quit it 💨🔥",
+    "torches {gift} and offers it to {target} — puff puff 🍃",
+]
+
+TOKE_FINAL_MESSAGES = [
+    formatting.bold(formatting.color("Toke it up — slow inhale, hold, exhale the stress 🌿💨✨", formatting.colors.GREEN)),
+    formatting.color("Corner the bowl and pass it left — proper sesh etiquette 🔥🫡", formatting.colors.LIGHT_GREEN),
+    formatting.color("One fat toke and the whole room goes quiet 😶‍🌫️🌿💨", formatting.colors.GREEN),
+    formatting.color("Cash that bowl and pack another — the sesh never ends ♻️🔥🍃", formatting.colors.LIGHT_GREEN),
+    formatting.color("That first toke of the day hits different 🌅🌿😌", formatting.colors.GREEN),
+]
+
+TOKE_COUNTDOWN = [
+    formatting.color("🌿 3... Packing the bowl...", formatting.colors.GREEN),
+    formatting.color("🔥 2... Cornering the green...", formatting.colors.YELLOW),
+    formatting.color("💨 1... Toke...", formatting.colors.RED),
+]
+
+
 # Content Mapping
 DATA = {
     'weed': (WEED_GIFTS, WEED_ACTION_MESSAGES, WEED_FINAL_MESSAGES, WEED_COUNTDOWN),
@@ -366,6 +400,7 @@ DATA = {
     'lsd': (ACID_GIFTS, ACID_ACTION_MESSAGES, ACID_FINAL_MESSAGES, ACID_COUNTDOWN),
     'peyote': (PEYOTE_GIFTS, PEYOTE_ACTION_MESSAGES, PEYOTE_FINAL_MESSAGES, PEYOTE_COUNTDOWN),
     'mescaline': (PEYOTE_GIFTS, PEYOTE_ACTION_MESSAGES, PEYOTE_FINAL_MESSAGES, PEYOTE_COUNTDOWN),
+    'toke': (TOKE_GIFTS, TOKE_ACTION_MESSAGES, TOKE_FINAL_MESSAGES, TOKE_COUNTDOWN),
 }
 
 
@@ -446,7 +481,7 @@ def _cleanup_threads():
         LOG.debug("All countdown threads completed gracefully")
 
 
-@module.commands('weed', 'bong', 'joint', 'keef', 'kief', 'trip', 'shrooms', 'mushrooms', 'acid', 'lsd', 'peyote', 'mescaline')
+@module.commands('weed', 'bong', 'joint', 'keef', 'kief', 'trip', 'shrooms', 'mushrooms', 'acid', 'lsd', 'peyote', 'mescaline', 'toke')
 @module.example('$weed username', 'Give a user a random weed item/message')
 def weed_commands(bot, trigger):
     """Send a lighthearted smoking message with cooldowns.
@@ -540,7 +575,7 @@ def weed_commands(bot, trigger):
 
 
 # Trigger when $command appears anywhere mid-sentence (not at the start, which @module.commands already handles)
-_INLINE_PATTERN = r'.+\$(?P<incmd>weed|bong|joint|keef|kief|trip|shrooms|mushrooms|acid|lsd|peyote|mescaline)\b'
+_INLINE_PATTERN = r'.+\$(?P<incmd>weed|bong|joint|keef|kief|trip|shrooms|mushrooms|acid|lsd|peyote|mescaline|toke)\b'
 
 @module.rule(_INLINE_PATTERN)
 def weed_inline(bot, trigger):
