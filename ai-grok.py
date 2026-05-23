@@ -1785,18 +1785,14 @@ def _heuristic_intent_check(bot, trigger, line, bot_nick):
     # was found, assume it's about the bot, not to it.
     return False
 
-@plugin.event('PRIVMSG')
 @plugin.rule('.*')
 @plugin.priority('high')
 def handle(bot, trigger):
-    # ibot dispatches PRIVMSG to both event_handlers AND rule_handlers.
-    # Deduplicate: ignore the rule-handler call when the event-handler already ran.
     # Uses bounded TTL cache instead of polluting bot.memory with unbounded keys.
     _dedup_key = f'{trigger.nick}:{trigger.sender}:{trigger.group(0)[:40]}'
     _now = time.monotonic()
     _dedup_cache = bot.memory.get('grok_dedup_cache')
     if _dedup_cache:
-        # Increase dedup window to 5.0s to account for sequential dispatch delays
         if _dedup_cache.check_and_set(_dedup_key, _now, 5.0):
             return  # duplicate — already handled
 
