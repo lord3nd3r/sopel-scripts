@@ -1795,7 +1795,8 @@ def handle(bot, trigger):
     _now = time.monotonic()
     _dedup_cache = bot.memory.get('grok_dedup_cache')
     if _dedup_cache:
-        if _dedup_cache.check_and_set(_dedup_key, _now, 0.5):
+        # Increase dedup window to 5.0s to account for sequential dispatch delays
+        if _dedup_cache.check_and_set(_dedup_key, _now, 5.0):
             return  # duplicate — already handled
 
     is_pm = _is_pm(trigger)
@@ -2372,6 +2373,9 @@ def handle(bot, trigger):
             bot.memory['grok_last'][_rl_key] = now
     else:
         with chan_lock:
+            last = bot.memory['grok_last'].get(_rl_key, 0)
+            if now - last < 1.5:  # small debounce to prevent double-dispatch for time mode
+                return
             bot.memory['grok_last'][_rl_key] = now
 
     if review_mode:

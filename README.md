@@ -27,6 +27,7 @@ A collection of custom [Sopel](https://sopel.chat/) IRC bot plugins for fun, uti
 - [Join](docs/join.md)
 - [YouTube Titles](docs/youtube_titles.md)
 - [Auto Voice](docs/autovoice.md)
+- [Auto Op](docs/autoop.md)
 - [Markov Chain](docs/markov.md)
 - [Wiki Search](docs/wiki.md)
 - [Quotes](docs/quote.md)
@@ -937,6 +938,26 @@ Automatically voices active users in a channel. Off by default — enable per-ch
 
 ### Data Storage
 Activity data is stored in `~/.sopel/autovoice_data.json`.
+
+---
+
+## 🤖 autoop — Auto Op & Modes
+
+Automatically grants `+o`, `+h`, or `+v` to specific users when they join the channel. Modes are managed by authorized admins and saved persistently.
+
+### Commands (Admin Only)
+
+| Command | Description |
+|---------|-------------|
+| `$aop <nick>` | Add a user to the auto-op (`+o`) list |
+| `$dop <nick>` | Remove a user from the auto-op list |
+| `$ahop <nick>` | Add a user to the auto-halfop (`+h`) list |
+| `$dhop <nick>` | Remove a user from the auto-halfop list |
+| `$avoice <nick>` | Add a user to the auto-voice (`+v`) list |
+| `$dvoice <nick>` | Remove a user from the auto-voice list |
+| `$alist` | List all auto-modes configured for the current channel |
+
+📖 **Full docs:** [docs/autoop.md](docs/autoop.md)
 
 ---
 

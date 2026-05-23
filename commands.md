@@ -27,6 +27,7 @@ The bot command prefix is **`$`** unless noted otherwise.
 | [🚪 Join](docs/join.md) | Make the bot join a channel (owner only) |
 | [🎬 YouTube Titles](docs/youtube_titles.md) | Auto-detect YouTube links and show video info |
 | [🎙️ Auto Voice](docs/autovoice.md) | Activity-based auto-voicing for active chatters |
+| [🤖 Auto Op](docs/autoop.md) | Auto-mode list for +o, +h, and +v on join |
 | [🔗 Markov Chain](docs/markov.md) | Learns from chat and generates random sentences from word trigrams |
 | [🔍 Wiki Search](docs/wiki.md) | Search Grokepedia and Wikipedia |
 | [💬 Quotes](docs/quote.md) | Save and search funny channel quotes |
