@@ -227,7 +227,8 @@ _TZ_ABBR_MAP = {
 _TZ_SET_RE = re.compile(
     r'\b(?:i(?:\'m| am)(?:\s+in)?|my\s+(?:tz|timezone|time\s*zone)\s+is|'
     r'set\s+(?:my\s+)?(?:tz|timezone|time\s*zone)\s+to|i\s+live\s+in|'
-    r'i(?:\'m| am)\s+in)\b'
+    r'i(?:\'m| am)\s+in|i\s+(?:use|prefer|set|changed\s+to|want)\s+(?:my\s+)?(?:tz|timezone|time\s*zone)?|'
+    r'(?:use|prefer|set|change|using)\s+(?:my\s+)?(?:tz|timezone|time\s*zone)?)\b'
     r'.*?\b(EST|EDT|CST|CDT|MST|MDT|PST|PDT|ET|CT|MT|PT|UTC|GMT|eastern|central|mountain|pacific)\b',
     re.IGNORECASE,
 )
@@ -2269,7 +2270,18 @@ def handle(bot, trigger):
         if _pref_tz or _pref_fmt:
             _db_set_user_pref(bot, trigger.nick, tz=_pref_tz, tz_label=_pref_tz_label, fmt=_pref_fmt)
             _log(bot).info('Saved pref for %s: tz=%s label=%s fmt=%s', trigger.nick, _pref_tz, _pref_tz_label, _pref_fmt)
-            return  # Preference saved, no response needed
+            
+            conf_parts = []
+            if _pref_tz:
+                conf_parts.append(f"timezone to {_pref_tz_label}")
+            if _pref_fmt:
+                conf_parts.append(f"time format to {_pref_fmt}-hour")
+                
+            if _pref_tz and not _pref_fmt:
+                bot.say(f"got it, {_pref_tz_label} for ya {trigger.nick}", trigger.sender)
+            else:
+                bot.say(f"Got it, saved your preference: {', '.join(conf_parts)} for {trigger.nick}.", trigger.sender)
+            return
     except Exception:
         pass
 
