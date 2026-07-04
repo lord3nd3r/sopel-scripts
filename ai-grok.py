@@ -170,7 +170,8 @@ _PERSONALITY_CHANNEL_INDICATOR_RE = re.compile(
 
 # Match personality command (defaults to per-user unless channel indicator present)
 _PERSONALITY_COMMAND_RE = re.compile(
-    r'\b(?:role\s*play|roleplay|pretend(?:\s+to\s+be)?|act\s+(?:like|as)|be|become|'
+    r'^(?:please\s+)?(?:from\s+now\s+on,?|going\s+forward,?)?\s*'
+    r'(?:role\s*play|roleplay|pretend(?:\s+to\s+be)?|act\s+(?:like|as)|be|become|'
     r'speak|talk|reply|respond)\s+'
     r'(?:to\s+(?:me\s+)?)?(?:from now on\s+)?(?:as(?:\s+if)?|like|in)?\s*'
     r'(?:a\s+|an\s+)?(.+?)(?:\.|$)',
@@ -179,7 +180,8 @@ _PERSONALITY_COMMAND_RE = re.compile(
 
 # Match per-user personality with explicit target: "speak to burnout like..."
 _PERSONALITY_USER_TARGET_RE = re.compile(
-    r'\b(?:speak|talk|reply|respond)\s+(?:to|with)\s+(\w+)\s+(?:like|as(?:\s+if)?|in)\s+(.+?)(?:\.|$)',
+    r'^(?:please\s+)?(?:from\s+now\s+on,?|going\s+forward,?)?\s*'
+    r'(?:speak|talk|reply|respond)\s+(?:to|with)\s+(\w+)\s+(?:like|as(?:\s+if)?|in)\s+(.+?)(?:\.|$)',
     re.IGNORECASE,
 )
 
@@ -227,11 +229,12 @@ _TZ_ABBR_MAP = {
 _TZ_SET_RE = re.compile(
     r'\b(?:i(?:\'m| am)(?:\s+in)?|my\s+(?:tz|timezone|time\s*zone)\s+is|'
     r'set\s+(?:my\s+)?(?:tz|timezone|time\s*zone)\s+to|i\s+live\s+in|'
-    r'i(?:\'m| am)\s+in|i\s+(?:use|prefer|set|changed\s+to|want)\s+(?:my\s+)?(?:tz|timezone|time\s*zone)?|'
-    r'(?:use|prefer|set|change|using)\s+(?:my\s+)?(?:tz|timezone|time\s*zone)?)\b'
+    r'i(?:\'m| am)\s+in|i\s+(?:use|prefer|set|changed\s+to|want)\s+(?:my\s+)?(?:tz|timezone|time\s*zone)|'
+    r'(?:use|prefer|set|change|using)\s+(?:my\s+)?(?:tz|timezone|time\s*zone))\b'
     r'.*?\b(EST|EDT|CST|CDT|MST|MDT|PST|PDT|ET|CT|MT|PT|UTC|GMT|eastern|central|mountain|pacific)\b',
     re.IGNORECASE,
 )
+
 
 _FMT_SET_RE = re.compile(
     r'\b(?:i\s+prefer|prefer|use|set|like)\b.*?\b(12[\s\-]?h(?:r|our)?|24[\s\-]?h(?:r|our)?)\b',
@@ -305,6 +308,7 @@ _CHANNEL_PROMPTS_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)),
 _CHANNEL_PROMPTS_CACHE = {}
 _CHANNEL_PROMPTS_CACHE_TIME = 0
 _CHANNEL_PROMPTS_CACHE_TTL = 300  # 5 minutes
+_CHANNEL_PROMPTS_LOCK = threading.Lock()  # guards cache reload against concurrent threads
 
 def _load_channel_prompts():
     """Read grok_channel_prompts.json and return a {"#channel": {"prompt": ..., "always_search": ...}} dict.
@@ -315,35 +319,40 @@ def _load_channel_prompts():
     """
     global _CHANNEL_PROMPTS_CACHE, _CHANNEL_PROMPTS_CACHE_TIME
     now = time.time()
+    # Fast path: no lock needed for a stale check — worst case we do one extra reload.
     if now - _CHANNEL_PROMPTS_CACHE_TIME < _CHANNEL_PROMPTS_CACHE_TTL:
         return _CHANNEL_PROMPTS_CACHE
-    try:
-        with open(_CHANNEL_PROMPTS_FILE, 'r', encoding='utf-8') as fh:
-            raw = fh.read()
-        if not raw.strip():
-            # File is empty or whitespace-only — treat as empty dict, don't log an error
+    with _CHANNEL_PROMPTS_LOCK:
+        # Re-check inside lock: another thread may have refreshed while we waited.
+        if now - _CHANNEL_PROMPTS_CACHE_TIME < _CHANNEL_PROMPTS_CACHE_TTL:
+            return _CHANNEL_PROMPTS_CACHE
+        try:
+            with open(_CHANNEL_PROMPTS_FILE, 'r', encoding='utf-8') as fh:
+                raw = fh.read()
+            if not raw.strip():
+                # File is empty or whitespace-only — treat as empty dict, don't log an error
+                _CHANNEL_PROMPTS_CACHE = {}
+                _CHANNEL_PROMPTS_CACHE_TIME = now
+                return _CHANNEL_PROMPTS_CACHE
+            data = json.loads(raw)
+            parsed = {}
+            for k, v in data.items():
+                if isinstance(v, str):
+                    parsed[k.lower()] = {"prompt": v, "always_search": False}
+                elif isinstance(v, dict) and isinstance(v.get("prompt"), str):
+                    parsed[k.lower()] = {"prompt": v["prompt"], "always_search": bool(v.get("always_search", False))}
+            _CHANNEL_PROMPTS_CACHE = parsed
+            _CHANNEL_PROMPTS_CACHE_TIME = now
+            return _CHANNEL_PROMPTS_CACHE
+        except FileNotFoundError:
             _CHANNEL_PROMPTS_CACHE = {}
             _CHANNEL_PROMPTS_CACHE_TIME = now
             return _CHANNEL_PROMPTS_CACHE
-        data = json.loads(raw)
-        parsed = {}
-        for k, v in data.items():
-            if isinstance(v, str):
-                parsed[k.lower()] = {"prompt": v, "always_search": False}
-            elif isinstance(v, dict) and isinstance(v.get("prompt"), str):
-                parsed[k.lower()] = {"prompt": v["prompt"], "always_search": bool(v.get("always_search", False))}
-        _CHANNEL_PROMPTS_CACHE = parsed
-        _CHANNEL_PROMPTS_CACHE_TIME = now
-        return _CHANNEL_PROMPTS_CACHE
-    except FileNotFoundError:
-        _CHANNEL_PROMPTS_CACHE = {}
-        _CHANNEL_PROMPTS_CACHE_TIME = now
-        return _CHANNEL_PROMPTS_CACHE
-    except Exception:
-        logging.getLogger('Grok').exception('Failed to load grok_channel_prompts.json')
-        # Update cache time even on failure to prevent repeated error spam
-        _CHANNEL_PROMPTS_CACHE_TIME = now
-        return _CHANNEL_PROMPTS_CACHE
+        except Exception:
+            logging.getLogger('Grok').exception('Failed to load grok_channel_prompts.json')
+            # Update cache time even on failure to prevent repeated error spam
+            _CHANNEL_PROMPTS_CACHE_TIME = now
+            return _CHANNEL_PROMPTS_CACHE
 
 def _read_api_key_raw(bot):
     """Read API key directly from the config file, bypassing the sopel shim which masks SecretAttribute values."""
@@ -407,7 +416,7 @@ def setup(bot):
     bot.memory['grok_channel_personality'] = {}  # per-channel dynamic personality overrides
     bot.memory['grok_user_personality'] = {}  # per-user personalities: {channel: {nick: personality}}
     # Bounded TTL caches for ephemeral data (replaces unbounded bot.memory keys)
-    bot.memory['grok_dedup_cache'] = _BoundedTTLCache(maxsize=2000, ttl=2.0)
+    bot.memory['grok_dedup_cache'] = _BoundedTTLCache(maxsize=2000, ttl=10.0)  # must exceed dedup window (5s)
     bot.memory['grok_user_last_cache'] = _BoundedTTLCache(maxsize=5000, ttl=300.0)
     bot.memory['grok_learn_counters'] = {}  # per-channel learn counter (bounded by # channels)
 
@@ -446,9 +455,13 @@ def setup(bot):
     # Start API worker threads
     global API_WORKER_SHUTDOWN
     API_WORKER_SHUTDOWN = False
+    worker_threads = []
     for _ in range(API_WORKER_COUNT):
         t = threading.Thread(target=_api_worker_loop, daemon=True)
         t.start()
+        worker_threads.append(t)
+    # Store so shutdown() can join them before resetting the global flag.
+    bot.memory['grok_worker_threads'] = worker_threads
 
 
 def shutdown(bot):
@@ -462,6 +475,13 @@ def shutdown(bot):
             API_TASK_QUEUE.put_nowait(None)
         except queue.Full:
             pass
+
+    # Wait for all worker threads to exit before returning.
+    # This ensures setup() never resets API_WORKER_SHUTDOWN while old threads
+    # are still running (the reload race condition).
+    workers = bot.memory.pop('grok_worker_threads', [])
+    for t in workers:
+        t.join(timeout=3.0)
 
     # Drain any remaining tasks
     try:
@@ -847,6 +867,41 @@ def sanitize_reply(bot, trigger, reply):
 
     return reply
 
+
+def _detect_action_reply(reply):
+    """Detect action-style replies: AI responded with a third-person verb.
+
+    e.g. "farts on End3r", "hugs End3r warmly", "waves at everyone", "uppercuts boliver"
+    """
+    words = reply.split()
+    if not words:
+        return False
+    first_word = words[0].lower().rstrip('.,;:!?')
+    if not first_word.endswith('s') or len(first_word) <= 2:
+        return False
+
+    NON_ACTION_WORDS = {
+        'is', 'was', 'has', 'does', 'says', 'seems', 'looks', 'feels', 'sounds', 'appears',
+        'this', 'its', 'us', 'yes', 'sometimes', 'always', 'perhaps', 'besides', 'unless',
+        'anyways', 'anyway', 'thanks', 'congrats', 'cheers', 'oops', 'alas', 'please', 'thus',
+        'so', 'as', 'itself', 'ours', 'yours', 'his', 'hers', 'theirs', 'whose', 'whats', "what's",
+        'theres', "there's", 'heres', "here's", 'lets', "let's", 'thinks', 'knows', 'wants',
+        'needs', 'likes', 'hopes', 'wishes', 'means', 'keeps', 'makes', 'takes', 'gives', 'goes',
+        'comes', 'gets', 'finds', 'tells', 'asks', 'calls', 'tries', 'should', 'would', 'could',
+        'must', 'news', 'bias', 'basis', 'focus', 'chaos', 'status', 'series', 'species', 'progress'
+    }
+    if first_word in NON_ACTION_WORDS:
+        return False
+
+    if len(words) > 1:
+        second_word = words[1].lower().rstrip('.,;:!?')
+        PLURAL_FOLLOW_VERBS = {'are', 'were', 'have', 'do', 'will', 'can', 'should', 'would', 'could'}
+        if second_word in PLURAL_FOLLOW_VERBS:
+            return False
+
+    return True
+
+
 def _call_responses_api(bot, messages, model, temp, max_toks, search_mode=False, conv_id=None):
     """Call Responses API with request validation and response schema validation."""
     if not messages or not isinstance(messages, list):
@@ -1070,7 +1125,8 @@ def _api_worker(*, bot, trigger, messages, review_mode, is_pm, bot_nick, chan_lo
                 return
 
         reply = ' '.join(line.strip() for line in reply.splitlines() if line.strip())
-        reply = re.sub(r'\s*\[\d+\]', '', reply)
+        reply = re.sub(r'\s*\[\w+:\d+\]', '', reply)  # [web:6], [web:8], etc.
+        reply = re.sub(r'\s*\[\d+\]', '', reply)       # [1], [2], etc.
 
         # Citation Cache: Store citations from successful searches, 
         # load from cache for "show sources" requests.
@@ -1169,15 +1225,25 @@ def _api_worker(*, bot, trigger, messages, review_mode, is_pm, bot_nick, chan_lo
         # Detect action-style replies: AI responded with a third-person verb
         # e.g. "farts on End3r", "hugs End3r warmly", "waves at everyone"
         # These should be sent as /me actions, not prefixed with the requester's nick.
-        _reply_is_action = bool(re.match(
-            r'^[a-z]+(?:e?s)?\s+(?:on|at|to|toward|with|for|from|around|into)\s',
-            reply
-        ))
+        _reply_is_action = _detect_action_reply(reply)
 
         if is_action or _reply_is_action:
             final_reply = reply
         elif not is_chimein and trigger.nick.lower() not in reply.lower() and not _is_owner(bot, trigger):
-            final_reply = f"{trigger.nick}: {reply}"
+            # Check if the reply already addresses someone in the channel
+            # (e.g. relay/tell: "Glitchy tell Milamber ..." → AI replies "milamber ...")
+            _first_word = reply.split()[0].rstrip(',:').lower() if reply.split() else ''
+            _chan_users = set()
+            try:
+                _chan_obj = bot.channels.get(trigger.sender)
+                if _chan_obj:
+                    _chan_users = {u.lower() for u in _chan_obj.users}
+            except Exception:
+                pass
+            if _first_word and _first_word in _chan_users:
+                final_reply = reply
+            else:
+                final_reply = f"{trigger.nick}: {reply}"
         else:
             final_reply = reply
 
@@ -1260,10 +1326,19 @@ def _db_get_user_profile(bot, nick):
         _log(bot).exception('Failed to get profile for %s', nick)
         return None
 
+# Validated column map — prevents f-string SQL from being accidentally broken
+# if the whitelist check is changed later. Keys are the public field names,
+# values are the literal column names in grok_user_profiles.
+_PROFILE_COL_MAP = {
+    'nationality': 'nationality',
+    'location': 'location',
+    'weather_location': 'weather_location',
+}
+
 def _db_update_profile_field(bot, nick, field, value, updated_by):
     """Update a specific profile field (nationality, location, weather_location)."""
-    valid_fields = {'nationality', 'location', 'weather_location'}
-    if field not in valid_fields:
+    col = _PROFILE_COL_MAP.get(field)
+    if col is None:
         return False
     try:
         with _DBContext(bot) as conn:
@@ -1274,7 +1349,7 @@ def _db_update_profile_field(bot, nick, field, value, updated_by):
             now_ts = datetime.datetime.utcnow().isoformat()
             if exists:
                 c.execute(
-                    f'UPDATE grok_user_profiles SET {field} = ?, last_updated = ?, updated_by = ? WHERE nick = ?',
+                    f'UPDATE grok_user_profiles SET {col} = ?, last_updated = ?, updated_by = ? WHERE nick = ?',
                     (value, now_ts, updated_by.lower(), nick.lower())
                 )
             else:
@@ -1361,21 +1436,26 @@ def _format_profile_for_context(nick, profile, include_facts=True):
     """Format user profile data for inclusion in AI context."""
     if not profile:
         return None
-    parts = []
+    basic_parts = []
     if profile.get('nationality'):
-        parts.append(f"Nationality: {profile['nationality']}")
+        basic_parts.append(f"Nationality: {profile['nationality']}")
     if profile.get('location'):
-        parts.append(f"Location: {profile['location']}")
+        basic_parts.append(f"Location: {profile['location']}")
     if profile.get('weather_location'):
-        parts.append(f"Weather location: {profile['weather_location']}")
-    if include_facts and profile.get('facts'):
-        facts_formatted = "\n- ".join(profile['facts'])
-        parts.append(f"Notable facts:\n- {facts_formatted}")
-    
-    if not parts:
+        basic_parts.append(f"Weather location: {profile['weather_location']}")
+
+    has_facts = include_facts and bool(profile.get('facts'))
+    if not basic_parts and not has_facts:
         return None
-    
-    return f"Profile for {nick}: {', '.join(parts)}"
+
+    header = f"Profile for {nick}:"
+    if basic_parts:
+        header += ' ' + ', '.join(basic_parts)
+    lines = [header]
+    if has_facts:
+        facts_formatted = "\n- ".join(profile['facts'])
+        lines.append(f"Notable facts:\n- {facts_formatted}")
+    return '\n'.join(lines)
 
 # ==================== PROFILE SUGGESTION FUNCTIONS ====================
 
@@ -1500,8 +1580,9 @@ def _extract_facts_from_conversation(bot, channel_log, user_nick):
     
     extraction_prompt = f"""Analyze this IRC conversation log and extract factual information about the user '{user_nick}'.
 
-Conversation log:
+<conversation_log>
 {log_text}
+</conversation_log>
 
 Extract clear, factual statements about {user_nick}. Examples of good facts:
 - "is from Canada"
@@ -1773,17 +1854,33 @@ def _heuristic_intent_check(bot, trigger, line, bot_nick):
         return True
     if re.search(rf'{re.escape(bot_nick)}\s*\W*$', s, re.IGNORECASE):
         return True
+    # Addressed to someone else explicitly via "Nick:" or "hey Nick,"
+    if re.match(r'^\s*(?:hey|hi|yo|hello)?\s*[a-zA-Z0-9_|-]+[:,]\s+', s, re.IGNORECASE):
+        if not re.match(rf'^\s*(?:hey|hi|yo|hello)?\s*{re.escape(bot_nick)}[:,]\s+', s, re.IGNORECASE):
+            return False
+
+    # Nick is part of a conjunction list (glitchy and X, X and glitchy)
+    if (re.search(rf'\b{re.escape(nick)}\s+(?:and|or)\s+\w+\b', lower) or 
+        re.search(rf'\b\w+\s+(?:and|or)\s+{re.escape(nick)}\b', lower)):
+        # But allow it if the message is explicitly addressed to the bot at the start
+        if not re.match(rf'^\s*(?:hey|hi|yo|hello)?\s*{re.escape(bot_nick)}[:,>\s]', s, re.IGNORECASE):
+            return False
+
     if '?' in s and re.search(rf'\b{re.escape(bot_nick)}\b', s, re.IGNORECASE):
         return True
     words = s.split()
     if len(words) <= 6 and re.search(rf'\b{re.escape(bot_nick)}\b', s, re.IGNORECASE):
         return True
-    if re.search(r'[,@]|\band\b', s) and re.search(rf'\b{re.escape(bot_nick)}\b', s, re.IGNORECASE):
-        if not re.match(rf'^\s*{re.escape(bot_nick)}', s, re.IGNORECASE):
-            return False
     # Default: for longer messages where no clear "talking TO the bot" signal
     # was found, assume it's about the bot, not to it.
     return False
+
+@plugin.intent('ACTION')
+@plugin.priority('high')
+def handle_action(bot, trigger):
+    """Catch /me actions that mention the bot and route them through handle()."""
+    handle(bot, trigger)
+
 
 @plugin.rule('.*')
 @plugin.priority('high')
@@ -1941,14 +2038,12 @@ def handle(bot, trigger):
         is_action = (
             getattr(trigger, 'ctcp', None) == 'ACTION'
             or bool(re.match(r'^\x01ACTION\s+', line))
-            or line.startswith('/me ')
         )
         if is_action:
-            if line.startswith('/me '):
-                action_text = line[4:]
-            else:
-                m_ctcp = re.match(r'^\x01ACTION\s+(.+?)\x01?$', line)
-                action_text = m_ctcp.group(1) if m_ctcp else line
+            # Sopel 8 strips CTCP bytes; trigger.ctcp == 'ACTION' and line == clean text.
+            # For older Sopel versions, fall back to raw CTCP parse.
+            m_ctcp = re.match(r'^\x01ACTION\s+(.+?)\x01?$', line)
+            action_text = m_ctcp.group(1) if m_ctcp else line
             if re.search(rf'\b{re.escape(bot_nick)}\b', action_text, re.IGNORECASE):
                 line = f"* {trigger.nick} {action_text}"
                 action_bot_mentioned = True
@@ -1996,7 +2091,14 @@ def handle(bot, trigger):
         per_conv_key = (trigger.sender, trigger.nick)
 
     with chan_lock:
-        history = bot.memory['grok_history'].setdefault(
+        _gh = bot.memory['grok_history']
+        if per_conv_key not in _gh and len(_gh) > 2000:
+            # Evict the oldest entry to prevent unbounded dict growth from transient nicks.
+            try:
+                del _gh[next(iter(_gh))]
+            except (StopIteration, RuntimeError, KeyError):
+                pass
+        history = _gh.setdefault(
             per_conv_key,
             deque(maxlen=MAX_HISTORY_ENTRIES),
         )
@@ -2416,7 +2518,13 @@ def handle(bot, trigger):
     _time_is_location_query = time_mode and bool(
         re.search(r'\bin\s+[a-z]', user_message, re.IGNORECASE)
     )
-    if time_mode and not _time_is_location_query and len(user_message.split()) <= 8:
+    # Skip the shortcut if the question is about sunrise/sunset/dawn/dusk — the
+    # user wants a computed answer, not the current time.
+    _time_needs_lookup = time_mode and bool(
+        re.search(r'\b(sun\s*rise|sun\s*set|sunrise|sunset|dawn|dusk|golden\s+hour|first\s+light|last\s+light)\b',
+                  user_message, re.IGNORECASE)
+    )
+    if time_mode and not _time_is_location_query and not _time_needs_lookup and len(user_message.split()) <= 8:
         bot.say(now_str, trigger.sender)
         return
     
@@ -2504,10 +2612,13 @@ def handle(bot, trigger):
     
     # Add profiles for mentioned users
     # In channels, suppress auto-learned facts to avoid cross-channel leakage
+    # UNLESS the query needs a location lookup (sunrise/sunset) — then include
+    # facts so the AI can find the mentioned user's city.
     for mentioned_nick in mentioned_nicks:
         mentioned_profile = _db_get_user_profile(bot, mentioned_nick)
         if mentioned_profile:
-            profile_text = _format_profile_for_context(mentioned_nick, mentioned_profile, include_facts=is_pm)
+            _include_mentioned_facts = is_pm or _time_needs_lookup
+            profile_text = _format_profile_for_context(mentioned_nick, mentioned_profile, include_facts=_include_mentioned_facts)
             if profile_text:
                 messages.append({"role": "system", "content": profile_text})
 
@@ -2651,6 +2762,9 @@ def handle(bot, trigger):
         # If user is asking for sources/URLs, force search so the API returns real citations
         if wants_sources:
             search_mode = True
+        # Sunrise/sunset/dawn/dusk queries need a web lookup
+        if _time_needs_lookup:
+            search_mode = True
         # If responding to a /me action, tell Grok to reply in /me style
         if action_bot_mentioned:
             messages.append({"role": "system", "content":
@@ -2679,6 +2793,8 @@ def handle(bot, trigger):
 
 @plugin.command('testemote')
 def testemote(bot, trigger):
+    if not _is_admin(bot, trigger):
+        return
     bot.say('Emote plugin loaded, bot nick: ' + bot.nick)
 
 @plugin.command('grokreset')
@@ -3200,7 +3316,7 @@ def _scheck_worker(bot, requester, channel, target_nick, messages_text):
                 'model': model,
                 'messages': [
                     {'role': 'system', 'content': system_prompt},
-                    {'role': 'user', 'content': f"Analyze these messages:\n\n{messages_text}"},
+                    {'role': 'user', 'content': f"Analyze these messages:\n\n<messages>\n{messages_text}\n</messages>"},
                 ],
                 'temperature': 0.3,
                 'max_tokens': 250,
