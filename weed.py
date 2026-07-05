@@ -185,7 +185,7 @@ KEEF_ACTION_MESSAGES = [
 ]
 
 KEEF_FINAL_MESSAGES = [
-    formatting.bold(formatting.color("Keef it to the moon! ✨�", formatting.colors.YELLOW)),
+    formatting.bold(formatting.color("Keef it to the moon! ✨🌙", formatting.colors.YELLOW)),
     formatting.color("That keef hits different 🌌💫", formatting.colors.YELLOW),
     formatting.color("Golden dust vibes ✨🍯", formatting.colors.YELLOW),
     formatting.color("Sprinkle a little magic on it 🧚‍♀️🪄", formatting.colors.YELLOW),
@@ -195,7 +195,7 @@ KEEF_FINAL_MESSAGES = [
 KEEF_COUNTDOWN = [
     formatting.color("✨ 3... Collecting dust...", formatting.colors.YELLOW),
     formatting.color("🪄 2... Sprinkling...", formatting.colors.YELLOW),
-    formatting.color("� 1... Melting...", formatting.colors.RED),
+    formatting.color("🔥 1... Melting...", formatting.colors.RED),
 ]
 
 
@@ -386,6 +386,215 @@ TOKE_COUNTDOWN = [
 ]
 
 
+# =======================
+# EDIBLES Content
+# =======================
+EDIBLE_GIFTS = [
+    "a double-fudge canna-brownie 🍫🌿", "a bag of 100mg gummy worms 🪱🌈",
+    "a space cake straight from Amsterdam 🍰🚀", "a THC chocolate bar (12 squares) 🍫✨",
+    "a canna-butter rice krispie treat 🍬🌿", "a jar of infused honey 🍯💫",
+    "a THC seltzer (10mg) 🥤🫧", "a bag of canna-caramel popcorn 🍿🍯",
+    "a firecracker (peanut butter + decarb) 🥜🧨", "a weed lollipop 🍭🌿",
+    "a tin of 5mg mints (deceptively innocent) 🌬️😇", "a slice of infused cheesecake 🍰😍",
+    "a canna-cookie the size of your face 🍪🌕", "a THC capsule for the no-nonsense stoner 💊📋",
+]
+
+EDIBLE_ACTION_MESSAGES = [
+    "hands {target} {gift} — start low, go slow 🐢",
+    "passes {gift} to {target} — wait an hour before round two! ⏰",
+    "serves {target} {gift} fresh from the canna-kitchen 👩‍🍳🌿",
+    "sneaks {gift} to {target} with a knowing nod 🤫",
+    "plates up {gift} for {target} — bon appétit 🍽️✨",
+]
+
+EDIBLE_FINAL_MESSAGES = [
+    formatting.bold(formatting.color("Edibles kicking in — you are now one with the couch 🛋️🫠", formatting.colors.GREEN)),
+    formatting.color("45 minutes in: 'these aren't working' — famous last words 😂⏳", formatting.colors.LIGHT_GREEN),
+    formatting.color("Two hours later: WHY is the ceiling so far away 🌌😳", formatting.colors.GREEN),
+    formatting.color("Body high activated — gravity now 3x stronger 🪐😌", formatting.colors.LIGHT_GREEN),
+    formatting.color("Do NOT eat the second brownie. Narrator: they ate the second brownie 🍫💀", formatting.colors.GREEN),
+    formatting.color("Munchies inbound from an edible?? Snackception 🍕🍪♾️", formatting.colors.LIGHT_GREEN),
+]
+
+EDIBLE_COUNTDOWN = [
+    formatting.color("🍪 3... Chewing...", formatting.colors.GREEN),
+    formatting.color("⏰ 2... Waiting... waiting...", formatting.colors.YELLOW),
+    formatting.color("🚀 1... Oh. OH. It hits...", formatting.colors.RED),
+]
+
+
+# =======================
+# DAB Content
+# =======================
+DAB_GIFTS = [
+    "a low-temp dab of live rosin 💎🌿", "a fat glob of shatter ⚡🍯",
+    "a terp pearl spinning in a banger 🔮🌪️", "a scoop of golden budder 🧈✨",
+    "a diamond-and-sauce dab 💎🍯", "a crumble dab of Wedding Cake 🍰⚡",
+    "a full-melt hash rosin dab 🫠💛", "a cold-start dab (patience pays) ❄️🔥",
+    "a honey-bucket swing of distillate 🍯🌀", "a THCa diamond the size of a dice 🎲💎",
+]
+
+DAB_ACTION_MESSAGES = [
+    "heats the banger to a perfect 500° and dabs {gift} for {target} 🔥🌡️",
+    "carb caps {gift} for {target} — milk it 🌪️🥛",
+    "twirls {gift} onto the nail for {target} 💎🔥",
+    "loads {gift} into the e-rig and hands it to {target} 🔋💨",
+    "drops {gift} in for {target} — exhale when you see God 😇💨",
+]
+
+DAB_FINAL_MESSAGES = [
+    formatting.bold(formatting.color("SEND IT — one dab and you're in orbit 🚀💎", formatting.colors.CYAN)),
+    formatting.color("Coughing is just your lungs applauding 👏😵‍💫💨", formatting.colors.LIGHT_BLUE),
+    formatting.color("Low temp, full flavor — taste those terps 🍋🌲👅", formatting.colors.CYAN),
+    formatting.color("That glob was NOT a personal-size portion 😳⚡", formatting.colors.LIGHT_BLUE),
+    formatting.color("Welcome to Dab City. Population: you, melting 🏙️🫠", formatting.colors.CYAN),
+]
+
+DAB_COUNTDOWN = [
+    formatting.color("🔥 3... Heating the banger...", formatting.colors.RED),
+    formatting.color("❄️ 2... Letting it cool... patience...", formatting.colors.CYAN),
+    formatting.color("💎 1... Send it...", formatting.colors.LIGHT_BLUE),
+]
+
+
+# =======================
+# BLUNT Content
+# =======================
+BLUNT_GIFTS = [
+    "a slow-burning backwoods 🍂🔥", "a grape Swisher Sweet 🍇🚬",
+    "a two-gram torpedo 🚀🌿", "a hemp-wrap blunt (tobacco-free) 🌱✨",
+    "a gold-leaf-wrapped blunt (bougie mode) 🏆💛", "a Dutch Master rolled to perfection 🎩🌿",
+    "an L rolled with extra crutch 📐🚬", "a honey-dipped blunt 🍯🔥",
+    "a snoop-approved 10-incher 🎤🌿", "a front-to-back even burn (rare) 🕯️👌",
+]
+
+BLUNT_ACTION_MESSAGES = [
+    "breaks down a swisher and rolls {gift} for {target} 🍂🤲",
+    "sparks {gift} and passes it to {target} — left side 🔥👈",
+    "seals {gift} with a slow lick and hands it to {target} 👅📜",
+    "puts {gift} behind {target}'s ear for later 👂🌿",
+    "lights {gift} for {target} — respect the rotation 🔁🔥",
+]
+
+BLUNT_FINAL_MESSAGES = [
+    formatting.bold(formatting.color("Blunt sesh: slow burns, deep laughs, loud speakers 🎶🍂🔥", formatting.colors.ORANGE)),
+    formatting.color("Puff puff PASS — this ain't a solo mission 🫵🔁", formatting.colors.YELLOW),
+    formatting.color("The rotation is sacred. Don't break the circle ⭕🙏", formatting.colors.ORANGE),
+    formatting.color("Backwoods burning slow — settle in, we're here a while 🍂⏳", formatting.colors.YELLOW),
+    formatting.color("Canoeing?? Somebody lick that thing back into shape 🛶😤", formatting.colors.ORANGE),
+]
+
+BLUNT_COUNTDOWN = [
+    formatting.color("🍂 3... Splitting the wrap...", formatting.colors.ORANGE),
+    formatting.color("👅 2... Rolling it tight...", formatting.colors.YELLOW),
+    formatting.color("🔥 1... Sparking...", formatting.colors.RED),
+]
+
+
+# =======================
+# VAPE Content
+# =======================
+VAPE_GIFTS = [
+    "a live resin cart (Blue Dream) 🫐☁️", "a fresh disposable pen 🖊️💨",
+    "a dry-herb vape at exactly 185°C 🌡️🌿", "a rosin cart — solventless gang 💎🖊️",
+    "a full-spectrum pod ☁️🌈", "a discreet mini pen for the movies 🎬🤫",
+    "a cart with the terps of a lemon grove 🍋☁️", "a volcano bag filled to the brim 🌋💨",
+    "an old-school vape brick from 2015 (still works) 🧱😂", "a ceramic-coil cart (smooth operator) 🏺💨",
+]
+
+VAPE_ACTION_MESSAGES = [
+    "hands {target} {gift} — 3 clicks to start ☁️🔋",
+    "passes {gift} to {target} — no smell, no tell 🤫💨",
+    "preheats {gift} for {target} 🌡️✨",
+    "slides {gift} to {target} — sneaky hits only 🥷☁️",
+    "fills the balloon and hands {gift} to {target} 🎈💨",
+]
+
+VAPE_FINAL_MESSAGES = [
+    formatting.bold(formatting.color("Vape clouds: show off your fattest ring ☁️🏆", formatting.colors.LIGHT_BLUE)),
+    formatting.color("Stealth mode: hit it in the parking lot, nobody knows 🥷☁️", formatting.colors.CYAN),
+    formatting.color("Battery died mid-sesh — a moment of silence 🔋🪦", formatting.colors.LIGHT_BLUE),
+    formatting.color("Smooth pulls, zero cough — technology is beautiful 🤖☁️", formatting.colors.CYAN),
+    formatting.color("That cart hits like a freight train in slippers 🚂🥿", formatting.colors.LIGHT_BLUE),
+]
+
+VAPE_COUNTDOWN = [
+    formatting.color("🔋 3... Charging up...", formatting.colors.LIGHT_BLUE),
+    formatting.color("🌡️ 2... Preheating...", formatting.colors.YELLOW),
+    formatting.color("☁️ 1... Rip it...", formatting.colors.CYAN),
+]
+
+
+# =======================
+# HASH Content
+# =======================
+HASH_GIFTS = [
+    "a temple ball of Nepalese hash 🏯🟤", "a slab of Moroccan blonde 🇲🇦✨",
+    "a finger of hand-rubbed charas 🖐️🌿", "a bowl of full-melt bubble hash 🫧💛",
+    "a gram of Lebanese red 🇱🇧🔴", "a piece of Afghani black 🖤🏔️",
+    "some dry-sift pressed fresh 🧈✨", "a snake of hash rolled for the spliff 🐍🚬",
+    "a chunk that smells like 1974 🕰️🟤", "a hot-knife hit (kitchen chemistry) 🔪🔥",
+]
+
+HASH_ACTION_MESSAGES = [
+    "crumbles {gift} into the bowl for {target} 🤲🟤",
+    "warms {gift} and passes it to {target} 🔥🖐️",
+    "presses {gift} into {target}'s palm — old world style 🏺✨",
+    "rolls {gift} into a snake and tops {target}'s spliff 🐍🚬",
+    "shares {gift} with {target} — centuries of tradition 📜🟤",
+]
+
+HASH_FINAL_MESSAGES = [
+    formatting.bold(formatting.color("Old-world hash: centuries of craft in one bowl 🏺🟤✨", formatting.colors.ORANGE)),
+    formatting.color("Temple ball glistening — this is artisanal stoning 🏯💎", formatting.colors.YELLOW),
+    formatting.color("That charas came down a mountain on a donkey. Respect it 🏔️🐴", formatting.colors.ORANGE),
+    formatting.color("Bubble hash so clean it melts like butter 🫧🧈", formatting.colors.YELLOW),
+    formatting.color("One hot knife and you're speaking in colors 🔪🌈", formatting.colors.ORANGE),
+]
+
+HASH_COUNTDOWN = [
+    formatting.color("🟤 3... Warming the hash...", formatting.colors.ORANGE),
+    formatting.color("🤲 2... Crumbling it in...", formatting.colors.YELLOW),
+    formatting.color("🔥 1... Torching...", formatting.colors.RED),
+]
+
+
+# =======================
+# MUNCHIES Content
+# =======================
+MUNCHIES_GIFTS = [
+    "an entire large pepperoni pizza 🍕📦", "a family-size bag of nacho cheese chips 🧀🔺",
+    "a gas-station haul (chips, slushie, 3 candy bars) ⛽🛍️",
+    "a tub of cookie dough ice cream 🍦🍪", "a tray of loaded nachos 🧀🌶️",
+    "a box of cereal + the milk (no bowl) 🥣❌", "a stack of peanut butter toast 🥜🍞",
+    "a bag of gummy sharks 🦈🌈", "cold leftover chinese takeout (elite tier) 🥡😤",
+    "a sleeve of chocolate sandwich cookies 🍪🖤", "a microwave burrito at 2am 🌯🕑",
+    "the entire snack drawer, unlocked 🗄️🔓",
+]
+
+MUNCHIES_ACTION_MESSAGES = [
+    "delivers {gift} to {target} — emergency rations 🚨🍕",
+    "slides {gift} to {target} — no judgment here 🤝🍪",
+    "airdrops {gift} onto {target}'s lap 🪂🍿",
+    "presents {gift} to {target} like a Michelin course 👨‍🍳✨",
+    "hands {target} {gift} — the sesh saver 🦸🍫",
+]
+
+MUNCHIES_FINAL_MESSAGES = [
+    formatting.bold(formatting.color("MUNCHIES RUN! Pizza, tacos, cereal — vote now 🍕🌮🥣", formatting.colors.YELLOW)),
+    formatting.color("That first bite after the sesh?? Best meal of your LIFE 😭🍕", formatting.colors.ORANGE),
+    formatting.color("Chips + candy + pickle in one bite. Genius or war crime? 🧪😳", formatting.colors.YELLOW),
+    formatting.color("The fridge light hits different at 1am 🧊💡😌", formatting.colors.ORANGE),
+    formatting.color("You've eaten cereal three times today and that's okay 🥣🥣🥣", formatting.colors.YELLOW),
+]
+
+MUNCHIES_COUNTDOWN = [
+    formatting.color("🍕 3... Raiding the kitchen...", formatting.colors.YELLOW),
+    formatting.color("🎤 2... Microwave hums...", formatting.colors.ORANGE),
+    formatting.color("😋 1... FEAST...", formatting.colors.RED),
+]
+
+
 # Content Mapping
 DATA = {
     'weed': (WEED_GIFTS, WEED_ACTION_MESSAGES, WEED_FINAL_MESSAGES, WEED_COUNTDOWN),
@@ -401,6 +610,14 @@ DATA = {
     'peyote': (PEYOTE_GIFTS, PEYOTE_ACTION_MESSAGES, PEYOTE_FINAL_MESSAGES, PEYOTE_COUNTDOWN),
     'mescaline': (PEYOTE_GIFTS, PEYOTE_ACTION_MESSAGES, PEYOTE_FINAL_MESSAGES, PEYOTE_COUNTDOWN),
     'toke': (TOKE_GIFTS, TOKE_ACTION_MESSAGES, TOKE_FINAL_MESSAGES, TOKE_COUNTDOWN),
+    'edibles': (EDIBLE_GIFTS, EDIBLE_ACTION_MESSAGES, EDIBLE_FINAL_MESSAGES, EDIBLE_COUNTDOWN),
+    'edible': (EDIBLE_GIFTS, EDIBLE_ACTION_MESSAGES, EDIBLE_FINAL_MESSAGES, EDIBLE_COUNTDOWN),
+    'dab': (DAB_GIFTS, DAB_ACTION_MESSAGES, DAB_FINAL_MESSAGES, DAB_COUNTDOWN),
+    'dabs': (DAB_GIFTS, DAB_ACTION_MESSAGES, DAB_FINAL_MESSAGES, DAB_COUNTDOWN),
+    'blunt': (BLUNT_GIFTS, BLUNT_ACTION_MESSAGES, BLUNT_FINAL_MESSAGES, BLUNT_COUNTDOWN),
+    'vape': (VAPE_GIFTS, VAPE_ACTION_MESSAGES, VAPE_FINAL_MESSAGES, VAPE_COUNTDOWN),
+    'hash': (HASH_GIFTS, HASH_ACTION_MESSAGES, HASH_FINAL_MESSAGES, HASH_COUNTDOWN),
+    'munchies': (MUNCHIES_GIFTS, MUNCHIES_ACTION_MESSAGES, MUNCHIES_FINAL_MESSAGES, MUNCHIES_COUNTDOWN),
 }
 
 
@@ -412,35 +629,72 @@ def _format_remaining(seconds):
     return f"{secs}s"
 
 
-def _countdown_and_final(bot, channel, cmd, countdown_msgs, final_messages, current_thread):
+def _cooldown_check_and_set(store, key, cooldown, now):
+    """Atomically check a cooldown and claim it if free.
+
+    Returns 0.0 if claimed (caller may proceed), else the remaining seconds.
+    Check and set happen under one lock so two simultaneous triggers can't
+    both pass the check. Also prunes stale entries so the dicts don't grow
+    forever.
+    """
+    with LOCK:
+        last = store.get(key)
+        if last and (now - last) < cooldown:
+            return cooldown - (now - last)
+        store[key] = now
+        if len(store) > 512:
+            stale = [k for k, t in store.items() if (now - t) > COOLDOWN]
+            for k in stale:
+                store.pop(k, None)
+        return 0.0
+
+
+def _start_countdown(bot, channel, cmd, countdown_msgs, final_msgs, source='command'):
+    """Spawn the countdown/final-message background thread."""
+    try:
+        t = threading.Thread(
+            target=_countdown_and_final,
+            args=(bot, channel, cmd, countdown_msgs, final_msgs),
+            daemon=True,
+            name=f"weed_{source}_{cmd}_{channel}",
+        )
+        t.start()
+        LOG.debug(f"Started {source} countdown thread for ${cmd} in {channel}")
+    except Exception as e:
+        LOG.error(f"Error starting countdown thread for ${cmd}: {e}")
+
+
+def _countdown_and_final(bot, channel, cmd, countdown_msgs, final_messages):
     """Run countdown and final message in a background thread.
-    
+
     Args:
         bot: Sopel bot instance
         channel: IRC channel name
         cmd: Command name (for logging context)
         countdown_msgs: List of countdown messages
         final_messages: List of final messages
-        current_thread: Reference to this thread (for tracking)
     """
+    # Must be resolved HERE, inside the new thread — resolving it in the
+    # spawner's args would register the Sopel handler thread instead.
+    current_thread = threading.current_thread()
     try:
         # Register this thread
         with _THREAD_LOCK:
             _ACTIVE_THREADS.add(current_thread)
-        
+
         # Run countdown with shutdown signal checking
         if len(countdown_msgs) == 3:
             for i, msg in enumerate(countdown_msgs):
                 # Check if shutdown was requested
                 if _SHUTDOWN_EVENT.is_set():
-                    LOG.debug(f"Countdown interrupted for ${ cmd} in {channel} (shutdown)")
+                    LOG.debug(f"Countdown interrupted for ${cmd} in {channel} (shutdown)")
                     return
-                
+
                 bot.say(msg, channel)
-                
+
                 # Sleep in small increments to check shutdown signal
                 if i < len(countdown_msgs) - 1:
-                    for _ in range(6):  # 6 seconds total (12 per message = ~18 seconds total)
+                    for _ in range(6):  # 6s between messages (~12s total)
                         if _SHUTDOWN_EVENT.is_set():
                             LOG.debug(f"Countdown sleep interrupted for ${cmd} in {channel}")
                             return
@@ -481,7 +735,9 @@ def _cleanup_threads():
         LOG.debug("All countdown threads completed gracefully")
 
 
-@module.commands('weed', 'bong', 'joint', 'keef', 'kief', 'trip', 'shrooms', 'mushrooms', 'acid', 'lsd', 'peyote', 'mescaline', 'toke')
+@module.commands('weed', 'bong', 'joint', 'keef', 'kief', 'trip', 'shrooms', 'mushrooms',
+                 'acid', 'lsd', 'peyote', 'mescaline', 'toke', 'edibles', 'edible',
+                 'dab', 'dabs', 'blunt', 'vape', 'hash', 'munchies')
 @module.example('$weed username', 'Give a user a random weed item/message')
 def weed_commands(bot, trigger):
     """Send a lighthearted smoking message with cooldowns.
@@ -490,92 +746,62 @@ def weed_commands(bot, trigger):
     Otherwise, perform a short non-blocking countdown and post a final message.
     """
     channel = trigger.sender
+    if not str(channel).startswith('#'):
+        bot.notice("These commands only work in channels.", trigger.nick)
+        return
+
     now = time.time()
     user_id = trigger.account or trigger.nick
     cmd = trigger.group(1).lower()
-    
+
     gifts, action_msgs, final_msgs, countdown_msgs = DATA.get(cmd, DATA['weed'])
 
     # Shared cooldown key for all commands
     key = (channel, user_id)
 
-    # If a target user is specified AND they are actually in the channel, give them a random item
+    # If a target user is specified, give them a random item
     target_arg = trigger.group(2).strip() if trigger.group(2) else None
-    chan_obj = bot.channels.get(str(channel))
-    channel_users = [u.lower() for u in chan_obj.users.keys()] if chan_obj else []
-    is_valid_target = target_arg and target_arg.lower() in channel_users
+    if target_arg:
+        target_user = target_arg.split()[0]
+        chan_obj = bot.channels.get(str(channel))
+        if chan_obj is not None:
+            channel_users = [u.lower() for u in chan_obj.users.keys()]
+            if target_user.lower() not in channel_users:
+                # Tell them instead of silently burning the channel countdown cooldown
+                bot.notice(f"{target_user} isn't in the channel.", trigger.nick)
+                return
 
-    if is_valid_target:
-        # Per-user cooldown check (only for give action)
-        try:
-            with LOCK:
-                last_user = PER_USER_LAST.get(key)
-                if last_user:
-                    elapsed_user = now - last_user
-                    if elapsed_user < PER_USER_COOLDOWN:
-                        remaining = PER_USER_COOLDOWN - elapsed_user
-                        bot.notice(f"You must wait {_format_remaining(remaining)} before giving {cmd} again in {channel}.", trigger.nick)
-                        return
-        except (AttributeError, TypeError) as e:
-            LOG.warning(f"Error checking per-user cooldown for ${cmd}: {e}")
+        # Per-user cooldown (atomic check-and-claim)
+        remaining = _cooldown_check_and_set(PER_USER_LAST, key, PER_USER_COOLDOWN, now)
+        if remaining > 0:
+            bot.notice(f"You must wait {_format_remaining(remaining)} before giving {cmd} again in {channel}.", trigger.nick)
             return
-        
-        # Update per-user cooldown
-        try:
-            with LOCK:
-                PER_USER_LAST[key] = now
-        except (AttributeError, TypeError) as e:
-            LOG.error(f"Error updating per-user cooldown for ${cmd}: {e}")
-            return
-        
-        try:
-            target_user = trigger.group(2).strip()
-            gift = random.choice(gifts)
-            template = random.choice(action_msgs)
-            bot.action(template.format(target=target_user, gift=gift))
-            LOG.debug(f"${cmd} gift to {target_user} in {channel} by {user_id}")
-        except Exception as e:
-            LOG.error(f"Error formatting action for ${cmd}: {e}")
+
+        gift = random.choice(gifts)
+        template = random.choice(action_msgs)
+        bot.action(template.format(target=target_user, gift=gift))
+        LOG.debug(f"${cmd} gift to {target_user} in {channel} by {user_id}")
         return
 
-    # Channel cooldown check (only for countdown action)
-    try:
-        with LOCK:
-            last_chan = LAST_USED.get(channel)
-            if last_chan:
-                elapsed = now - last_chan
-                if elapsed < COOLDOWN:
-                    remaining = COOLDOWN - elapsed
-                    bot.notice(f"The countdown is on cooldown for {_format_remaining(remaining)} in {channel}.", trigger.nick)
-                    return
-    except (AttributeError, TypeError) as e:
-        LOG.warning(f"Error checking channel cooldown for ${cmd}: {e}")
+    # Channel countdown cooldown (atomic check-and-claim)
+    remaining = _cooldown_check_and_set(LAST_USED, channel, COOLDOWN, now)
+    if remaining > 0:
+        bot.notice(f"The countdown is on cooldown for {_format_remaining(remaining)} in {channel}.", trigger.nick)
         return
 
-    # Update channel timestamp for countdown action
-    try:
-        with LOCK:
-            LAST_USED[channel] = now
-    except (AttributeError, TypeError) as e:
-        LOG.error(f"Error updating channel cooldown for ${cmd}: {e}")
-        return
-
-    # Start countdown+final message in a background thread to avoid blocking the bot
-    try:
-        t = threading.Thread(
-            target=_countdown_and_final,
-            args=(bot, channel, cmd, countdown_msgs, final_msgs, threading.current_thread()),
-            daemon=True,
-            name=f"weed_countdown_{cmd}_{channel}"
-        )
-        t.start()
-        LOG.debug(f"Started countdown thread for ${cmd} in {channel} by {user_id}")
-    except Exception as e:
-        LOG.error(f"Error starting countdown thread for ${cmd}: {e}")
+    _start_countdown(bot, channel, cmd, countdown_msgs, final_msgs)
 
 
-# Trigger when $command appears anywhere mid-sentence (not at the start, which @module.commands already handles)
-_INLINE_PATTERN = r'.+\$(?P<incmd>weed|bong|joint|keef|kief|trip|shrooms|mushrooms|acid|lsd|peyote|mescaline|toke)\b'
+# Trigger when $command appears mid-sentence. Built from DATA so new commands
+# are picked up automatically. The ^(?!\$) guard means messages that START
+# with a command prefix are left to @module.commands — otherwise a message
+# like "$bong pass the $weed" would fire both the command AND this rule.
+_INLINE_PATTERN = (
+    r'^(?!\$).+\$(?P<incmd>'
+    + '|'.join(sorted(DATA.keys(), key=len, reverse=True))
+    + r')\b'
+)
+
 
 @module.rule(_INLINE_PATTERN)
 def weed_inline(bot, trigger):
@@ -590,31 +816,13 @@ def weed_inline(bot, trigger):
 
     gifts, action_msgs, final_msgs, countdown_msgs = DATA.get(cmd, DATA['weed'])
 
-    try:
-        with LOCK:
-            last_chan = LAST_USED.get(channel)
-            if last_chan and (now - last_chan) < COOLDOWN:
-                remaining = COOLDOWN - (now - last_chan)
-                bot.notice(f"The {cmd} countdown is on cooldown for {_format_remaining(remaining)} in {channel}.", trigger.nick)
-                return
-
-        LAST_USED[channel] = now
-    except (AttributeError, TypeError) as e:
-        LOG.warning(f"Error checking cooldown for inline ${cmd}: {e}")
+    remaining = _cooldown_check_and_set(LAST_USED, channel, COOLDOWN, now)
+    if remaining > 0:
+        bot.notice(f"The {cmd} countdown is on cooldown for {_format_remaining(remaining)} in {channel}.", trigger.nick)
         return
 
-    # Start countdown thread with proper error handling
-    try:
-        t = threading.Thread(
-            target=_countdown_and_final,
-            args=(bot, channel, cmd, countdown_msgs, final_msgs, threading.current_thread()),
-            daemon=True,
-            name=f"weed_inline_{cmd}_{channel}"
-        )
-        t.start()
-        LOG.debug(f"Started inline countdown thread for ${cmd} in {channel} by {user_id}")
-    except Exception as e:
-        LOG.error(f"Error starting inline countdown thread for ${cmd}: {e}")
+    _start_countdown(bot, channel, cmd, countdown_msgs, final_msgs, source='inline')
+    LOG.debug(f"Inline ${cmd} triggered in {channel} by {user_id}")
 
 
 # =======================
@@ -658,17 +866,13 @@ def pass_command(bot, trigger):
     now = time.time()
     user_id = trigger.account or trigger.nick
     key = (channel, user_id, 'pass')
-    with LOCK:
-        last = PER_USER_LAST.get(key)
-        if last and (now - last) < PER_USER_COOLDOWN:
-            remaining = PER_USER_COOLDOWN - (now - last)
-            bot.notice(f"Wait {_format_remaining(remaining)} before passing again.", trigger.nick)
-            return
-        PER_USER_LAST[key] = now
+    remaining = _cooldown_check_and_set(PER_USER_LAST, key, PER_USER_COOLDOWN, now)
+    if remaining > 0:
+        bot.notice(f"Wait {_format_remaining(remaining)} before passing again.", trigger.nick)
+        return
 
     bot.action(random.choice(PASS_ACTIONS).format(target=target))
 
 
 # Register cleanup handler for graceful shutdown
 atexit.register(_cleanup_threads)
-
