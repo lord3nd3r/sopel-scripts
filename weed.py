@@ -874,5 +874,50 @@ def pass_command(bot, trigger):
     bot.action(random.choice(PASS_ACTIONS).format(target=target))
 
 
+# =======================
+# WEEDHELP Command
+# =======================
+@module.commands('weedhelp')
+@module.example('$weedhelp', 'Get a PM listing all weed.py commands')
+def weedhelp_command(bot, trigger):
+    """PM the user a list of all available weed.py commands."""
+    nick = trigger.nick
+    lines = [
+        formatting.bold("🌿 weed.py — Available Commands 🌿"),
+        " ",
+        formatting.bold("— Smoke Sesh Commands —"),
+        "  $weed <nick>        — Give someone a random weed item",
+        "  $bong <nick>        — Give someone a bong rip",
+        "  $joint <nick>       — Give someone a joint",
+        "  $blunt <nick>       — Give someone a blunt",
+        "  $toke <nick>        — Give someone a bowl/pipe toke",
+        "  $vape <nick>        — Give someone a vape hit",
+        "  $dab / $dabs <nick> — Give someone a dab",
+        "  $hash <nick>        — Give someone some hash",
+        "  $keef / $kief <nick> — Give someone some keef",
+        " ",
+        formatting.bold("— Edibles & Munchies —"),
+        "  $edible / $edibles <nick> — Give someone an edible",
+        "  $munchies <nick>          — Give someone snacks",
+        " ",
+        formatting.bold("— Psychedelic Commands —"),
+        "  $trip <nick>              — Give someone a DMT experience",
+        "  $shrooms / $mushrooms <nick> — Give someone shrooms",
+        "  $acid / $lsd <nick>       — Give someone acid",
+        "  $peyote / $mescaline <nick> — Give someone peyote",
+        " ",
+        formatting.bold("— Other Commands —"),
+        "  $pass <nick>        — Take a hit and pass it to someone",
+        "  $weedhelp           — Show this help message",
+        " ",
+        formatting.bold("— How It Works —"),
+        "  With <nick>: gives that user a random item (30s per-user cooldown)",
+        "  Without <nick>: triggers a channel countdown (20min cooldown)",
+        "  Inline $command mid-sentence also triggers the countdown!",
+    ]
+    for line in lines:
+        bot.notice(line, nick)
+
+
 # Register cleanup handler for graceful shutdown
 atexit.register(_cleanup_threads)
