@@ -100,7 +100,10 @@ TYPING_DELAY_MAX = 4.0         # maximum seconds before responding
 CHIMEIN_ENABLED = True
 CHIMEIN_CHANCE_PCT = 5         # % chance per qualifying message
 CHIMEIN_COOLDOWN = 200         # seconds between chime-ins per channel
-CHIMEIN_MIN_ACTIVITY = 5       # require at least N messages in channel log before chiming in
+CHIMEIN_MIN_ACTIVITY = 5       # require at least N recent messages before chiming in
+CHIMEIN_MAX_AGE = 900          # only messages this recent (seconds) count as the live
+                               # conversation — keeps the bot from reacting to days-old
+                               # backlog when a dead channel wakes up
 # Patterns that make chime-in more likely (boosted to CHIMEIN_CHANCE_PCT * 3)
 CHIMEIN_BOOST_RE = re.compile(
     r'\b(lmao|lmfao|rofl|haha|lol|omg|wtf|no way|holy shit|'
@@ -439,7 +442,7 @@ def setup(bot):
                     chan_log = bot.memory.get('grok_channel_log')
                     if chan_log is not None:
                         dq = chan_log.setdefault(t.lower(), deque(maxlen=300))
-                        dq.append((bot.nick, str(text)))
+                        dq.append((bot.nick, str(text), time.time()))
         except Exception:
             pass
     bot.say = _grok_say_wrapper
@@ -1085,8 +1088,9 @@ def _api_worker(*, bot, trigger, messages, review_mode, is_pm, bot_nick, chan_lo
         if _cb and _cb.get('count', 0) >= CIRCUIT_BREAKER_THRESHOLD:
             _cb_now = time.time()
             if _cb_now - _cb.get('last', 0) < CIRCUIT_BREAKER_COOLDOWN:
-                # Announce the outage at most once per cooldown window
-                if _cb_now - _cb.get('announced', 0) >= CIRCUIT_BREAKER_COOLDOWN:
+                # Announce the outage at most once per cooldown window — but never
+                # for chime-ins, where nobody asked anything.
+                if not is_chimein and _cb_now - _cb.get('announced', 0) >= CIRCUIT_BREAKER_COOLDOWN:
                     _cb['announced'] = _cb_now
                     try:
                         bot.say("Grok API is having persistent issues; try again in a moment.", channel)
@@ -1126,10 +1130,11 @@ def _api_worker(*, bot, trigger, messages, review_mode, is_pm, bot_nick, chan_lo
                 else:
                     _log(bot).exception('Grok API final attempt timed out')
                     _record_api_failure(bot, channel)
-                    try:
-                        bot.say("Grok is timing out right now; please try again later.", trigger.sender)
-                    except Exception:
-                        pass
+                    if not is_chimein:
+                        try:
+                            bot.say("Grok is timing out right now; please try again later.", trigger.sender)
+                        except Exception:
+                            pass
                     return
             except requests.exceptions.HTTPError as e:
                 _status = e.response.status_code if e.response is not None else None
@@ -1145,10 +1150,11 @@ def _api_worker(*, bot, trigger, messages, review_mode, is_pm, bot_nick, chan_lo
                     except Exception:
                         pass
                     _record_api_failure(bot, channel)
-                    try:
-                        bot.say("Grok is having trouble right now; please try again later.", trigger.sender)
-                    except Exception:
-                        pass
+                    if not is_chimein:
+                        try:
+                            bot.say("Grok is having trouble right now; please try again later.", trigger.sender)
+                        except Exception:
+                            pass
                     return
             except Exception:
                 if attempt < attempts:
@@ -1156,10 +1162,11 @@ def _api_worker(*, bot, trigger, messages, review_mode, is_pm, bot_nick, chan_lo
                     backoff *= 2
                 else:
                     _log(bot).exception('Grok API final attempt failed')
-                    try:
-                        bot.say("Grok is timing out right now; please try again later.", trigger.sender)
-                    except Exception:
-                        pass
+                    if not is_chimein:
+                        try:
+                            bot.say("Grok is timing out right now; please try again later.", trigger.sender)
+                        except Exception:
+                            pass
                     return
 
         if not reply:
@@ -1184,10 +1191,11 @@ def _api_worker(*, bot, trigger, messages, review_mode, is_pm, bot_nick, chan_lo
                     _log(bot).exception('Retry with search_mode failed')
                     reply = ''
             if not reply:
-                try:
-                    bot.say("I tried to look that up but hit a wall — try asking again.", trigger.sender)
-                except Exception:
-                    pass
+                if not is_chimein:
+                    try:
+                        bot.say("I tried to look that up but hit a wall — try asking again.", trigger.sender)
+                    except Exception:
+                        pass
                 return
 
         reply = ' '.join(line.strip() for line in reply.splitlines() if line.strip())
@@ -1311,15 +1319,20 @@ def _api_worker(*, bot, trigger, messages, review_mode, is_pm, bot_nick, chan_lo
         else:
             send(bot, trigger.sender, final_reply)
 
-        with chan_lock:
-            per_conv_key = ("PM", trigger.nick.lower()) if is_pm else (trigger.sender, trigger.nick)
-            history = bot.memory['grok_history'].setdefault(per_conv_key, deque(maxlen=50))
-            history.append(f"{bot_nick}: {reply}")
+        # Chime-ins are not part of any user's conversation — logging them into
+        # the triggering user's history would make the bot "remember" a chat
+        # that user never had. The channel log (via the say wrapper) still
+        # captures the reply for channel context.
+        if not is_chimein:
+            with chan_lock:
+                per_conv_key = ("PM", trigger.nick.lower()) if is_pm else (trigger.sender, trigger.nick)
+                history = bot.memory['grok_history'].setdefault(per_conv_key, deque(maxlen=50))
+                history.append(f"{bot_nick}: {reply}")
 
-        try:
-            _db_add_turn(bot, trigger.nick, 'assistant', reply, 'PM' if is_pm else trigger.sender)
-        except Exception:
-            pass
+            try:
+                _db_add_turn(bot, trigger.nick, 'assistant', reply, 'PM' if is_pm else trigger.sender)
+            except Exception:
+                pass
 
     except Exception:
         _log(bot).exception('Grok API worker failed for %s', trigger.sender)
@@ -1520,9 +1533,10 @@ def _db_add_fact_suggestion(bot, nick, fact, confidence, context):
     try:
         with _DBContext(bot) as conn:
             c = conn.cursor()
-            # Check if similar fact already exists (pending or approved)
+            # Check if this fact was ever suggested before — including reviewed
+            # ones, so rejected facts don't keep coming back into .reviewfacts.
             c.execute(
-                'SELECT id FROM grok_profile_suggestions WHERE nick = ? AND fact = ? AND reviewed = 0',
+                'SELECT id FROM grok_profile_suggestions WHERE nick = ? AND fact = ?',
                 (nick.lower(), fact)
             )
             if c.fetchone():
@@ -1631,7 +1645,7 @@ def _extract_facts_from_conversation(bot, channel_log, user_nick):
         return []
     
     # Build a prompt asking the AI to extract facts
-    log_text = '\n'.join([f"{nick}: {text}" for nick, text in channel_log[-30:]])
+    log_text = '\n'.join([f"{nick}: {text}" for nick, text, _ in channel_log[-30:]])
     
     extraction_prompt = f"""Analyze this IRC conversation log and extract factual information about the user '{user_nick}'.
 
@@ -2013,7 +2027,7 @@ def handle(bot, trigger):
                 _cl_dq = bot.memory['grok_channel_log'].setdefault(
                     _cl_key, deque(maxlen=300)
                 )
-                _cl_dq.append((trigger.nick, line.strip()))
+                _cl_dq.append((trigger.nick, line.strip(), time.time()))
                 
                 # Auto-learning: periodically extract facts about active users
                 _learn_counters = bot.memory.get('grok_learn_counters', {})
@@ -2026,7 +2040,7 @@ def handle(bot, trigger):
                     
                     # Find active users (who have spoken at least 5 times in recent history)
                     nick_counts = {}
-                    for n, _ in list(_cl_dq)[-100:]:
+                    for n, _, _ in list(_cl_dq)[-100:]:
                         if n.lower() not in own_nicks:
                             nick_counts[n] = nick_counts.get(n, 0) + 1
                     
@@ -2065,9 +2079,14 @@ def handle(bot, trigger):
         if m_addr:
             candidate = (m_addr.group(1) or '').lstrip()
         if candidate and candidate.startswith(command_prefixes):
-            # In PM, ALWAYS ignore command-prefixed messages so admin
-            # commands like $godmode never leak to the AI.
+            # In PM, route the grok admin commands ($join/$part/$ignore/$unignore)
+            # to their handler, then drop ALL other command-prefixed messages so
+            # admin commands like $godmode never leak to the AI.
             if is_pm:
+                try:
+                    _handle_admin_pm_commands(bot, trigger, candidate)
+                except Exception:
+                    _log(bot).exception('Admin PM command handler failed')
                 return
             cmd = (candidate[1:].split(None, 1)[0] if len(candidate) > 1 else '').strip().lower()
             if (not _is_admin(bot, trigger)) and (cmd not in allowlisted_commands):
@@ -2192,9 +2211,15 @@ def handle(bot, trigger):
                 _now = time.time()
                 # Cooldown check
                 if _now - _chimein_last.get(_ch_key, 0) >= CHIMEIN_COOLDOWN:
-                    # Minimum activity check
+                    # Minimum activity check — only count messages from the live
+                    # conversation, so a single message in a dead channel doesn't
+                    # trigger a reaction to days-old backlog.
                     _cl_dq = bot.memory.get('grok_channel_log', {}).get(_ch_key)
-                    if _cl_dq and len(_cl_dq) >= CHIMEIN_MIN_ACTIVITY:
+                    _recent_lines = []
+                    if _cl_dq:
+                        _age_cutoff = _now - CHIMEIN_MAX_AGE
+                        _recent_lines = [(n, t) for n, t, ts in list(_cl_dq) if ts >= _age_cutoff]
+                    if len(_recent_lines) >= CHIMEIN_MIN_ACTIVITY:
                         # Roll the dice
                         _chance = CHIMEIN_CHANCE_PCT
                         if CHIMEIN_BOOST_RE.search(text_for_history):
@@ -2213,9 +2238,9 @@ def handle(bot, trigger):
                                     _chimein_skip = True
                         if not _chimein_skip and random.random() * 100 < _chance:
                             _chimein_last[_ch_key] = _now
-                            # Build a chime-in request using recent channel context
+                            # Build a chime-in request from the live conversation only
                             _chimein_lines = []
-                            for _cn, _ct in list(_cl_dq)[-40:]:
+                            for _cn, _ct in _recent_lines[-40:]:
                                 _chimein_lines.append(f"{_cn}: {_ct}")
                             _chimein_bg = "\n".join(_chimein_lines)
                             _bot_nick = bot.nick
@@ -2236,7 +2261,9 @@ def handle(bot, trigger):
                                 {"role": "user", "content": (
                                     "Here's what's been said in the channel recently:\n"
                                     + _chimein_bg + "\n\n"
-                                    "Jump in naturally with a short reaction or comment."
+                                    "Jump in naturally with a short reaction or comment. "
+                                    "React to what's being said RIGHT NOW (the last few lines), "
+                                    "not older parts of the log."
                                 )},
                             ]
                             _chimein_lock = _get_channel_lock(bot, trigger.sender)
@@ -2405,7 +2432,7 @@ def handle(bot, trigger):
                     _wt_is_user = True
                 if not _wt_is_user:
                     _cl_dq = bot.memory.get('grok_channel_log', {}).get(trigger.sender.lower())
-                    if _cl_dq and any(n.lower() == _wt_low for n, _ in list(_cl_dq)):
+                    if _cl_dq and any(n.lower() == _wt_low for n, _, _ in list(_cl_dq)):
                         _wt_is_user = True
         except Exception:
             pass
@@ -2703,7 +2730,7 @@ def handle(bot, trigger):
                 if chan_log_dq:
                     # Collect nicks from recent channel activity
                     recent_nicks = set()
-                    for nick, _ in list(chan_log_dq)[-100:]:  # Last 100 messages
+                    for nick, _, _ in list(chan_log_dq)[-100:]:  # Last 100 messages
                         recent_nicks.add(nick.lower())
                     # Check if any words in the message match recent nicks
                     for word in words:
@@ -2762,7 +2789,7 @@ def handle(bot, trigger):
                     trigger.sender.lower()
                 )
                 if chan_log_dq:
-                    channel_entries = list(chan_log_dq)
+                    channel_entries = [(n, t) for n, t, _ in chan_log_dq]
         filtered = []
         for nick, text in channel_entries:
             t = text.strip()
@@ -2796,7 +2823,7 @@ def handle(bot, trigger):
                         trigger.sender.lower()
                     )
                     if chan_log_dq:
-                        channel_bg = list(chan_log_dq)
+                        channel_bg = [(n, t) for n, t, _ in chan_log_dq]
                 unique_bg = channel_bg  # already in chronological order
                 BG_MAX_LINES = 150
                 bg_collected = []
@@ -3290,7 +3317,7 @@ def learn_facts_now(bot, trigger):
         return
     
     # Count how many messages mention the target user
-    mentions = sum(1 for nick, text in channel_log if target_nick.lower() in text.lower() or nick.lower() == target_nick.lower())
+    mentions = sum(1 for nick, text, _ in channel_log if target_nick.lower() in text.lower() or nick.lower() == target_nick.lower())
     
     bot.say(f"Analyzing {len(channel_log)} messages ({mentions} mentioning {target_nick})...")
     
@@ -3503,7 +3530,7 @@ def scheck(bot, trigger):
         return
 
     # Pull last 100 messages
-    recent = list(chan_log)[-100:]
+    recent = [(n, t) for n, t, _ in list(chan_log)[-100:]]
 
     # Filter to target nick if specified
     if target_nick:
