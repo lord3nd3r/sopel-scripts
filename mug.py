@@ -453,11 +453,17 @@ SAFE_SAY_MAX_BYTES = 350
 
 @contextmanager
 def locked_data(bot):
-    """Lock around any read-modify-write updates to avoid lost updates."""
+    """Lock around any read-modify-write updates to avoid lost updates.
+
+    The save runs after the lock is released: _save_data re-acquires the
+    lock for the DB write itself, but its side effects (topic updates with
+    retry sleeps, MODE sweeps) must not stall other economy commands.
+    If the body raises, the save is skipped (same as before).
+    """
     with _data_lock:
         data = _load_data(bot)
         yield data
-        _save_data(bot)
+    _save_data(bot)
 
 
 def _rand(lst):
@@ -598,6 +604,15 @@ def _load_data(bot):
                         u["inv"] = norm
 
                 bot.db.set_plugin_value(PLUGIN_NAME, 'data', data)
+
+                # Rename the legacy file so it is imported exactly once.
+                # Re-merging on every restart would resurrect balances
+                # after $mugreset (merge takes the max of JSON vs DB).
+                try:
+                    os.rename(json_path, json_path + '.imported')
+                except OSError:
+                    LOG.warning("mug_game: could not rename legacy JSON after import; "
+                                "it will re-merge on next restart")
         except (IOError, json.JSONDecodeError, ValueError) as e:
             # JSON is malformed, or file doesn't exist, or old format mismatch
             try:
@@ -1336,8 +1351,20 @@ def balance(bot, trigger):
 
     arg = (trigger.group(2) or "").strip()
     target = arg.split()[0] if arg else trigger.nick
-    u = get_user_record(bot, target)
-    bot.say(f"🧾 {tag(u['nick'], u.get('money', 0))} has {fmt_coins(u.get('money', 0))} coins. 🪙")
+
+    # Never create records for other nicks: that would pollute the DB and
+    # turn non-players into valid $mug/$bounty targets. Only the caller's
+    # own record may be created (under the lock).
+    if normalize_key(target) == normalize_key(trigger.nick):
+        with _data_lock:
+            u = get_user_record(bot, target)
+    else:
+        data = _load_data(bot)
+        u = data.get("users", {}).get(normalize_key(target))
+        if not isinstance(u, dict):
+            bot.reply("🗃️ That user isn't a known mug player yet.")
+            return
+    bot.say(f"🧾 {tag(u.get('nick', target), u.get('money', 0))} has {fmt_coins(u.get('money', 0))} coins. 🪙")
 
 
 @module.commands('give')
@@ -1390,10 +1417,20 @@ def give(bot, trigger):
             bot.reply(_rand(BROKE_MESSAGES))
             return
 
+        # Daily transfer cap (rolling 24h window, admins exempt)
+        allowed, remaining = _check_give_daily(bot, trigger.nick, amt, now)
+        if not allowed and not _is_admin(bot, trigger.nick):
+            bot.reply(
+                f"🧢 Daily $give cap is {fmt_coins(GIVE_DAILY_MAX)} coins per 24h. "
+                f"You can still give {fmt_coins(remaining)} today."
+            )
+            return
+
         recv = get_user_record(bot, target_nick)
         giver["money"] -= amt
         recv["money"] += amt
         giver["last_give"] = now
+        _record_give(bot, trigger.nick, amt, now)
 
         bot.say(
             f"🤝 {tag(trigger.nick, giver['money'])} gave {fmt_coins(amt)} coins to {tag(recv['nick'], recv['money'])}! 🎉"
@@ -1416,7 +1453,8 @@ def jail(bot, trigger):
     if not _check_global_cooldown(trigger.nick):
         return  # silently drop spam
 
-    u = get_user_record(bot, trigger.nick)
+    with _data_lock:
+        u = get_user_record(bot, trigger.nick)
     now = time.time()
     until = u.get("jail_until", 0.0)
     if until > now:
@@ -1509,13 +1547,12 @@ def bounties(bot, trigger):
         bot.reply("🏠 Use this in a channel.")
         return
 
-    data = _load_data(bot)
-    b = data.get("bounties", {})
-    if not b:
+    with _data_lock:
+        data = _load_data(bot)
+        items = sorted(data.get("bounties", {}).items(), key=lambda kv: -int(kv[1]))[:10]
+    if not items:
         bot.say("🎯 No active bounties. Everyone is (unfortunately) safe. 😇")
         return
-
-    items = sorted(b.items(), key=lambda kv: -int(kv[1]))[:10]
     parts = [f"🎯 {nick}({fmt_coins(amt)})" for nick, amt in items]
     safe_say(bot, "🔥 Top bounties: " + " | ".join(parts))
 
@@ -2670,6 +2707,9 @@ def blackjack_hit(bot, trigger):
         if not game:
             bot.reply("🃏 You don't have a hand. Start one with $bj <amount>.")
             return
+        if game['doubled']:
+            bot.reply("🃏 Double down in progress — your hand is resolving.")
+            return
         # Draw from the game's deck
         card = _bj_draw(game['deck'])
         game['hand'].append(card)
@@ -2721,21 +2761,42 @@ def blackjack_double_down(bot, trigger):
         if game['doubled']:
             bot.reply("🃏 Already doubled!")
             return
+        # Claim the double NOW so a racing $hit/$dd can't double-process
+        game['doubled'] = True
+        extra = game['amount']
 
     # Deduct the extra bet
     with locked_data(bot):
         user = get_user_record(bot, trigger.nick)
-        if int(user.get("money", 0)) < game['amount']:
-            bot.reply(f"💸 You need {fmt_coins(game['amount'])} more to double down and you're short.")
-            return
-        user["money"] = int(user.get("money", 0)) - game['amount']
+        if int(user.get("money", 0)) < extra:
+            short = True
+        else:
+            user["money"] = int(user.get("money", 0)) - extra
+            short = False
+    if short:
+        with _BJ_LOCK:
+            game['doubled'] = False  # un-claim so they can still $hit/$stand
+        bot.reply(f"💸 You need {fmt_coins(extra)} more to double down and you're short.")
+        return
 
+    stale = False
     with _BJ_LOCK:
-        game['amount'] *= 2
-        game['doubled'] = True
-        card = _bj_draw(game['deck'])
-        game['hand'].append(card)
-        del _BJ_HANDS[nick_key]
+        # A racing $stand may have popped and resolved the hand while we
+        # were deducting — if so, refund the extra bet instead of crashing
+        # or resolving the hand twice.
+        if _BJ_HANDS.pop(nick_key, None) is not game:
+            stale = True
+        else:
+            game['amount'] *= 2
+            card = _bj_draw(game['deck'])
+            game['hand'].append(card)
+
+    if stale:
+        with locked_data(bot):
+            user = get_user_record(bot, trigger.nick)
+            user["money"] = int(user.get("money", 0)) + extra
+        bot.reply("🃏 That hand just ended — double down cancelled, extra bet refunded.")
+        return
 
     bot.say(
         f"🃏 DOUBLE DOWN! {tag(trigger.nick, None)} drew {_bj_card_str(card)} — "
@@ -3039,7 +3100,8 @@ def inventory(bot, trigger):
         _disabled_msg(bot, trigger)
         return
     nick = trigger.nick
-    user = get_user_record(bot, nick)
+    with _data_lock:
+        user = get_user_record(bot, nick)
     inv = user.get("inv", {})
 
     if not inv:
@@ -3113,9 +3175,10 @@ def use_item(bot, trigger):
 # ============================================================
 
 def _get_leaderboard(bot, limit):
-    data = _load_data(bot)
-    users = data.get("users", {})
-    sorted_users = sorted(users.values(), key=lambda u: (-int(u.get("money", 0)), u.get("nick", "").lower()))
+    with _data_lock:
+        data = _load_data(bot)
+        users = data.get("users", {})
+        sorted_users = sorted(users.values(), key=lambda u: (-int(u.get("money", 0)), u.get("nick", "").lower()))
     return sorted_users[:limit]
 
 
@@ -3554,12 +3617,12 @@ def mugstats(bot, trigger):
     if not _pm_only(trigger):
         bot.say(f"📊 {nick}: sending economy stats to your PM.")
 
-    data = _load_data(bot)
-    users = data.get('users', {})
-    total_users = len(users)
-    total_coins = sum(int(u.get('money', 0)) for u in users.values())
-
-    top = sorted(users.values(), key=lambda u: -int(u.get('money', 0)))[:5]
+    with _data_lock:
+        data = _load_data(bot)
+        users = data.get('users', {})
+        total_users = len(users)
+        total_coins = sum(int(u.get('money', 0)) for u in users.values())
+        top = sorted(users.values(), key=lambda u: -int(u.get('money', 0)))[:5]
 
     _pm(bot, nick, "📊 Mug Economy Stats:")
     _pm(bot, nick, f"👥 Users in DB: {total_users}")
@@ -3707,7 +3770,7 @@ def mughelp(bot, trigger):
         "💰 Economy:",
         "  • $coins — Get coins (cooldown). Richer players gain more (5–15% bonus, capped).",
         "  • $bal / $balance [nick] — Check coin balance.",
-        "  • $give <nick> <amount> — Give coins to someone in the channel.",
+        "  • $give <nick> <amount> — Give coins to someone in the channel (5-min cooldown, 500k/day cap).",
         "  • Amounts accept commas: $bet 1,000,000 works.",
         "",
         "🎯 Bounties:",
@@ -3729,7 +3792,7 @@ def mughelp(bot, trigger):
         "🎲 Gambling:",
         "  • $bet <amount> — Slot machine (Lucky Coin improves odds). Win = 2x payout.",
         "  • $roll <amount> [type] — Dice casino. Types: high (default, 2x), lucky7 (4x),",
-        "      snake (30x), field (3x), hardway (8x), yolo (50x). 60s cooldown.",
+        "      snake (30x), field (2x, 3x on 2/12), hardway (8x), yolo (15x). 60s cooldown.",
         "  • $penny — Penny slot machine. 1 coin per pull, win up to 5,000! 15s cooldown.",
         "  • $dollar — Dollar slot machine. 100 coins per pull, win up to 50,000! 30s cooldown.",
         "  • $roulette <amount> <bet> — Roulette. Bets: red/black/odd/even/high/low (2x),",
@@ -3737,8 +3800,8 @@ def mughelp(bot, trigger):
         "  • $bj <amount> — Blackjack vs dealer. Then use $hit, $stand, or $dd (double down).",
         "      Blackjack pays 2.5x, regular win 2x. 60s cooldown.",
         "  • $holdem <amount> — Texas Hold'em heads-up vs dealer. Payouts scale by hand:",
-        "      pair 2x, two pair 3x, trips 4x, straight 5x, flush 7x, full house 10x,",
-        "      quads 25x, straight flush 50x. 60s cooldown.",
+        "      pair/two pair/trips 2x, straight 3x, flush 4x, full house 6x,",
+        "      quads 12x, straight flush 25x, royal flush 50x. 60s cooldown.",
         "  ⚠️ Spam protection: 15+ commands in 60s = 30-minute casino lockout.",
         "",
         "🛒 Shop (PM-only):",
@@ -3782,7 +3845,7 @@ def mughelp(bot, trigger):
         "  • $mugcleardb confirm — WIPE DB (deletes all player records)",
         "  • $mugmerge <nick> [--dry] — merge duplicate records for normalized nick (admin only; use --dry to preview)",
         "  • $mugdup <nick> — list stored records that normalize to the same nick (admin only)",
-        "  • $mugclearbounty <nick> — remove a bounty and refund to pool (admin only)",
+        "  • $mugclearbounty <nick> — remove a bounty (coins are NOT refunded) (admin only)",
         "  • $mugstats — PM economy overview: user count, top 5, total coins (admin only)",
         "  • $godmode [on|off] [nick] — toggle 99% luck for yourself or a player (PM, admin only)",
         "  • $uncooldown <nick> — clear a user's 30-min flood lockout (PM, admin only)",
@@ -3904,7 +3967,9 @@ def _voice_sweep_all(bot):
     """Check all players in all managed channels and sync modes."""
     if not VOICE_ENABLED or not _data:
         return
-    users = _data.get('users', {})
+    # Snapshot under the lock; MODE writes below must not hold it
+    with _data_lock:
+        users = dict(_data.get('users', {}))
     for channel in VOICE_CHANNELS:
         for nick_key, rec in users.items():
             if not isinstance(rec, dict):
@@ -3975,4 +4040,3 @@ def _cleanup_on_exit():
 
 # Register cleanup handler for graceful shutdown
 atexit.register(_cleanup_on_exit)
-
