@@ -86,6 +86,8 @@ MAX_SEND_LEN = 440
 SEND_DELAY = 1.0
 CHANNEL_RATE_LIMIT = 4
 REVIEW_COOLDOWN = 30
+CIRCUIT_BREAKER_THRESHOLD = 5   # consecutive failures before a channel is paused
+CIRCUIT_BREAKER_COOLDOWN = 60   # seconds before allowing a probe request again
 USER_SAFETY_SECONDS = 2
 API_QUEUE_MAXSIZE = 50
 API_WORKER_COUNT = 3  # Number of parallel API request threads
@@ -96,8 +98,8 @@ TYPING_DELAY_MAX = 4.0         # maximum seconds before responding
 
 # Unprompted chime-in: occasionally jump into conversation without being mentioned
 CHIMEIN_ENABLED = True
-CHIMEIN_CHANCE_PCT = 5       # % chance per qualifying message (1.5%)
-CHIMEIN_COOLDOWN = 200          # seconds between chime-ins per channel (5 min)
+CHIMEIN_CHANCE_PCT = 5         # % chance per qualifying message
+CHIMEIN_COOLDOWN = 200         # seconds between chime-ins per channel
 CHIMEIN_MIN_ACTIVITY = 5       # require at least N messages in channel log before chiming in
 # Patterns that make chime-in more likely (boosted to CHIMEIN_CHANCE_PCT * 3)
 CHIMEIN_BOOST_RE = re.compile(
@@ -168,13 +170,20 @@ _PERSONALITY_CHANNEL_INDICATOR_RE = re.compile(
     re.IGNORECASE,
 )
 
-# Match personality command (defaults to per-user unless channel indicator present)
+# Match personality command (defaults to per-user unless channel indicator present).
+# Verb classes matter here — bare "be"/"talk"/"reply" show up constantly in normal
+# chat ("be honest", "talk later"), so:
+#   - strong verbs (roleplay, pretend, act like, become) match bare
+#   - speak/talk/reply/respond need a like/as/in connector ("speak like a pirate")
+#   - "be" needs an explicit lead-in ("from now on, be a pirate")
 _PERSONALITY_COMMAND_RE = re.compile(
-    r'^(?:please\s+)?(?:from\s+now\s+on,?|going\s+forward,?)?\s*'
-    r'(?:role\s*play|roleplay|pretend(?:\s+to\s+be)?|act\s+(?:like|as)|be|become|'
-    r'speak|talk|reply|respond)\s+'
-    r'(?:to\s+(?:me\s+)?)?(?:from now on\s+)?(?:as(?:\s+if)?|like|in)?\s*'
-    r'(?:a\s+|an\s+)?(.+?)(?:\.|$)',
+    r'^(?:please\s+)?(?:(?P<leadin>from\s+now\s+on,?|going\s+forward,?)\s+)?(?:please\s+)?'
+    r'(?:'
+    r'(?P<strong>role\s*play|roleplay|pretend(?:\s+to\s+be)?|act\s+(?:like|as)|become)(?:\s+(?:as(?:\s+if)?|like|in))?'
+    r'|(?P<speak>speak|talk|reply|respond)\s+(?:to\s+(?:me\s+)?)?(?:as(?:\s+if)?|like|in)'
+    r'|(?P<be>be)'
+    r')\s+'
+    r'(?:a\s+|an\s+)?(?P<desc>.+?)(?:\.|$)',
     re.IGNORECASE,
 )
 
@@ -213,6 +222,9 @@ _WHAT_REMEMBER_RE = re.compile(
 
 # Max persistent facts per user
 MAX_USER_FACTS = 50
+
+# Conversation rows in grok_user_history older than this get pruned
+HISTORY_RETENTION_DAYS = 30
 
 _TZ_ABBR_MAP = {
     'EST': 'America/New_York', 'EDT': 'America/New_York',
@@ -354,16 +366,6 @@ def _load_channel_prompts():
             _CHANNEL_PROMPTS_CACHE_TIME = now
             return _CHANNEL_PROMPTS_CACHE
 
-def _read_api_key_raw(bot):
-    """Read API key directly from the config file, bypassing the sopel shim which masks SecretAttribute values."""
-    try:
-        import configparser
-        cfg = configparser.ConfigParser()
-        cfg.read(bot.config.filename)
-        return cfg.get('grok', 'api_key', fallback=None)
-    except Exception:
-        return None
-
 def setup(bot):
     bot.config.define_section('grok', GrokSection)
     # Read API key directly from the underlying configparser - the ibot shim
@@ -406,7 +408,8 @@ def setup(bot):
 
     # Per-conversation rolling history & last-response time
     bot.memory['grok_history'] = {}
-    bot.memory['grok_last'] = {}
+    # Bounded: keyed per (channel, nick) so transient nicks must not accumulate
+    bot.memory['grok_last'] = _BoundedTTLCache(maxsize=5000, ttl=300.0)
     bot.memory['grok_locks'] = {}
     bot.memory['grok_locks_lock'] = threading.Lock()
     bot.memory['grok_channel_log'] = {}  # per-channel chronological message log
@@ -448,6 +451,7 @@ def setup(bot):
         bot.memory['grok_db_path'] = db_path
         bot.memory['grok_channel_settings_cache'] = {}
         _init_db(bot)
+        _db_prune_history(bot)
         _load_admin_ignored_into_memory(bot)
     except Exception:
         _log(bot).exception('Failed to initialize Grok DB')
@@ -511,7 +515,14 @@ def shutdown(bot):
 def send(bot, channel, text):
     max_len = MAX_SEND_LEN
     delay = SEND_DELAY
-    words = text.split()
+    words = []
+    for w in text.split():
+        # Hard-split anything longer than one IRC line (e.g. a huge URL) so it
+        # isn't sent as a single oversized message the server truncates.
+        while len(w) > max_len:
+            words.append(w[:max_len])
+            w = w[max_len:]
+        words.append(w)
     if not words:
         return
     part = words[0]
@@ -584,9 +595,10 @@ def _is_pm(trigger):
     except Exception:
         return False
 
-def _is_channel_op(bot, trigger):
+def _is_channel_op(bot, trigger, channel=None):
+    """Check op status in `channel` (defaults to the channel the trigger came from)."""
     try:
-        chan = getattr(bot, 'channels', {}).get(trigger.sender)
+        chan = getattr(bot, 'channels', {}).get(channel or trigger.sender)
         if not chan:
             return False
         privs = getattr(chan, 'privileges', None) or getattr(chan, 'privs', None)
@@ -683,6 +695,12 @@ def _init_db(bot):
     except sqlite3.OperationalError:
         # Column already exists
         pass
+    # _db_get_recent filters by nick+source on every handled message; without
+    # this index that query degrades to a full table scan as history grows.
+    c.execute(
+        'CREATE INDEX IF NOT EXISTS idx_grok_history_nick_source '
+        'ON grok_user_history (nick, source, id)'
+    )
     conn.commit()
     # Enable WAL mode for better concurrent read/write access
     conn.execute('PRAGMA journal_mode=WAL')
@@ -693,7 +711,14 @@ def _db_conn(bot):
     path = bot.memory.get('grok_db_path')
     if not path:
         raise RuntimeError('DB path not set')
-    return sqlite3.connect(path, timeout=30.0, check_same_thread=False)
+    conn = sqlite3.connect(path, timeout=30.0, check_same_thread=False)
+    # journal_mode=WAL persists in the DB file, but synchronous is
+    # per-connection, so it has to be set here rather than in _init_db.
+    try:
+        conn.execute('PRAGMA synchronous=NORMAL')
+    except sqlite3.Error:
+        pass
+    return conn
 
 class _DBContext:
     """Context manager for database connections."""
@@ -716,14 +741,36 @@ class _DBContext:
                 self.conn.close()
         return False
 
+def _utcnow_iso():
+    """Naive UTC ISO timestamp — same format as rows written by the old
+    (deprecated) datetime.utcnow(), so string comparisons stay consistent."""
+    return datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None).isoformat()
+
+def _history_cutoff_iso(retention_days=HISTORY_RETENTION_DAYS):
+    cutoff = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(days=retention_days)
+    # Stored timestamps are naive UTC ISO strings; match that format so the
+    # string comparison in SQL stays correct.
+    return cutoff.replace(tzinfo=None).isoformat()
+
+def _db_prune_history(bot):
+    """Delete conversation rows older than the retention window."""
+    try:
+        with _DBContext(bot) as conn:
+            conn.execute('DELETE FROM grok_user_history WHERE ts < ?', (_history_cutoff_iso(),))
+    except Exception:
+        _log(bot).exception('Failed to prune grok history')
+
 def _db_add_turn(bot, nick, role, text, source=None):
     try:
         with _DBContext(bot) as conn:
             c = conn.cursor()
             c.execute(
                 'INSERT INTO grok_user_history (nick, source, role, text, ts) VALUES (?, ?, ?, ?, ?)',
-                (nick.lower(), source or '', role, text, datetime.datetime.utcnow().isoformat()),
+                (nick.lower(), source or '', role, text, _utcnow_iso()),
             )
+            # Amortized pruning: roughly once every 500 inserts
+            if random.random() < 0.002:
+                c.execute('DELETE FROM grok_user_history WHERE ts < ?', (_history_cutoff_iso(),))
     except Exception:
         _log(bot).exception('Failed to write grok DB entry')
 
@@ -1020,18 +1067,35 @@ def _url_to_title(url):
     except Exception:
         return ""
 
+def _record_api_failure(bot, channel):
+    """Bump the circuit-breaker failure state for a channel."""
+    api_failures = bot.memory.get('grok_api_failures', {})
+    state = api_failures.setdefault(channel, {'count': 0, 'last': 0.0, 'announced': 0.0})
+    state['count'] += 1
+    state['last'] = time.time()
+
+
 def _api_worker(*, bot, trigger, messages, review_mode, is_pm, bot_nick, chan_lock, search_mode=False, wants_sources=False, is_chimein=False, is_action=False):
     try:
-        # Circuit breaker: check if channel has too many failures
+        # Circuit breaker: pause a channel after repeated failures, but let a
+        # probe request through once the cooldown elapses so it can recover.
         channel = trigger.sender
         api_failures = bot.memory.get('grok_api_failures', {})
-        if api_failures.get(channel, 0) >= 5:
-            try:
-                bot.say("Grok API is having persistent issues; try again in a moment.", channel)
-            except Exception:
-                pass
-            return
-        
+        _cb = api_failures.get(channel)
+        if _cb and _cb.get('count', 0) >= CIRCUIT_BREAKER_THRESHOLD:
+            _cb_now = time.time()
+            if _cb_now - _cb.get('last', 0) < CIRCUIT_BREAKER_COOLDOWN:
+                # Announce the outage at most once per cooldown window
+                if _cb_now - _cb.get('announced', 0) >= CIRCUIT_BREAKER_COOLDOWN:
+                    _cb['announced'] = _cb_now
+                    try:
+                        bot.say("Grok API is having persistent issues; try again in a moment.", channel)
+                    except Exception:
+                        pass
+                return
+            # Cooldown elapsed — fall through and use this request as a probe.
+
+
         attempts = 3
         backoff = 1.0
         reply = None
@@ -1052,9 +1116,8 @@ def _api_worker(*, bot, trigger, messages, review_mode, is_pm, bot_nick, chan_lo
                     bot, messages, model, temp, max_toks,
                     search_mode=search_mode, conv_id=conv_id,
                 )
-                # Reset failure count on success
-                if channel in api_failures:
-                    api_failures[channel] = 0
+                # Reset failure state on success
+                api_failures.pop(channel, None)
                 break
             except requests.exceptions.Timeout:
                 if attempt < attempts:
@@ -1062,23 +1125,26 @@ def _api_worker(*, bot, trigger, messages, review_mode, is_pm, bot_nick, chan_lo
                     backoff *= 2
                 else:
                     _log(bot).exception('Grok API final attempt timed out')
-                    api_failures[channel] = api_failures.get(channel, 0) + 1
+                    _record_api_failure(bot, channel)
                     try:
                         bot.say("Grok is timing out right now; please try again later.", trigger.sender)
                     except Exception:
                         pass
                     return
             except requests.exceptions.HTTPError as e:
-                if attempt < attempts:
+                _status = e.response.status_code if e.response is not None else None
+                # Only 429 and 5xx can succeed on retry; 400/401/403 etc. never will.
+                _retryable = _status == 429 or (_status is not None and _status >= 500)
+                if _retryable and attempt < attempts:
                     time.sleep(backoff + random.random() * 0.5)
                     backoff *= 2
                 else:
-                    _log(bot).exception('Grok API final attempt failed (HTTP error)')
+                    _log(bot).exception('Grok API request failed (HTTP %s)', _status)
                     try:
-                        _log(bot).error('API 400 response body: %s', e.response.text[:500] if e.response is not None else 'no body')
+                        _log(bot).error('API error response body: %s', e.response.text[:500] if e.response is not None else 'no body')
                     except Exception:
                         pass
-                    api_failures[channel] = api_failures.get(channel, 0) + 1
+                    _record_api_failure(bot, channel)
                     try:
                         bot.say("Grok is having trouble right now; please try again later.", trigger.sender)
                     except Exception:
@@ -1202,17 +1268,6 @@ def _api_worker(*, bot, trigger, messages, review_mode, is_pm, bot_nick, chan_lo
                 reply += ' | Sources: ' + ' | '.join(source_parts)
             else:
                 reply += ' (no sources found)'
-
-        try:
-            _ulc = bot.memory.get('grok_user_last_cache')
-            if _ulc:
-                _ulc_key = f"{trigger.sender}:{trigger.nick}"
-                _last_ts = _ulc.get(_ulc_key, 0)
-                if time.time() - _last_ts < USER_SAFETY_SECONDS:
-                    return
-                _ulc.set(_ulc_key, time.time())
-        except Exception:
-            pass
 
         if review_mode:
             pass  # no canned prefix — let the AI speak naturally
@@ -1346,7 +1401,7 @@ def _db_update_profile_field(bot, nick, field, value, updated_by):
             # Check if profile exists
             c.execute('SELECT nick FROM grok_user_profiles WHERE nick = ?', (nick.lower(),))
             exists = c.fetchone()
-            now_ts = datetime.datetime.utcnow().isoformat()
+            now_ts = _utcnow_iso()
             if exists:
                 c.execute(
                     f'UPDATE grok_user_profiles SET {col} = ?, last_updated = ?, updated_by = ? WHERE nick = ?',
@@ -1377,7 +1432,7 @@ def _db_add_profile_fact(bot, nick, fact, updated_by):
             c = conn.cursor()
             c.execute('SELECT facts FROM grok_user_profiles WHERE nick = ?', (nick.lower(),))
             row = c.fetchone()
-            now_ts = datetime.datetime.utcnow().isoformat()
+            now_ts = _utcnow_iso()
             
             if row:
                 facts = json.loads(row[0]) if row[0] else []
@@ -1410,7 +1465,7 @@ def _db_remove_profile_fact(bot, nick, fact_index):
             facts = json.loads(row[0]) if row[0] else []
             if 0 <= fact_index < len(facts):
                 facts.pop(fact_index)
-                now_ts = datetime.datetime.utcnow().isoformat()
+                now_ts = _utcnow_iso()
                 c.execute(
                     'UPDATE grok_user_profiles SET facts = ?, last_updated = ? WHERE nick = ?',
                     (json.dumps(facts), now_ts, nick.lower())
@@ -1473,7 +1528,7 @@ def _db_add_fact_suggestion(bot, nick, fact, confidence, context):
             if c.fetchone():
                 return False  # Already suggested
             
-            now_ts = datetime.datetime.utcnow().isoformat()
+            now_ts = _utcnow_iso()
             c.execute(
                 'INSERT INTO grok_profile_suggestions (nick, fact, confidence, source_context, suggested_ts) '
                 'VALUES (?, ?, ?, ?, ?)',
@@ -1683,7 +1738,7 @@ def _db_add_admin_ignored(bot, nick, added_by=None):
             c = conn.cursor()
             c.execute(
                 'INSERT OR REPLACE INTO grok_admin_ignored_nicks (nick, added_by, ts) VALUES (?, ?, ?)',
-                (nick.lower(), (added_by or '').lower(), datetime.datetime.utcnow().isoformat()),
+                (nick.lower(), (added_by or '').lower(), _utcnow_iso()),
             )
     except Exception:
         _log(bot).exception('Failed to add ignored nick: %s', nick)
@@ -1895,19 +1950,23 @@ def handle(bot, trigger):
 
     is_pm = _is_pm(trigger)
 
-    if is_pm:
+    # Banned nicks are blocked everywhere; only announce it in PM to avoid
+    # channel noise.
+    try:
         cfg_banned = {n.lower() for n in getattr(bot.config.grok, 'banned_nicks', [])}
+    except Exception:
+        cfg_banned = set()
+    try:
+        mem_banned = {n.lower() for n in bot.memory.get('grok_banned', [])}
+    except Exception:
         mem_banned = set()
-        try:
-            mem_banned = {n.lower() for n in bot.memory.get('grok_banned', [])}
-        except Exception:
-            mem_banned = set()
-        if trigger.nick.lower() in cfg_banned or trigger.nick.lower() in mem_banned:
+    if trigger.nick.lower() in cfg_banned or trigger.nick.lower() in mem_banned:
+        if is_pm:
             try:
                 bot.reply('You are banned from using Grok.')
             except Exception:
                 pass
-            return
+        return
 
     try:
         cfg_ignored = {n.lower() for n in getattr(bot.config.grok, 'ignored_nicks', [])}
@@ -2279,6 +2338,12 @@ def handle(bot, trigger):
     else:
         _forget_match = None
     if _forget_match:
+        # Conversational "forget it" / "forget about that" is chat, not a
+        # command — let it fall through to the AI.
+        _forget_what = _forget_match.group(1).strip().lower().rstrip('.!?')
+        if _forget_what in ('it', 'this', 'that', 'him', 'her', 'them'):
+            _forget_match = None
+    if _forget_match:
         _forget_what = _forget_match.group(1).strip().lower()
         _reply_msg = None
         try:
@@ -2328,6 +2393,29 @@ def handle(bot, trigger):
         _what_match = _WHAT_REMEMBER_RE.search(_um_stripped)
     else:
         _what_match = None
+    if _what_match and _what_match.group(1):
+        # Only intercept when the target is an actual user — "what do you know
+        # about quantum physics" should go to the AI, not the profile DB.
+        _wt_low = _what_match.group(1).lower()
+        _wt_is_user = False
+        try:
+            if not is_pm:
+                _chan_obj = bot.channels.get(trigger.sender)
+                if _chan_obj and any(u.lower() == _wt_low for u in _chan_obj.users):
+                    _wt_is_user = True
+                if not _wt_is_user:
+                    _cl_dq = bot.memory.get('grok_channel_log', {}).get(trigger.sender.lower())
+                    if _cl_dq and any(n.lower() == _wt_low for n, _ in list(_cl_dq)):
+                        _wt_is_user = True
+        except Exception:
+            pass
+        if not _wt_is_user:
+            try:
+                _wt_is_user = _db_get_user_profile(bot, _wt_low) is not None
+            except Exception:
+                pass
+        if not _wt_is_user:
+            _what_match = None
     if _what_match:
         try:
             _target = _what_match.group(1) or trigger.nick
@@ -2405,20 +2493,28 @@ def handle(bot, trigger):
                     bot.memory['grok_user_personality'][_chan_key] = {}
                 bot.memory['grok_user_personality'][_chan_key][_target_nick] = _personality_desc
                 _log(bot).info('Set user personality for %s in %s: %s', _target_nick, _chan_key, _personality_desc[:50])
-                return  # Personality set, no response needed
+                try:
+                    bot.say(f"ok, new vibe for {_target_nick} (say 'reset personality' to undo)", trigger.sender)
+                except Exception:
+                    pass
+                return
         
         # Check for general personality command (defaults to per-user)
         _personality_match = _PERSONALITY_COMMAND_RE.search(user_message)
         if _personality_match:
-            # Guard against false positives: if the command verb (e.g. "be")
-            # appears deep in a long conversational sentence or a question,
-            # it's almost certainly NOT a personality command.
-            # e.g. "would you be happy?" should NOT set personality to "happy?"
+            # Bare "be ..." is everyday chat ("be honest, do you like us?") —
+            # only treat it as a command with an explicit lead-in.
+            if _personality_match.group('be') and not _personality_match.group('leadin'):
+                _personality_match = None
+        if _personality_match:
+            # Guard against false positives: if the command verb appears deep
+            # in a long conversational sentence or a question, it's almost
+            # certainly NOT a personality command.
             _pm_pos = _personality_match.start()
             if _pm_pos > 20 and ('?' in user_message or len(user_message) > 80):
                 _personality_match = None
         if _personality_match:
-            _personality_desc = _personality_match.group(1).strip()
+            _personality_desc = _personality_match.group('desc').strip()
             # Remove channel indicators from the description if present
             _personality_desc = _PERSONALITY_CHANNEL_INDICATOR_RE.sub('', _personality_desc).strip()
             # Strip leading connector words left over after channel indicator removal
@@ -2441,22 +2537,36 @@ def handle(bot, trigger):
                         # In PM, just use the personality
                         bot.memory['grok_channel_personality'][_personality_key] = _personality_desc
                         _log(bot).info('Set PM personality for %s: %s', _personality_key, _personality_desc[:50])
-                return  # Personality set, no response needed
+                # Acknowledge so accidental triggers are discoverable instead of
+                # the bot silently going weird.
+                try:
+                    _desc_short = _personality_desc[:60] + ('…' if len(_personality_desc) > 60 else '')
+                    bot.say(f"ok, new personality: {_desc_short} (say 'reset personality' to undo)", trigger.sender)
+                except Exception:
+                    pass
+                return
         
         # Check for personality reset
         _personality_reset_match = _PERSONALITY_RESET_RE.search(user_message)
         if _personality_reset_match:
+            _cleared = False
             # Clear channel personality
             if _personality_key in bot.memory['grok_channel_personality']:
                 del bot.memory['grok_channel_personality'][_personality_key]
                 _log(bot).info('Cleared channel personality for %s', _personality_key)
+                _cleared = True
             # Clear user personalities for this channel
             if not is_pm:
                 _chan_key = trigger.sender.lower()
                 if _chan_key in bot.memory['grok_user_personality']:
                     del bot.memory['grok_user_personality'][_chan_key]
                     _log(bot).info('Cleared all user personalities for %s', _chan_key)
-            return  # Reset complete, no response needed
+                    _cleared = True
+            try:
+                bot.say("back to normal" if _cleared else "I wasn't roleplaying anything", trigger.sender)
+            except Exception:
+                pass
+            return
     except Exception:
         pass
 
@@ -2473,20 +2583,13 @@ def handle(bot, trigger):
     time_mode = bool(_TIME_INTENT_RE.search(user_message))
 
     now = time.time()
-    # Rate limit per-user-per-channel so one user's question doesn't block others
+    # Rate limit per-user-per-channel so one user's question doesn't block others.
+    # time_mode gets a smaller debounce window to prevent double-dispatch.
     _rl_key = (trigger.sender, trigger.nick.lower())
-    if not time_mode:
-        with chan_lock:
-            last = bot.memory['grok_last'].get(_rl_key, 0)
-            if now - last < CHANNEL_RATE_LIMIT:
-                return
-            bot.memory['grok_last'][_rl_key] = now
-    else:
-        with chan_lock:
-            last = bot.memory['grok_last'].get(_rl_key, 0)
-            if now - last < 1.5:  # small debounce to prevent double-dispatch for time mode
-                return
-            bot.memory['grok_last'][_rl_key] = now
+    _rl_window = CHANNEL_RATE_LIMIT if not time_mode else 1.5
+    _rl_cache = bot.memory.get('grok_last')
+    if _rl_cache is not None and _rl_cache.check_and_set(_rl_key, time.monotonic(), _rl_window):
+        return
 
     if review_mode:
         review_last = bot.memory.setdefault('grok_review_last', {})
@@ -2772,6 +2875,13 @@ def handle(bot, trigger):
                 "Respond as a short third-person action yourself (e.g. 'purrs contentedly' or 'wags tail'). "
                 "Do NOT start with your nick. Do NOT use quotes. Just the action text, plain and brief."
             })
+        # Double-dispatch safety: drop the request BEFORE spending an API call,
+        # not after (the worker used to discard the finished reply instead).
+        _ulc = bot.memory.get('grok_user_last_cache')
+        if _ulc and _ulc.check_and_set(
+            f"{trigger.sender}:{trigger.nick}", time.monotonic(), USER_SAFETY_SECONDS
+        ):
+            return
         API_TASK_QUEUE.put_nowait({
             'bot': bot, 'trigger': trigger, 'messages': messages,
             'review_mode': review_mode, 'is_pm': is_pm,
@@ -3434,12 +3544,10 @@ def scheck_kick(bot, trigger):
 
     Usage: $skick <nick> <#channel>
     """
-    if not (_is_admin(bot, trigger) or _is_channel_op(bot, trigger)):
-        return
-
     args = (trigger.group(2) or '').strip().split()
     if len(args) < 2:
-        bot.say("Usage: $skick <nick> <#channel>")
+        if _is_admin(bot, trigger) or _is_channel_op(bot, trigger):
+            bot.say("Usage: $skick <nick> <#channel>")
         return
 
     target = args[0]
@@ -3447,6 +3555,11 @@ def scheck_kick(bot, trigger):
 
     if not channel.startswith('#'):
         bot.say("Invalid channel. Must start with #.")
+        return
+
+    # Op status must be held in the TARGET channel — otherwise an op in one
+    # channel could kick users out of any channel the bot is in.
+    if not (_is_admin(bot, trigger) or _is_channel_op(bot, trigger, channel)):
         return
 
     try:
@@ -3462,12 +3575,10 @@ def scheck_kickban(bot, trigger):
 
     Usage: $skban <nick> <#channel>
     """
-    if not (_is_admin(bot, trigger) or _is_channel_op(bot, trigger)):
-        return
-
     args = (trigger.group(2) or '').strip().split()
     if len(args) < 2:
-        bot.say("Usage: $skban <nick> <#channel>")
+        if _is_admin(bot, trigger) or _is_channel_op(bot, trigger):
+            bot.say("Usage: $skban <nick> <#channel>")
         return
 
     target = args[0]
@@ -3475,6 +3586,11 @@ def scheck_kickban(bot, trigger):
 
     if not channel.startswith('#'):
         bot.say("Invalid channel. Must start with #.")
+        return
+
+    # Op status must be held in the TARGET channel — otherwise an op in one
+    # channel could ban users from any channel the bot is in.
+    if not (_is_admin(bot, trigger) or _is_channel_op(bot, trigger, channel)):
         return
 
     try:
