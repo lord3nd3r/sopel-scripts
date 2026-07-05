@@ -1896,7 +1896,7 @@ def _heuristic_intent_check(bot, trigger, line, bot_nick):
     # Preposition before nick — talking about the bot in passing.
     # e.g. "something about glitchy", "deal with glitchy"
     if re.search(rf'\b(?:about|with|from|like|for|than|of)\s+(?:\w+\s+)*{re.escape(nick)}\b', lower):
-        if not re.match(rf'^\s*{re.escape(nick)}', lower):
+        if not re.match(rf'^\s*{re.escape(nick)}', lower) and not re.search(rf'{re.escape(nick)}\s*\W*$', lower):
             return False
     # Nick followed by a noun — used as adjective, not being addressed.
     # e.g. "glitchy personality", "glitchy bot"
