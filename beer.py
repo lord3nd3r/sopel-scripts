@@ -65,14 +65,19 @@ def _save_mug_data(bot, data):
 
 
 def _load_tip_data(bot):
-    """Load tip data from bot.db with fallback to empty structure."""
+    """Load tip leaderboard data from bot.db.
+
+    Only 'tips_received' is used; balances live in mug game coins.
+    """
+    data = None
     try:
         data = bot.db.get_plugin_value(PLUGIN_NAME, 'tips')
-        if data and isinstance(data, dict):
-            return data
     except (AttributeError, KeyError, TypeError) as e:
         LOG.warning(f"Failed to load tip data: {e}")
-    return {'balances': {}, 'last_credit': {}, 'tips_received': {}}
+    if not isinstance(data, dict):
+        data = {}
+    data.setdefault('tips_received', {})
+    return data
 
 
 def _save_tip_data(bot, data):
@@ -96,6 +101,37 @@ def _get_user_coins(bot, user):
     return 0
 
 
+def _touch_mug_user(data, user, current_time):
+    """Get or create a user's mug game record, applying the daily bonus if due.
+
+    Returns (user_rec, was_new, got_daily).
+    """
+    users = data.setdefault('users', {})
+    user_key = _user_key(user)
+
+    if user_key not in users or not isinstance(users[user_key], dict):
+        # New user: give them starting coins
+        users[user_key] = {
+            'nick': user,
+            'money': NEW_USER_STARTING_COINS,
+            'inv': {},
+            'last_bar_credit': current_time
+        }
+        LOG.debug(f"New user {user_key} initialized with {NEW_USER_STARTING_COINS} starting coins")
+        return users[user_key], True, False
+
+    user_rec = users[user_key]
+
+    # Check for daily bonus (24 hour cooldown)
+    if current_time - user_rec.get('last_bar_credit', 0) >= 86400:
+        user_rec['money'] = int(user_rec.get('money', 0)) + DAILY_BONUS_COINS
+        user_rec['last_bar_credit'] = current_time
+        LOG.debug(f"User {user_key} received daily bonus of {DAILY_BONUS_COINS} coins")
+        return user_rec, False, True
+
+    return user_rec, False, False
+
+
 def _deduct_mug_coins(bot, user, amount):
     """Deduct coins from user's mug game balance.
     Returns (new_balance, success, was_new_user, got_daily_bonus) where:
@@ -107,39 +143,12 @@ def _deduct_mug_coins(bot, user, amount):
     if amount <= 0:
         balance = _get_user_coins(bot, user)
         return balance, True, False, False
-    
+
     data = _load_mug_data(bot)
-    users = data.get('users', {})
     user_key = _user_key(user)
-    current_time = time.time()
-    
-    was_new = False
-    got_daily = False
-    
-    # Get or initialize user record
-    if user_key not in users or not isinstance(users[user_key], dict):
-        # New user: give them starting coins
-        users[user_key] = {
-            'nick': user,
-            'money': NEW_USER_STARTING_COINS,
-            'inv': {},
-            'last_bar_credit': current_time
-        }
-        was_new = True
-        LOG.debug(f"New user {user_key} initialized with {NEW_USER_STARTING_COINS} starting coins")
-    
-    user_rec = users[user_key]
+    user_rec, was_new, got_daily = _touch_mug_user(data, user, time.time())
     current_balance = int(user_rec.get('money', 0))
-    
-    # Check for daily bonus (24 hour cooldown)
-    last_credit = user_rec.get('last_bar_credit', 0)
-    if current_time - last_credit >= 86400:  # 24 hours in seconds
-        current_balance += DAILY_BONUS_COINS
-        user_rec['money'] = current_balance
-        user_rec['last_bar_credit'] = current_time
-        got_daily = True
-        LOG.debug(f"User {user_key} received daily bonus of {DAILY_BONUS_COINS} coins")
-    
+
     # Check if user has enough
     if current_balance < amount:
         # Save any daily bonus that was just added
@@ -171,6 +180,10 @@ PRICES = {
     'gin': 10,
     'brandy': 12,
     'mixed_drink': 10,
+    'margarita': 9,
+    'sake': 9,
+    'liqueur': 8,
+    'mead': 7,
     'wine': 8,
     'magners': 6,
     'mocktail': 4,
@@ -279,6 +292,21 @@ BEERS = [
     "a Mexican Modelo Especial 🇲🇽🍺",
     "a smooth stout 🍺",
     "a citrusy session IPA 🍊🍺",
+    "a hazy New England IPA 🌫️🍺",
+    "a crisp Czech Pilsner 🇨🇿🍺",
+    "a smooth Irish red ale 🇮🇪🍺",
+    "a funky farmhouse saison 🌾🍺",
+    "a rich milk stout 🥛🖤🍺",
+    "a juicy double IPA 🍊💪🍺",
+    "a refreshing Kölsch 🇩🇪🍺",
+    "a chocolatey oatmeal stout 🍫🍺",
+    "a zesty gose with sea salt 🧂🍺",
+    "a bold Russian imperial stout 🖤💪🍺",
+    "a tart Berliner Weisse 🍋🍺",
+    "a barrel-aged imperial porter 🛢️🍺",
+    "a smooth Vienna lager 🇦🇹🍺",
+    "a classic British ESB 🇬🇧🍺",
+    "a velvety nitro stout 🖤☁️🍺",
 ]
 
 # List of fun shots to give out
@@ -463,6 +491,80 @@ BRANDIES = [
     "a exquisite Louis XIII 🇫🇷💎👑🥃",
 ]
 
+# List of margaritas to give out
+MARGARITAS = [
+    "a classic Margarita with a salt rim 🍹🧂",
+    "a frozen Strawberry Margarita 🍓🍹",
+    "a spicy Jalapeño Margarita 🌶️🍹",
+    "a tangy Mango Margarita 🥭🍹",
+    "a top-shelf Cadillac Margarita 🍊👑🍹",
+    "a smoky Mezcal Margarita 🔥🍹",
+    "a refreshing Watermelon Margarita 🍉🍹",
+    "a zesty lime Margarita on the rocks 🍋🧊🍹",
+    "a frozen Blue Margarita 💙🍹",
+    "a sweet Peach Margarita 🍑🍹",
+    "a tart Prickly Pear Margarita 🌵💗🍹",
+    "a coconut Margarita with a toasted rim 🥥🍹",
+    "a fiery Habanero Margarita 🔥🌶️🍹",
+    "a Tommy's Margarita with agave nectar 🍯🍹",
+    "a blood orange Margarita 🍊❤️🍹",
+    "a pineapple-cilantro Margarita 🍍🌿🍹",
+    "a skinny Margarita 🍋💚🍹",
+    "a black cherry Margarita 🍒🖤🍹",
+    "a golden Grand Marnier Margarita 🏆🍹",
+    "a Margarita flight - one of each! ✈️🍹🍹🍹",
+]
+
+# List of sakes to give out
+SAKES = [
+    "a smooth Junmai Daiginjo 🍶✨",
+    "a chilled Dassai 39 🍶🧊",
+    "a warm Honjozo sake 🍶♨️",
+    "a fragrant Kubota Manju 🍶🌸",
+    "a crisp Hakkaisan Junmai 🍶🏔️",
+    "a cloudy Nigori sake 🍶☁️",
+    "a sparkling Mio sake 🍶🫧",
+    "a legendary Juyondai 🍶👑",
+    "a dry Kikusui Junmai Ginjo 🍶💧",
+    "a smooth Otokoyama 🍶🗻",
+    "a fruity Dewazakura Oka Ginjo 🍶🌸",
+    "an aged amber Koshu sake 🍶🏺",
+]
+
+# List of liqueurs & cordials to give out
+LIQUEURS = [
+    "a creamy Baileys Irish Cream 🥛🥃🇮🇪",
+    "a nutty Disaronno Amaretto 🌰🥃",
+    "an orangey Grand Marnier 🍊🥃",
+    "an herbaceous green Chartreuse 💚🥃",
+    "a sunny Limoncello 🍋✨",
+    "a smooth Kahlúa on the rocks 🇲🇽🧊🥃",
+    "a cherry Luxardo Maraschino 🍒🥃",
+    "an elderflower St-Germain 🌼🥃",
+    "a honeyed Drambuie 🏴🍯🥃",
+    "a bittersweet Campari 🇮🇹❤️🥃",
+    "a velvety Frangelico 🌰🥃",
+    "a rich Chambord 🫐👑🥃",
+    "a minty Crème de Menthe 🌿🥃",
+    "a creamy Amarula 🐘🥛🥃",
+    "a fiery Goldschläger with gold flakes ✨🥃",
+    "a spiced Fernet-Branca 🇮🇹🌿🥃",
+]
+
+# List of meads to give out
+MEADS = [
+    "a golden traditional Mead 🍯🍺",
+    "a spiced Viking Mead ⚔️🍯",
+    "a tart cherry Melomel 🍒🍯",
+    "a crisp apple Cyser 🍎🍯",
+    "a warming Metheglin with cinnamon 🍯🔥",
+    "a sparkling session Mead 🍯🫧",
+    "a bold caramelized Bochet 🍯🔥",
+    "a berry blackberry Mead 🫐🍯",
+    "a smooth vanilla-oak Mead 🍯🪵",
+    "a legendary Mead of the Gods 🍯⚡✨",
+]
+
 # List of fun pizzas to give out
 PIZZAS = [
     "a classic Margherita pizza 🍕",
@@ -534,6 +636,21 @@ MIXED_DRINKS = [
     "a warm Irish Coffee ☕🥃🇮🇪",
     "a tropical Blue Hawaiian 🍹💙",
     "a sweet Amaretto Sour 🍋🥃",
+    "a zesty Paloma 🍊🥤",
+    "a Brazilian Caipirinha 🇧🇷🍋🍹",
+    "a classy French 75 🥂✨",
+    "a Dark 'n' Stormy ⛈️🥃",
+    "a tropical Painkiller 🍍🥥🍹",
+    "a New Orleans Sazerac ⚜️🥃",
+    "a spicy Michelada 🌶️🇲🇽🍹",
+    "a fruity Sangria 🍇🍊🇪🇸🍷",
+    "a brunch-ready Mimosa 🥂🍊",
+    "a peachy Bellini 🍑🥂",
+    "a Hurricane from the French Quarter 🌀🍹",
+    "a smoky Penicillin 🍯💊🥃",
+    "a Cuba Libre with extra lime 🇨🇺🍋🥤",
+    "a tiki Zombie - limit two! 🧟🍹",
+    "a classic Singapore Sling 🇸🇬🍹",
 ]
 
 # List of wines to give out
@@ -934,6 +1051,56 @@ BRANDY_MESSAGES = [
     "presents {drink} to {user} with a knowing nod 🥃😌",
 ]
 
+# Margarita giving messages
+MARGARITA_MESSAGES = [
+    "slides {drink} across the bar to {user} ✨",
+    "shakes up {drink} and serves it to {user} - ¡salud! 🇲🇽🍹",
+    "salts the rim and hands {drink} to {user} 🧂🍹",
+    "blends {drink} to perfection for {user} 🌀🍹",
+    "conjures {drink} out of thin air for {user} ✨🎩",
+    "garnishes {drink} with a lime wheel for {user} 🍋🍹",
+    "ceremoniously presents {user} with {drink} 🎊",
+    "teleports {drink} directly into {user}'s hand 🚀✨",
+    "serves {user} {drink} - it's five o'clock somewhere! 🕔🍹",
+    "cranks up the blender and pours {drink} for {user} 🎉🍹",
+]
+
+# Sake giving messages
+SAKE_MESSAGES = [
+    "slides {drink} across the bar to {user} ✨",
+    "pours {drink} into an ochoko cup for {user} - kanpai! 🍶🇯🇵",
+    "warms {drink} gently and serves it to {user} ♨️🍶",
+    "serves {user} {drink} perfectly chilled 🧊🍶",
+    "conjures {drink} out of thin air for {user} ✨🎩",
+    "ceremoniously presents {user} with {drink} 🎊",
+    "teleports {drink} directly into {user}'s hand 🚀✨",
+    "pours {drink} for {user} with both hands 🙏🍶",
+]
+
+# Liqueur giving messages
+LIQUEUR_MESSAGES = [
+    "slides {drink} across the bar to {user} ✨",
+    "pours {drink} over ice for {user} 🧊🥃",
+    "serves {user} {drink} - sip slowly! 🥃",
+    "conjures {drink} out of thin air for {user} ✨🎩",
+    "pours a sweet measure of {drink} for {user} 🍯🥃",
+    "ceremoniously presents {user} with {drink} 🎊",
+    "teleports {drink} directly into {user}'s hand 🚀✨",
+    "serves {user} {drink} as a nightcap 🌙🥃",
+]
+
+# Mead giving messages
+MEAD_MESSAGES = [
+    "slides {drink} across the bar to {user} ✨",
+    "pours {drink} into a drinking horn for {user} ⚔️🍯",
+    "serves {user} {drink} - SKÅL! 🛡️🍯",
+    "conjures {drink} out of thin air for {user} ✨🎩",
+    "raises a horn of {drink} to {user} 🍻⚔️",
+    "ceremoniously presents {user} with {drink} 🎊",
+    "teleports {drink} directly into {user}'s hand 🚀✨",
+    "fills {user}'s goblet with {drink} 🏰🍯",
+]
+
 # Shot giving messages (quick, energetic)
 SHOT_MESSAGES = [
     "slides {drink} across the bar to {user} ✨",
@@ -1112,6 +1279,34 @@ def brandy(bot, trigger):
     _serve_item(bot, trigger, 'brandy', BRANDIES, BRANDY_MESSAGES)
 
 
+@module.commands('margarita', 'marg')
+@module.example('$margarita username', 'Give a user a random margarita')
+def margarita(bot, trigger):
+    """Give someone a refreshing margarita! 🧂🍹"""
+    _serve_item(bot, trigger, 'margarita', MARGARITAS, MARGARITA_MESSAGES)
+
+
+@module.commands('sake')
+@module.example('$sake username', 'Give a user a random sake')
+def sake(bot, trigger):
+    """Give someone a fine sake! Kanpai! 🍶"""
+    _serve_item(bot, trigger, 'sake', SAKES, SAKE_MESSAGES)
+
+
+@module.commands('liqueur', 'cordial')
+@module.example('$liqueur username', 'Give a user a random liqueur')
+def liqueur(bot, trigger):
+    """Give someone a sweet liqueur! 🍯🥃"""
+    _serve_item(bot, trigger, 'liqueur', LIQUEURS, LIQUEUR_MESSAGES)
+
+
+@module.commands('mead')
+@module.example('$mead username', 'Give a user a random mead')
+def mead(bot, trigger):
+    """Give someone a horn of mead! SKÅL! ⚔️🍯"""
+    _serve_item(bot, trigger, 'mead', MEADS, MEAD_MESSAGES)
+
+
 @module.commands('pizza')
 @module.example('$pizza', 'Give yourself a random pizza')
 @module.example('$pizza username', 'Give a user a random pizza')
@@ -1189,7 +1384,7 @@ def surprise(bot, trigger):
         target_user = trigger.group(2).strip()
     
     # Combine all drink lists
-    all_drinks = BEERS + SHOTS + MAGNERS + WHISKEYS + VODKAS + RUMS + TEQUILAS + GINS + BRANDIES + MIXED_DRINKS + WINES + MOCKTAILS + COFFEES + TEAS + WATERS
+    all_drinks = BEERS + SHOTS + MAGNERS + WHISKEYS + VODKAS + RUMS + TEQUILAS + GINS + BRANDIES + MARGARITAS + SAKES + LIQUEURS + MEADS + MIXED_DRINKS + WINES + MOCKTAILS + COFFEES + TEAS + WATERS
     all_foods = PIZZAS + APPETIZERS
     
     # Randomly decide if it's a drink or food
@@ -1215,6 +1410,14 @@ def surprise(bot, trigger):
             giving_message = random.choice(VODKA_MESSAGES)
         elif any(word in chosen_item.lower() for word in ['rum', 'bacardi', 'captain morgan', 'malibu', 'kraken']):
             giving_message = random.choice(RUM_MESSAGES)
+        elif 'margarita' in chosen_item.lower():
+            giving_message = random.choice(MARGARITA_MESSAGES)
+        elif any(word in chosen_item.lower() for word in ['sake', 'junmai', 'ginjo', 'nigori', 'daiginjo', 'honjozo']):
+            giving_message = random.choice(SAKE_MESSAGES)
+        elif any(word in chosen_item.lower() for word in ['mead', 'melomel', 'cyser', 'metheglin', 'bochet']):
+            giving_message = random.choice(MEAD_MESSAGES)
+        elif any(word in chosen_item.lower() for word in ['baileys', 'disaronno', 'grand marnier', 'chartreuse', 'limoncello', 'kahlúa', 'maraschino', 'st-germain', 'drambuie', 'campari', 'frangelico', 'chambord', 'crème de menthe', 'amarula', 'goldschläger', 'fernet']):
+            giving_message = random.choice(LIQUEUR_MESSAGES)
         elif any(word in chosen_item.lower() for word in ['tequila', 'mezcal', 'patrón', 'don julio']):
             giving_message = random.choice(TEQUILA_MESSAGES)
         elif any(word in chosen_item.lower() for word in ['gin', 'tanqueray', 'hendrick', 'bombay', 'beefeater']):
@@ -1254,42 +1457,46 @@ def barhelp(bot, trigger):
         "🍺 BARTENDER MENU 🍺",
         "=" * 40,
         "ECONOMY:",
-        "  • You receive a $100 credit every 24 hours (starts on first order)",
-        "  • Credits stack with your current balance",
-        "  • Credits are applied when you run a bar command or $barcash; $tip does not trigger credits",
-        "  • All items cost money (deducted from your balance)",
+        f"  • Your first order opens a tab with {NEW_USER_STARTING_COINS} starting coins",
+        f"  • You receive a {DAILY_BONUS_COINS} coin credit every 24 hours",
+        "  • Credits are applied when you order or run $barcash; $tip does not trigger credits",
+        "  • Coins are shared with the mug game - one balance for everything",
         "  • Water is always FREE!",
         "",
         "DRINKS:",
 
-        "  $beer [user] ............ $5",
-        "  $shot [user] ............ $7",
-        "  $whiskey [user] ......... $12",
-        "  $vodka [user] ........... $10",
-        "  $rum [user] ............. $10",
-        "  $tequila [user] ......... $10",
-        "  $gin [user] ............. $10",
-        "  $brandy [user] .......... $12",
-        "  $drink [user] ........... $10",
-        "  $wine [user] ............ $8",
-        "  $magners [user] ......... $6",
+        "  $beer [user] ............ 5 coins",
+        "  $shot [user] ............ 7 coins",
+        "  $whiskey [user] ......... 12 coins",
+        "  $vodka [user] ........... 10 coins",
+        "  $rum [user] ............. 10 coins",
+        "  $tequila [user] ......... 10 coins",
+        "  $gin [user] ............. 10 coins",
+        "  $brandy [user] .......... 12 coins",
+        "  $drink [user] ........... 10 coins",
+        "  $margarita [user] ....... 9 coins",
+        "  $sake [user] ............ 9 coins",
+        "  $liqueur [user] ......... 8 coins",
+        "  $wine [user] ............ 8 coins",
+        "  $mead [user] ............ 7 coins",
+        "  $magners [user] ......... 6 coins",
         "",
         "NON-ALCOHOLIC:",
-        "  $mocktail [user] ........ $4",
-        "  $coffee [user] .......... $3",
-        "  $tea [user] ............. $3",
+        "  $mocktail [user] ........ 4 coins",
+        "  $coffee [user] .......... 3 coins",
+        "  $tea [user] ............. 3 coins",
         "  $water [user] ........... FREE",
         "",
         "FOOD:",
-        "  $pizza [user] ........... $15",
-        "  $appetizer [user] ....... $8",
+        "  $pizza [user] ........... 15 coins",
+        "  $appetizer [user] ....... 8 coins",
         "",
         "SPECIAL:",
         "  $surprise [user] ........ (Random Price)",
         "",
         "COMMANDS:",
-        "  $tip <user> <amount> - Tip another user",
-        "  $barcash - Check your current balance (alias: $balance)",
+        "  $tip <user> <amount> - Tip another user (comes from your coins)",
+        "  $barcash - Check your coin balance (alias: $balance)",
         "  $toptip - See the top 5 most tipped users",
         "  $barhelp - Show this menu",
         "  $adjbal <nick> <+amount|-amount|amount> - Admin PM only: adjust a user's balance",
@@ -1304,104 +1511,98 @@ def barhelp(bot, trigger):
 
 
 @module.commands('tip')
-@module.example('$tip username 50', 'Tip a user $50')
+@module.example('$tip username 50', 'Tip a user 50 coins')
 def tip_user(bot, trigger):
     """Tip another user for great service! 💰"""
-    
+
     tipper = str(trigger.account or trigger.nick)
     tipper_display = trigger.nick
-    
+
     # Check if user specified who to tip and amount
     if not trigger.group(2):
         bot.say(f"{tipper_display}: Usage: $tip <user> <amount>")
         return
-    
+
     args = trigger.group(2).strip().split()
     if len(args) < 2:
         bot.say(f"{tipper_display}: Usage: $tip <user> <amount>")
         return
-    
+
     recipient = args[0]
     try:
         amount = int(args[1])
     except ValueError:
         bot.say(f"{tipper_display}: Amount must be a number!")
         return
-    
-    # Can't tip yourself
-    if tipper.lower() == recipient.lower() or tipper_display.lower() == recipient.lower():
-        bot.say(f"{tipper_display}: You can't tip yourself! 🙄")
-        return
-    
-    # Amount must be positive
-    if amount <= 0:
-        bot.say(f"{tipper_display}: Tip amount must be positive!")
-        return
-    
-    # Load data and check balance
-    data = _load_tip_data(bot)
 
     tipper_key = _user_key(tipper)
     recipient_key = _user_key(recipient)
 
-    # Check if tipper exists and has balance
-    if tipper_key not in data['balances']:
-        bot.say(f"{tipper_display}: You need to buy something from the bar first to get your $100 starting balance!")
+    # Can't tip yourself (compare normalized keys so format codes can't dodge it)
+    if recipient_key in (tipper_key, _user_key(tipper_display)):
+        bot.say(f"{tipper_display}: You can't tip yourself! 🙄")
         return
 
-    balance = data['balances'][tipper_key]
+    # Amount must be positive
+    if amount <= 0:
+        bot.say(f"{tipper_display}: Tip amount must be positive!")
+        return
+
+    # Tips come out of mug game coins - the same balance drinks are bought with
+    data = _load_mug_data(bot)
+    users = data.get('users', {})
+
+    if tipper_key not in users or not isinstance(users[tipper_key], dict):
+        bot.say(f"{tipper_display}: You need to buy something from the bar first to open a tab!")
+        return
+
+    tipper_rec = users[tipper_key]
+    balance = int(tipper_rec.get('money', 0))
 
     # Check if tipper has enough balance
     if balance < amount:
-        bot.notice(f"You don't have enough! Balance: ${balance}", tipper_display)
+        bot.notice(f"You don't have enough! Balance: {balance} coins", tipper_display)
         return
 
-    # Initialize recipient if needed
-    if recipient_key not in data['tips_received']:
-        data['tips_received'][recipient_key] = 0
-    if recipient_key not in data['balances']:
-        data['balances'][recipient_key] = 100
-        data['last_credit'][recipient_key] = time.time()
+    recipient_rec, _, _ = _touch_mug_user(data, recipient, time.time())
 
-    # Transfer the money
-    data['balances'][tipper_key] -= amount
-    data['balances'][recipient_key] += amount
-    data['tips_received'][recipient_key] += amount
+    # Transfer the coins
+    tipper_rec['money'] = balance - amount
+    recipient_rec['money'] = int(recipient_rec.get('money', 0)) + amount
 
-    _save_tip_data(bot, data)
+    if not _save_mug_data(bot, data):
+        bot.say(f"{tipper_display}: Something went wrong saving the tip. Sorry!")
+        return
 
-    bot.say(f"{tipper_display} tips {recipient} ${amount}! 💰✨")
-    bot.notice(f"New balance: ${data['balances'][tipper_key]}", tipper_display)
+    # Track the tip leaderboard
+    tips = _load_tip_data(bot)
+    tips['tips_received'][recipient_key] = tips['tips_received'].get(recipient_key, 0) + amount
+    _save_tip_data(bot, tips)
+
+    bot.say(f"{tipper_display} tips {recipient} {amount} coins! 💰✨")
+    bot.notice(f"New balance: {tipper_rec['money']} coins 🪙", tipper_display)
 
 
 @module.commands('barcash', 'balance')
 @module.example('$barcash', 'Check your current balance')
 def barcash(bot, trigger):
-    """Check your current tip balance! 💵"""
-    
+    """Check your current bar coin balance! 💵"""
+
     user = str(trigger.account or trigger.nick)
     user_display = trigger.nick
-    
-    data = _load_tip_data(bot)
-    current_time = time.time()
-    user_key = _user_key(user)
 
-    if user_key not in data['balances']:
-        data['balances'][user_key] = 100
-        data['last_credit'][user_key] = current_time
-        data['tips_received'][user_key] = 0
-        _save_tip_data(bot, data)
-        bot.notice(f"You received your daily $100! Current balance: $100 💵", user_display)
-        return
+    data = _load_mug_data(bot)
+    user_rec, was_new, got_daily = _touch_mug_user(data, user, time.time())
+    if was_new or got_daily:
+        _save_mug_data(bot, data)
 
-    last_credit = data['last_credit'].get(user_key, 0)
-    if current_time - last_credit >= 86400:
-        data['balances'][user_key] += 100
-        data['last_credit'][user_key] = current_time
-        _save_tip_data(bot, data)
-        bot.notice(f"You received your daily $100! Current balance: ${data['balances'][user_key]} 💵", user_display)
+    balance = int(user_rec.get('money', 0))
+    if was_new:
+        bot.notice(f"Welcome to the bar! 🍺 You received {NEW_USER_STARTING_COINS} starting coins. Balance: {balance} coins 🪙", user_display)
+    elif got_daily:
+        bot.notice(f"Daily bonus! +{DAILY_BONUS_COINS} coins 💰 Balance: {balance} coins 🪙", user_display)
     else:
-        bot.notice(f"Your balance is ${data['balances'][user_key]} 💵", user_display)
+        bot.notice(f"Your balance is {balance} coins 🪙", user_display)
 
 
 @module.commands('toptip')
@@ -1477,45 +1678,38 @@ def adjbal(bot, trigger):
     amt_s = parts[1]
     # Allow +100, -50, or plain number
     try:
-        if amt_s.startswith('+') or amt_s.startswith('-'):
-            amt = int(amt_s)
-        else:
-            amt = int(amt_s)
+        amt = int(amt_s)
     except ValueError:
         bot.reply('Amount must be an integer like +100 or -50.')
         return
 
-    data = _load_tip_data(bot)
-    # Normalize target nick/account
-    nick_key = _user_key(nick)
-    # Initialize user if missing
-    if nick_key not in data['balances']:
-        data['balances'][nick_key] = 100
-        data['last_credit'][nick_key] = time.time()
-        data['tips_received'][nick_key] = 0
+    data = _load_mug_data(bot)
+    user_rec, _, _ = _touch_mug_user(data, nick, time.time())
 
-    old = data['balances'].get(nick_key, 0)
+    old = int(user_rec.get('money', 0))
     new = old + amt
     if new < 0:
         bot.reply(f'Operation would make {nick}\'s balance negative ({new}). Operation cancelled.')
         return
 
-    data['balances'][nick_key] = new
-    _save_tip_data(bot, data)
+    user_rec['money'] = new
+    _save_mug_data(bot, data)
 
-    bot.reply(f"Adjusted {nick}'s balance: ${old} -> ${new}")
+    bot.reply(f"Adjusted {nick}'s balance: {old} -> {new} coins")
 
 
 
 @module.commands('barreset')
-@module.example('$barreset username', "Reset a user's balance to $100 (admin PM only)")
-@module.example('$barreset all confirm', 'Reset all balances to $100 and clear tips (admin PM only, requires confirm)')
+@module.example('$barreset username', "Reset a user's balance to starting coins (admin PM only)")
+@module.example('$barreset all confirm', 'Reset all balances to starting coins and clear tips (admin PM only, requires confirm)')
 def barreset(bot, trigger):
     """Admin-only PM command to reset balances.
 
+    Balances are mug game coins, so this also resets mug game money.
+
     Usage (PM to bot):
-      $barreset <nick>            # reset a single user's balance to $100 and clear tips
-      $barreset all confirm      # reset ALL balances to $100 and clear all tips (requires confirm)
+      $barreset <nick>            # reset a single user's balance and clear their tips
+      $barreset all confirm      # reset ALL balances and clear all tips (requires confirm)
     """
     # Require PM
     try:
@@ -1553,7 +1747,9 @@ def barreset(bot, trigger):
     parts = trigger.group(2).strip().split()
     target = parts[0]
 
-    data = _load_tip_data(bot)
+    data = _load_mug_data(bot)
+    tips = _load_tip_data(bot)
+    now = time.time()
 
     if target.lower() == 'all':
         # require explicit confirmation to prevent accidents
@@ -1562,34 +1758,31 @@ def barreset(bot, trigger):
             return
 
         # Reset everything
-        now = time.time()
-        for k in list(data.get('balances', {}).keys()):
-            data['balances'][k] = 100
-        for k in list(data.get('last_credit', {}).keys()):
-            data['last_credit'][k] = now
-        for k in list(data.get('tips_received', {}).keys()):
-            data['tips_received'][k] = 0
+        for rec in data.get('users', {}).values():
+            if isinstance(rec, dict):
+                rec['money'] = NEW_USER_STARTING_COINS
+                rec['last_bar_credit'] = now
+        tips['tips_received'] = {}
 
-        _save_tip_data(bot, data)
-        bot.reply('All balances reset to $100 and all tips cleared.')
+        _save_mug_data(bot, data)
+        _save_tip_data(bot, tips)
+        bot.reply(f'All balances reset to {NEW_USER_STARTING_COINS} coins and all tips cleared.')
         return
 
     # Single user reset
     nick = target
     nick_key = _user_key(nick)
-    if nick_key not in data.get('balances', {}):
-        data['balances'][nick_key] = 100
-        data['last_credit'][nick_key] = time.time()
-        data['tips_received'][nick_key] = 0
-        _save_tip_data(bot, data)
-        bot.reply(f"{nick} did not have an account; initialized to $100.")
-        return
+    user_rec, was_new, _ = _touch_mug_user(data, nick, now)
+    user_rec['money'] = NEW_USER_STARTING_COINS
+    user_rec['last_bar_credit'] = now
+    tips['tips_received'].pop(nick_key, None)
 
-    data['balances'][nick_key] = 100
-    data['last_credit'][nick_key] = time.time()
-    data['tips_received'][nick_key] = 0
-    _save_tip_data(bot, data)
-    bot.reply(f"Reset {nick}'s balance to $100 and cleared tips.")
+    _save_mug_data(bot, data)
+    _save_tip_data(bot, tips)
+    if was_new:
+        bot.reply(f"{nick} did not have an account; initialized to {NEW_USER_STARTING_COINS} coins.")
+    else:
+        bot.reply(f"Reset {nick}'s balance to {NEW_USER_STARTING_COINS} coins and cleared tips.")
 
 
 def _cleanup():
