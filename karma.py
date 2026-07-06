@@ -21,6 +21,69 @@ COOLDOWN_NOTICE = (
     "(Cooldown is per channel.)"
 )
 
+# Disallowed karma targets (racial slurs, hate speech, etc.) — case-insensitive exact match
+FORBIDDEN_KARMA_TARGETS = {
+    "nigger", "nigga", "faggot", "fag", "cunt", "kike", "spic", "chink",
+    "gook", "coon", "paki", "raghead", "towelhead", "dyke", "tranny",
+    "retard", "homo", "queer", "whore", "slut", "bitch",
+}
+
+# Leet-speak normalization map (applied before checking FORBIDDEN_KARMA_TARGETS)
+_LEET_MAP = str.maketrans({
+    '0': 'o', '1': 'i', '3': 'e', '4': 'a', '5': 's',
+    '6': 'g', '7': 't', '8': 'b', '@': 'a', '$': 's',
+    '+': 't', '!': 'i', '|': 'i',
+})
+
+
+def _normalize(word: str) -> str:
+    """Lowercase + collapse leet substitutions for slur detection."""
+    return word.lower().translate(_LEET_MAP)
+
+
+def is_forbidden(word: str) -> bool:
+    """Return True if *word* (after leet normalisation) is a forbidden target."""
+    return _normalize(word) in FORBIDDEN_KARMA_TARGETS
+
+
+def setup(bot):
+    """One-time purge of any forbidden karma entries from the live DB the bot uses."""
+    if bot.memory.get("karma_forbidden_cleaned"):
+        return
+
+    if not FORBIDDEN_KARMA_TARGETS:
+        return
+
+    # Build safe IN list (hardcoded constants, no user input)
+    placeholders = ",".join(f"'{w}'" for w in FORBIDDEN_KARMA_TARGETS)
+
+    global_delete = text(f"""
+        DELETE FROM nick_values
+        WHERE key = 'karma'
+          AND nick_id IN (
+            SELECT nick_id FROM nicknames
+            WHERE LOWER(COALESCE(canonical, slug)) IN ({placeholders})
+          )
+    """)
+
+    chan_delete = text(f"""
+        DELETE FROM nick_values
+        WHERE key LIKE 'karma_channel_%'
+          AND nick_id IN (
+            SELECT nick_id FROM nicknames
+            WHERE LOWER(COALESCE(canonical, slug)) IN ({placeholders})
+          )
+    """)
+
+    try:
+        with bot.db.engine.begin() as conn:
+            conn.execute(global_delete)
+            conn.execute(chan_delete)
+        bot.memory["karma_forbidden_cleaned"] = True
+    except Exception:
+        # Schema mismatch or permissions — fail silently, allow retry next reload
+        bot.memory["karma_forbidden_cleaned"] = False
+
 # ──────────────────────────────────────────────────────────────
 # Helpers
 # ──────────────────────────────────────────────────────────────
@@ -39,12 +102,12 @@ def add_channel_karma(db, target, channel, delta):
     """Per-channel karma helper."""
     target_id = tools.Identifier(target)
     chan_key = f'karma_channel_{tools.Identifier(channel)}'
-    current = db.get_nick_value(target_id, chan_key) or '0'
-    db.set_nick_value(
-        target_id,
-        chan_key,
-        str(int(str(current).replace('"', '')) + int(delta)),
-    )
+    raw = db.get_nick_value(target_id, chan_key)
+    try:
+        current = int(str(raw).replace('"', '')) if raw is not None else 0
+    except (ValueError, TypeError):
+        current = 0
+    db.set_nick_value(target_id, chan_key, str(current + int(delta)))
 
 
 def get_channel_karma(db, target, channel):
@@ -132,10 +195,21 @@ def karma_increment_decrement(bot, trigger):
         return
 
     processed_targets = set()
+    karma_applied = False
     for target, sign in matches:
         # Strip common surrounding punctuation from target
         target = target.strip('()[]{}<>"\',:;.!?')
+
+        # Block abusive/hate speech targets
+        if is_forbidden(target):
+            continue
+
         target_id = tools.Identifier(target)
+
+        # Only allow karma for nicks actually present in the channel
+        if chan_id in bot.channels and target_id not in bot.channels[chan_id].users:
+            bot.say(f"⚠️ {target} isn't in the channel — karma only counts for real users here.")
+            continue
 
         # Skip if already processed this target in the message
         if target_id in processed_targets:
@@ -144,7 +218,7 @@ def karma_increment_decrement(bot, trigger):
 
         # Self-karma block
         if target_id == giver_id:
-            continue  # Maybe don't reply for each, just skip
+            continue
 
         try:
             if bot.db.get_nick_id(target_id) == bot.db.get_nick_id(giver_id):
@@ -156,6 +230,7 @@ def karma_increment_decrement(bot, trigger):
         delta = 1 if sign == '++' else -1
         new_global = get_karma(bot.db, target) + delta
         set_karma(bot.db, target, new_global)
+        karma_applied = True
 
         # Friendly message bits
         if delta > 0:
@@ -167,22 +242,16 @@ def karma_increment_decrement(bot, trigger):
             mood = "😬"
             lead = "⬇ Karma drop..."
 
-        # Apply CHANNEL karma and respond
-        if trigger.sender.startswith('#'):
-            add_channel_karma(bot.db, target, trigger.sender, delta)
-            chan_karma = get_channel_karma(bot.db, target, trigger.sender)
-            bot.say(
-                f"{lead} {target} {action_verb} {abs(delta)} karma {mood} "
-                f"(🎯 {chan_karma} in {trigger.sender} | 🌐 {new_global} global)"
-            )
-        else:
-            bot.say(
-                f"{lead} {target} {action_verb} {abs(delta)} karma {mood} "
-                f"(🌐 {new_global} global)"
-            )
+        add_channel_karma(bot.db, target, trigger.sender, delta)
+        chan_karma = get_channel_karma(bot.db, target, trigger.sender)
+        bot.say(
+            f"{lead} {target} {action_verb} {abs(delta)} karma {mood} "
+            f"(🎯 {chan_karma} in {trigger.sender} | 🌐 {new_global} global)"
+        )
 
-    # Update cooldown timer after processing
-    cooldowns[cooldown_key] = now
+    # Only consume cooldown if karma was actually applied
+    if karma_applied:
+        cooldowns[cooldown_key] = now
 
 
 # ──────────────────────────────────────────────────────────────
@@ -190,7 +259,11 @@ def karma_increment_decrement(bot, trigger):
 # ──────────────────────────────────────────────────────────────
 @module.rule(r'^\S+\s*==\s*$')
 def karma_show_inline(bot, trigger):
+    if trigger.nick and str(trigger.nick).lower() == str(bot.nick).lower():
+        return
     target = trigger.group(0).split('==', 1)[0].strip()
+    if is_forbidden(target):
+        return
     karma = get_karma(bot.db, target)
     bot.say(f"📊 {target} == {karma} karma globally")
 
@@ -204,7 +277,7 @@ def cmd_karma(bot, trigger):
     .karma <nick> → show channel + global karma
     .karma        → PM full command list + cooldown info (multi-line)
     """
-    args = (trigger.group(3) or "").strip()
+    args = (trigger.group(2) or "").strip()
 
     # No arguments → send help via multi-line PM
     if not args:
@@ -227,6 +300,8 @@ def cmd_karma(bot, trigger):
 
     # Display karma stats
     target = args.split()[0]
+    if is_forbidden(target):
+        return
     global_karma = get_karma(bot.db, target)
 
     if trigger.sender.startswith('#'):
@@ -250,6 +325,9 @@ def _global_leaderboard(bot, trigger, descending=True, default_limit=5):
         limit = max(1, min(50, int(arg)))
     order = "DESC" if descending else "ASC"
 
+    # Over-fetch to account for any forbidden entries that get filtered out
+    fetch_limit = limit + len(FORBIDDEN_KARMA_TARGETS)
+
     query = text(f"""
         SELECT COALESCE(nicknames.canonical, nicknames.slug) AS nick,
                CAST(REPLACE(nick_values.value, '"', '') AS INTEGER) AS karma
@@ -261,7 +339,10 @@ def _global_leaderboard(bot, trigger, descending=True, default_limit=5):
     """)
 
     with bot.db.engine.connect() as conn:
-        results = conn.execute(query, {"limit": limit}).fetchall()
+        results = conn.execute(query, {"limit": fetch_limit}).fetchall()
+
+    # Filter out forbidden targets, then trim to requested limit
+    results = [r for r in results if not is_forbidden(r[0])][:limit]
 
     if not results:
         return bot.say("🏆 No karma recorded yet.")
@@ -305,11 +386,17 @@ def _channel_leaderboard(bot, trigger, descending=True, default_limit=10):
         LIMIT :limit
     """)
 
+    # Over-fetch to account for any forbidden entries that get filtered out
+    fetch_limit = limit + len(FORBIDDEN_KARMA_TARGETS)
+
     with bot.db.engine.connect() as conn:
         results = conn.execute(
             query,
-            {"chan_key": chan_key, "limit": limit},
+            {"chan_key": chan_key, "limit": fetch_limit},
         ).fetchall()
+
+    # Filter out forbidden targets, then trim to requested limit
+    results = [r for r in results if not is_forbidden(r[0])][:limit]
 
     if not results:
         return bot.say(f"🏆 No karma recorded in {trigger.sender} yet.")
@@ -344,6 +431,8 @@ def setkarma(bot, trigger):
         return bot.reply("Usage: .setkarma <nick> <integer>")
 
     target, value_str = parts
+    if is_forbidden(target):
+        return bot.reply("That target is not allowed. 🚫")
     try:
         value = int(value_str)
     except ValueError:

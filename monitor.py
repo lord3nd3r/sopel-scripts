@@ -1,11 +1,12 @@
 """
-chanstats.py - Sopel port of arfer's Eggdrop chanstats.tcl (2026 edition)
+monitor.py - Sopel port of arfer's Eggdrop chanstats.tcl (2026 edition)
 Author: Kristopher Craig + original by arfer
 """
 
 import logging
 import os
 import sqlite3
+import threading
 import time
 from datetime import datetime, timedelta
 
@@ -16,7 +17,7 @@ LOGGER = logging.getLogger(__name__)
 # ========================= CONFIG =========================
 SAVE_EVERY_EVENTS = 20      # flush idle-prune after this many events
 SAVE_EVERY_MINUTES = 10     # also prune on this interval
-IDLE_DAYS = 2               # discard nicks unseen for this long
+IDLE_DAYS = 30              # discard nicks unseen for this long
 IGNORE_GUESTS = True        # skip guestXXXX nicks
 B = "\x02"                  # bold
 B_OFF = "\x02"              # bold off (toggle)
@@ -28,6 +29,8 @@ VALID_FIELDS = frozenset({
     "lines", "words", "actions", "kicks", "bans",
     "joins", "parts", "splits", "quits", "nickchanges",
 })
+
+_stats_lock = threading.Lock()
 
 
 # ====================== DB HELPERS ======================
@@ -85,6 +88,7 @@ def accrue(bot, nick, channel, field, amount=1):
     channel = str(channel).lower()
     now = int(time.time())
 
+    _accrued = False
     conn = _get_db(bot)
     try:
         # field is validated against VALID_FIELDS above — safe to format
@@ -97,15 +101,18 @@ def accrue(bot, nick, channel, field, amount=1):
             (channel, nick, now, amount, amount),
         )
         conn.commit()
+        _accrued = True
     except Exception:
         LOGGER.exception("chanstats: accrue error for %s/%s/%s", channel, nick, field)
     finally:
         conn.close()
 
-    bot.memory["chanstats_count"] = bot.memory.get("chanstats_count", 0) + 1
-    if bot.memory["chanstats_count"] >= SAVE_EVERY_EVENTS:
-        _prune_idle(bot, "events")
-        bot.memory["chanstats_count"] = 0
+    if _accrued:
+        with _stats_lock:
+            bot.memory["chanstats_count"] = bot.memory.get("chanstats_count", 0) + 1
+            if bot.memory["chanstats_count"] >= SAVE_EVERY_EVENTS:
+                _prune_idle(bot, "events")
+                bot.memory["chanstats_count"] = 0
 
 
 def _prune_idle(bot, reason="manual"):
@@ -129,7 +136,7 @@ def _prune_idle(bot, reason="manual"):
 # ====================== EVENT HANDLERS ======================
 
 @plugin.thread(True)
-@plugin.rule(".*")
+@plugin.event("PRIVMSG")
 def pubmsg(bot, trigger):
     """Track lines, words, and /me actions for channel messages."""
     if not str(trigger.sender).startswith("#"):
@@ -151,26 +158,31 @@ def pubmsg(bot, trigger):
 
 @plugin.thread(True)
 @plugin.event("KICK")
-@plugin.rule(".*")
 def on_kick(bot, trigger):
-    """Track kicks given."""
-    if str(trigger.sender).startswith("#"):
+    """Track kicks given by the kicker."""
+    if str(trigger.sender).startswith("#") and trigger.nick != bot.nick:
         accrue(bot, trigger.nick, trigger.sender, "kicks")
 
 
 @plugin.thread(True)
 @plugin.event("MODE")
-@plugin.rule(".*")
 def on_mode(bot, trigger):
     """Track bans set (+b)."""
-    raw = trigger.raw or ""
-    if "+b" in raw and str(trigger.sender).startswith("#"):
-        accrue(bot, trigger.nick, trigger.sender, "bans")
+    if not str(trigger.sender).startswith("#"):
+        return
+    # Raw IRC: :nick!u@h MODE #chan +modes [args...]
+    # Mode string is the 4th token (index 3); check it starts with + and contains b
+    raw_parts = (trigger.raw or "").split()
+    # Check each char in the mode string individually to avoid false matches (e.g. +ob)
+    if len(raw_parts) >= 4 and raw_parts[3].startswith("+"):
+        mode_chars = raw_parts[3][1:]  # strip the leading +
+        ban_count = mode_chars.count("b")
+        for _ in range(ban_count):
+            accrue(bot, trigger.nick, trigger.sender, "bans")
 
 
 @plugin.thread(True)
 @plugin.event("JOIN")
-@plugin.rule(".*")
 def on_join(bot, trigger):
     if str(trigger.sender).startswith("#"):
         if trigger.nick != bot.nick:
@@ -179,17 +191,17 @@ def on_join(bot, trigger):
 
 @plugin.thread(True)
 @plugin.event("PART")
-@plugin.rule(".*")
 def on_part(bot, trigger):
-    if str(trigger.sender).startswith("#"):
+    if str(trigger.sender).startswith("#") and trigger.nick != bot.nick:
         accrue(bot, trigger.nick, trigger.sender, "parts")
 
 
 @plugin.thread(True)
 @plugin.event("QUIT")
-@plugin.rule(".*")
 def on_quit(bot, trigger):
     """Track quits. Detect netsplits by quit message format (server1 server2)."""
+    if trigger.nick == bot.nick:
+        return
     quit_msg = trigger.group(0) or ""
     pieces = quit_msg.strip().split()
     is_split = (
@@ -199,18 +211,28 @@ def on_quit(bot, trigger):
     )
     field = "splits" if is_split else "quits"
 
-    for chan in bot.channels:
-        if trigger.nick in bot.channels[chan].users:
-            accrue(bot, trigger.nick, chan, field)
+    # Sopel removes the user from bot.channels before firing QUIT, so we
+    # fall back to the DB to find which channels this nick was active in.
+    nick_lower = trigger.nick.lower()
+    conn = _get_db(bot)
+    try:
+        rows = conn.execute(
+            "SELECT channel FROM stats WHERE nick=?", (nick_lower,)
+        ).fetchall()
+    finally:
+        conn.close()
+    for (chan,) in rows:
+        accrue(bot, nick_lower, chan, field)
 
 
 @plugin.thread(True)
 @plugin.event("NICK")
-@plugin.rule(".*")
 def on_nickchange(bot, trigger):
     """Track nick changes."""
     old_nick = trigger.nick
-    for chan in bot.channels:
+    if old_nick == bot.nick:
+        return
+    for chan in list(bot.channels):
         if old_nick in bot.channels[chan].users:
             accrue(bot, old_nick, chan, "nickchanges")
 
@@ -305,22 +327,82 @@ def cmd_stats(bot, trigger):
 @plugin.thread(True)
 @plugin.command("rank")
 def cmd_rank(bot, trigger):
-    """$rank [field] [#channel] — Top 10 users for a stat. Default: lines."""
+    """$rank [nick|field] [field] [#channel] — Rank a user or show top 10. Default field: lines."""
     text = (trigger.group(2) or "").strip().split()
 
     field = "lines"
     chan = str(trigger.sender).lower()
+    nick = None
 
     for arg in text:
         if arg.startswith("#"):
             chan = arg.lower()
         elif arg.lower() in VALID_FIELDS:
             field = arg.lower()
+        elif nick is None:
+            nick = arg.lower()
 
     if not chan.startswith("#"):
         bot.say(f"\x0304⚠ Error:{COLOR_RESET} Use this in a channel or specify one.")
         return
 
+    field_emoji = {
+        "lines": "💬", "words": "📝", "actions": "🎭", "kicks": "🦵",
+        "bans": "🔨", "joins": "🚪", "parts": "👋", "splits": "💥",
+        "quits": "🚫", "nickchanges": "🔄",
+    }
+
+    # ── Single-user rank lookup ──────────────────────────────────────────────
+    if nick is not None:
+        conn = _get_db(bot)
+        try:
+            # Rank position (1-based) among users with > 0 for that field
+            # field is validated against VALID_FIELDS — safe to format
+            rank_row = conn.execute(
+                f"""SELECT rank, {field} FROM (
+                        SELECT nick,
+                               {field},
+                               ROW_NUMBER() OVER (ORDER BY {field} DESC) AS rank
+                        FROM stats
+                        WHERE channel=? AND {field} > 0
+                    ) WHERE nick=?""",
+                (chan, nick),
+            ).fetchone()
+
+            stats_row = conn.execute(
+                "SELECT lines, words, actions, kicks, bans, joins, parts, splits, quits, nickchanges, last_seen "
+                "FROM stats WHERE channel=? AND nick=?",
+                (chan, nick),
+            ).fetchone()
+        finally:
+            conn.close()
+
+        if not stats_row:
+            bot.say(f"\x0304⚠{COLOR_RESET} No stats for {B}{nick}{B_OFF} in {B}{chan}{B_OFF}.")
+            return
+
+        lines, words, actions, kicks, bans, joins, parts, splits, quits, nicks_chg, last_seen = stats_row
+        ago = int(time.time()) - (last_seen or 0)
+
+        emoji = field_emoji.get(field, "📊")
+        if rank_row:
+            rank_pos, rank_val = rank_row
+            medals = {1: "🥇", 2: "🥈", 3: "🥉"}
+            medal = medals.get(rank_pos, f"#{rank_pos}")
+            rank_str = f"{medal} Rank: {B}{rank_pos}{B_OFF} by {field} ({rank_val:,})"
+        else:
+            rank_str = f"Rank: {B}unranked{B_OFF} for {field} (0)"
+
+        bot.say(
+            f"{emoji} {B}{nick}{B_OFF} in {B}{chan}{B_OFF}{SEP}"
+            f"{rank_str}{SEP}"
+            f"💬 Lines: {B}{lines:,}{B_OFF}{SEP}"
+            f"📝 Words: {B}{words:,}{B_OFF}{SEP}"
+            f"🎭 Actions: {B}{actions:,}{B_OFF}"
+        )
+        return
+
+    # ── Top-10 leaderboard ───────────────────────────────────────────────────
     conn = _get_db(bot)
     try:
         # field is validated against VALID_FIELDS — safe to format
@@ -337,20 +419,14 @@ def cmd_rank(bot, trigger):
         bot.say(f"\x0304⚠{COLOR_RESET} No {B}{field}{B_OFF} stats for {B}{chan}{B_OFF}.")
         return
 
-    # Field emoji map for the header
-    field_emoji = {
-        "lines": "💬", "words": "📝", "actions": "🎭", "kicks": "🦵",
-        "bans": "🔨", "joins": "🚪", "parts": "👋", "splits": "💥",
-        "quits": "🚫", "nickchanges": "🔄",
-    }
     emoji = field_emoji.get(field, "📊")
     medals = {1: "🥇", 2: "🥈", 3: "🥉"}
-    parts = []
+    entries = []
     for i, (nick, value) in enumerate(rows, start=1):
         medal = medals.get(i, f"\x0314{i}.\x03")
-        parts.append(f"{medal} {B}{nick}{B_OFF} ({value:,})")
+        entries.append(f"{medal} {B}{nick}{B_OFF} ({value:,})")
 
-    bot.say(f"{emoji} {B}Top {field.capitalize()}{B_OFF} in {B}{chan}{B_OFF}{SEP}{SEP.join(parts)}")
+    bot.say(f"{emoji} {B}Top {field.capitalize()}{B_OFF} in {B}{chan}{B_OFF}{SEP}{SEP.join(entries)}")
 
 
 @plugin.thread(True)
@@ -389,27 +465,26 @@ def cmd_chanstats(bot, trigger):
 
     users, lines, words, actions, kicks, bans, joins, parts, splits, quits, nicks = row
 
-    bot.say(
-        f"📊 {B}Channel Stats{B_OFF} — {B}{chan}{B_OFF}{SEP}"
-        f"👥 Users: {B}{users:,}{B_OFF}{SEP}"
-        f"💬 Lines: {B}{lines:,}{B_OFF}{SEP}"
-        f"📝 Words: {B}{words:,}{B_OFF}{SEP}"
-        f"🎭 Actions: {B}{actions:,}{B_OFF}"
-    )
-    extras = []
+    parts_list = [
+        f"📊 {B}Channel Stats{B_OFF} — {B}{chan}{B_OFF}",
+        f"👥 Users: {B}{users:,}{B_OFF}",
+        f"💬 Lines: {B}{lines:,}{B_OFF}",
+        f"📝 Words: {B}{words:,}{B_OFF}",
+        f"🎭 Actions: {B}{actions:,}{B_OFF}",
+        f"🚪 Joins: {B}{joins:,}{B_OFF}",
+        f"👋 Parts: {B}{parts:,}{B_OFF}",
+    ]
     if kicks:
-        extras.append(f"🦵 Kicks: {B}{kicks:,}{B_OFF}")
+        parts_list.append(f"🦵 Kicks: {B}{kicks:,}{B_OFF}")
     if bans:
-        extras.append(f"🔨 Bans: {B}{bans:,}{B_OFF}")
-    extras.append(f"🚪 Joins: {B}{joins:,}{B_OFF}")
-    extras.append(f"👋 Parts: {B}{parts:,}{B_OFF}")
+        parts_list.append(f"🔨 Bans: {B}{bans:,}{B_OFF}")
     if splits:
-        extras.append(f"💥 Splits: {B}{splits:,}{B_OFF}")
+        parts_list.append(f"💥 Splits: {B}{splits:,}{B_OFF}")
     if quits:
-        extras.append(f"🚫 Quits: {B}{quits:,}{B_OFF}")
+        parts_list.append(f"🚫 Quits: {B}{quits:,}{B_OFF}")
     if nicks:
-        extras.append(f"🔄 Nicks: {B}{nicks:,}{B_OFF}")
-    bot.say(SEP.join(extras))
+        parts_list.append(f"🔄 Nicks: {B}{nicks:,}{B_OFF}")
+    bot.say(SEP.join(parts_list))
 
 
 @plugin.thread(True)
@@ -437,10 +512,10 @@ def cmd_chanrank(bot, trigger):
         return
 
     medals = {1: "🥇", 2: "🥈", 3: "🥉"}
-    parts = []
+    entries = []
     for i, (chan, users, total_lines, total_words) in enumerate(rows, start=1):
         medal = medals.get(i, f"\x0314{i}.\x03")
-        parts.append(
+        entries.append(
             f"{medal} {B}{chan}{B_OFF} — "
             f"💬 {B}{total_lines:,}{B_OFF} lines, "
             f"👥 {B}{users:,}{B_OFF} users"
@@ -448,8 +523,8 @@ def cmd_chanrank(bot, trigger):
 
     bot.say(f"🏆 {B}Top Channels by Activity{B_OFF}")
     # Send in batches to avoid flooding — up to 5 per message
-    for start in range(0, len(parts), 5):
-        bot.say(SEP.join(parts[start:start + 5]))
+    for start in range(0, len(entries), 5):
+        bot.say(SEP.join(entries[start:start + 5]))
 
 
 @plugin.thread(True)
@@ -531,7 +606,7 @@ def cmd_statshelp(bot, trigger):
     nick = trigger.nick
 
     bot.notice(f"📊 {B}Channel Stats Commands{B_OFF}", nick)
-    bot.notice(f" ", nick)
+    bot.notice(" ", nick)
     bot.notice(
         f"  {B}!stats{B_OFF} [nick] [#channel]  —  "
         f"Show stats for a user (defaults to you in the current channel)",
@@ -562,7 +637,7 @@ def cmd_statshelp(bot, trigger):
         f"Remove a single nick's stats (op+ only)",
         nick,
     )
-    bot.notice(f" ", nick)
+    bot.notice(" ", nick)
     bot.notice(
         f"📝 {B}Valid rank fields:{B_OFF} lines, words, actions, kicks, bans, "
         f"joins, parts, splits, quits, nickchanges",

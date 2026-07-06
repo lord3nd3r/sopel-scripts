@@ -39,6 +39,7 @@ _PRIV_OWNER  = 16
 _data_lock = threading.RLock()
 _data = None          # {"channels": {"#chan": {"nick": {"count": N, "last": epoch}}}}
 _enabled = None       # {"#chan": bool}
+_blocked = None       # {"#chan": ["nick1", "nick2", ...]} — never autovoice these
 _sweep_stop = threading.Event()
 _sweep_thread = None
 
@@ -46,7 +47,7 @@ _sweep_thread = None
 # ═══════════════════════════════ persistence ═════════════════════════
 
 def _load():
-    global _data, _enabled
+    global _data, _enabled, _blocked
     with _data_lock:
         if _data is not None:
             return
@@ -56,20 +57,23 @@ def _load():
                     raw = json.load(f)
                 _data = raw.get('channels', {})
                 _enabled = raw.get('enabled', {})
+                _blocked = raw.get('blocked', {})
             except Exception:
                 LOG.exception('autovoice: failed to load %s', DATA_FILE)
                 _data = {}
                 _enabled = {}
+                _blocked = {}
         else:
             _data = {}
             _enabled = {}
+            _blocked = {}
 
 
 def _save():
     with _data_lock:
         if _data is None:
             return
-        payload = {'channels': _data, 'enabled': _enabled or {}}
+        payload = {'channels': _data, 'enabled': _enabled or {}, 'blocked': _blocked or {}}
     tmp = DATA_FILE + '.tmp'
     try:
         with open(tmp, 'w') as f:
@@ -144,6 +148,13 @@ def _is_enabled(channel):
     return (_enabled or {}).get(channel.lower(), False)
 
 
+def _is_blocked(channel, nick_lower):
+    """Check if a nick is blocked from autovoice in a channel."""
+    _load()
+    blocked_list = (_blocked or {}).get(channel.lower(), [])
+    return nick_lower in blocked_list
+
+
 # ═══════════════════════════════ sweep ═══════════════════════════════
 
 def _sweep(bot):
@@ -183,7 +194,8 @@ def _sweep(bot):
             autovoiced = info.get('autovoiced', False)
 
             if count >= MSG_THRESHOLD and not has_voice and not idle:
-                to_voice.append(nick_lower)
+                if not _is_blocked(channel, nick_lower):
+                    to_voice.append(nick_lower)
             elif has_voice and autovoiced and idle:
                 to_devoice.append(nick_lower)
 
@@ -288,10 +300,11 @@ def track_message(bot, trigger):
     # Check if this message just pushed them over the threshold
     if count == MSG_THRESHOLD:
         if _bot_has_halfop(bot, channel) and not _user_has_mode(bot, channel, nick):
-            bot.write(['MODE', channel, '+v', nick])
-            LOG.info('autovoice: +v %s in %s (hit %d msgs)', nick, channel, MSG_THRESHOLD)
-            with _data_lock:
-                _data.get(channel, {}).get(nick_lower, {})['autovoiced'] = True
+            if not _is_blocked(channel, nick_lower):
+                bot.write(['MODE', channel, '+v', nick])
+                LOG.info('autovoice: +v %s in %s (hit %d msgs)', nick, channel, MSG_THRESHOLD)
+                with _data_lock:
+                    _data.get(channel, {}).get(nick_lower, {})['autovoiced'] = True
 
     # Periodic save (every 50 messages across all channels)
     if int(now) % 50 == 0:
@@ -326,9 +339,17 @@ def on_join_revoice(bot, trigger):
 
     # Re-voice if they've earned it and aren't idle
     if count >= MSG_THRESHOLD and (time.time() - last) < IDLE_SECONDS:
+        # Check if antispam recently kicked this user — don't re-voice if so
+        spam_kicked = bot.memory.get('spam_kicked', {})
+        kick_time = spam_kicked.get((channel, nick_lower))
+        if kick_time and (time.time() - kick_time) < 1800:  # 30-min cooldown
+            LOG.info('autovoice: NOT re-voicing %s in %s — antispam kicked %ds ago',
+                     nick, channel, int(time.time() - kick_time))
+            return
+
         # Small delay so the server finishes processing the JOIN
         time.sleep(2)
-        if not _user_has_mode(bot, channel, nick):
+        if not _user_has_mode(bot, channel, nick) and not _is_blocked(channel, nick_lower):
             bot.write(['MODE', channel, '+v', nick])
             LOG.info('autovoice: re-voiced %s in %s on JOIN', nick, channel)
 
@@ -340,22 +361,30 @@ def on_join_revoice(bot, trigger):
 @module.example('$autovoice off')
 @module.example('$autovoice status')
 @module.example('$autovoice reset <nick>')
+@module.example('$autovoice block <nick>')
 def autovoice_cmd(bot, trigger):
-    """Toggle autovoice for the current channel, check status, or reset a user."""
-    if not trigger.sender or not str(trigger.sender).startswith('#'):
-        bot.reply('This command only works in a channel.')
-        return
+    """Manage autovoice. Works in channel or PM ($autovoice #channel <cmd>)."""
+    args = (trigger.group(2) or '').strip().split()
 
-    channel = str(trigger.sender).lower()
+    # PM support: first arg must be #channel
+    if not trigger.sender or not str(trigger.sender).startswith('#'):
+        if not args or not args[0].startswith('#'):
+            bot.reply('From PM, specify the channel: $autovoice #channel <subcommand>')
+            return
+        channel = args.pop(0).lower()
+    else:
+        channel = str(trigger.sender).lower()
+
     nick = trigger.nick
 
-    # require halfop+ to manage
+    # require halfop+ or admin to manage
     privs = _user_privs(bot, channel, nick)
     if privs < _PRIV_HALFOP and not trigger.admin:
         bot.reply('You need halfop or higher to manage autovoice.')
         return
 
-    args = (trigger.group(2) or '').strip().lower().split()
+    # Re-lowercase args after possible pop
+    args = [a.lower() for a in args]
     subcmd = args[0] if args else 'status'
 
     _load()
@@ -364,20 +393,22 @@ def autovoice_cmd(bot, trigger):
         with _data_lock:
             _enabled[channel] = True
         _save()
-        bot.say('Autovoice \x02enabled\x02 for this channel.')
+        bot.say(f'Autovoice \x02enabled\x02 for {channel}.')
 
     elif subcmd in ('off', 'disable'):
         with _data_lock:
             _enabled[channel] = False
         _save()
-        bot.say('Autovoice \x02disabled\x02 for this channel.')
+        bot.say(f'Autovoice \x02disabled\x02 for {channel}.')
 
     elif subcmd == 'status':
         on = _is_enabled(channel)
         with _data_lock:
             tracked = len((_data or {}).get(channel, {}))
+            blocked_count = len((_blocked or {}).get(channel, []))
         state = '\x0303ON\x03' if on else '\x0304OFF\x03'
         bot.say(f'Autovoice is {state} | Tracking \x02{tracked}\x02 users | '
+                f'Blocked: \x02{blocked_count}\x02 | '
                 f'Threshold: {MSG_THRESHOLD} msgs | Idle timeout: {IDLE_SECONDS // 86400}d')
 
     elif subcmd == 'reset':
@@ -391,20 +422,66 @@ def autovoice_cmd(bot, trigger):
             if target_lower in chan_data:
                 del chan_data[target_lower]
                 _save()
-                bot.say(f'Reset activity data for \x02{target}\x02.')
+                bot.say(f'Reset activity data for \x02{target}\x02 in {channel}.')
             else:
                 bot.reply(f'No data found for {target}.')
+
+    elif subcmd == 'block':
+        target = args[1] if len(args) > 1 else None
+        if not target:
+            bot.reply('Usage: $autovoice block <nick>')
+            return
+        target_lower = target.lower()
+        with _data_lock:
+            blocked_list = _blocked.setdefault(channel, [])
+            if target_lower in blocked_list:
+                bot.reply(f'{target} is already blocked.')
+                return
+            blocked_list.append(target_lower)
+            # Also reset their autovoice data
+            chan_data = (_data or {}).get(channel, {})
+            if target_lower in chan_data:
+                chan_data[target_lower]['count'] = 0
+                chan_data[target_lower]['autovoiced'] = False
+        _save()
+        bot.say(f'\x02{target}\x02 is now blocked from autovoice in {channel}.')
+        LOG.info('autovoice: blocked %s in %s by %s', target, channel, nick)
+
+    elif subcmd == 'unblock':
+        target = args[1] if len(args) > 1 else None
+        if not target:
+            bot.reply('Usage: $autovoice unblock <nick>')
+            return
+        target_lower = target.lower()
+        with _data_lock:
+            blocked_list = _blocked.get(channel, [])
+            if target_lower not in blocked_list:
+                bot.reply(f'{target} is not blocked.')
+                return
+            blocked_list.remove(target_lower)
+        _save()
+        bot.say(f'\x02{target}\x02 is now unblocked from autovoice in {channel}.')
+        LOG.info('autovoice: unblocked %s in %s by %s', target, channel, nick)
+
+    elif subcmd == 'blocklist':
+        with _data_lock:
+            blocked_list = (_blocked or {}).get(channel, [])
+        if not blocked_list:
+            bot.say(f'No blocked users in {channel}.')
+        else:
+            bot.say(f'Blocked from autovoice in {channel} ({len(blocked_list)}): '
+                    + ', '.join(f'\x02{n}\x02' for n in sorted(blocked_list)))
 
     elif subcmd == 'threshold':
         bot.say(f'Current threshold: \x02{MSG_THRESHOLD}\x02 messages to earn +v, '
                 f'\x02{IDLE_SECONDS // 86400}\x02 days idle to lose it.')
 
     elif subcmd == 'check':
-        target = args[1].lower() if len(args) > 1 else trigger.nick.lower()
+        target = args[1] if len(args) > 1 else trigger.nick.lower()
         _vcheck_report(bot, trigger, channel, target)
 
     else:
-        bot.reply('Usage: $autovoice <on|off|status|reset <nick>|threshold|check [nick]>')
+        bot.reply('Usage: $autovoice <on|off|status|reset|block|unblock|blocklist|threshold|check> [nick]')
 
 
 @module.commands('vcheck')

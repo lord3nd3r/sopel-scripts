@@ -1,10 +1,11 @@
-# botadmin.py — Owner/admin-only bot management commands
-# Works in PM and in channels. All commands require bot owner or admin.
+# botadmin.py — Owner-only bot management commands (supplements built-in admin)
+# Commands here are unique to this plugin and DO NOT duplicate the built-in
+# admin plugin's commands (bjoin, bpart, bmode, say, act, raw, bnick, bquit,
+# rehash, reload, load, unload, plugins, bstatus, enable, disable, disabled).
 from __future__ import annotations
 
 import os
 import sys
-import signal
 import subprocess
 import logging
 
@@ -45,7 +46,7 @@ def _is_admin(bot, trigger):
             return trigger.nick.lower() in {a.lower() for a in cfg_admins}
         if isinstance(cfg_admins, str) and cfg_admins.strip():
             import re
-            admins = {a.strip().lower() for a in re.split(r'[,\s]+', cfg_admins) if a.strip()}
+            admins = {a.strip().lower() for a in re.split(r'[,\\s]+', cfg_admins) if a.strip()}
             return trigger.nick.lower() in admins
     except Exception:
         pass
@@ -65,7 +66,7 @@ def _pm_reply(bot, trigger, msg):
 
 
 # ------------------------------------------------------------------
-# $rehash — restart the bot process (clean restart)
+# $restart — restart the bot process (clean restart)
 # ------------------------------------------------------------------
 @module.commands('restart')
 def restart(bot, trigger):
@@ -158,158 +159,6 @@ def reload_plugin(bot, trigger):
 
 
 # ------------------------------------------------------------------
-# $botquit [message] — shut down the bot
-# ------------------------------------------------------------------
-@module.commands('botquit')
-def botquit(bot, trigger):
-    """$botquit [message] — Shut down the bot (owner only)."""
-    if not _is_owner(bot, trigger):
-        _deny(bot, trigger)
-        return
-    msg = (trigger.group(2) or '').strip() or 'Shutting down — goodbye!'
-    LOG.info('QUIT requested by %s: %s', trigger.nick, msg)
-    try:
-        bot.quit(msg)
-    except Exception:
-        pass
-
-
-# ------------------------------------------------------------------
-# $say <#channel|nick> <message> — make the bot say something
-# ------------------------------------------------------------------
-@module.commands('say')
-def say_cmd(bot, trigger):
-    """$say <#channel|nick> <message> — Send a message as the bot (admin only)."""
-    if not _is_admin(bot, trigger):
-        _deny(bot, trigger)
-        return
-    args = (trigger.group(2) or '').strip()
-    if not args or ' ' not in args:
-        _pm_reply(bot, trigger, '❓ Usage: $say <#channel|nick> <message>')
-        return
-    target, message = args.split(' ', 1)
-    bot.say(message.strip(), target.strip())
-
-
-# ------------------------------------------------------------------
-# $act <#channel|nick> <action> — make the bot do /me
-# ------------------------------------------------------------------
-@module.commands('act')
-def act_cmd(bot, trigger):
-    """$act <#channel|nick> <action> — Send an action as the bot (admin only)."""
-    if not _is_admin(bot, trigger):
-        _deny(bot, trigger)
-        return
-    args = (trigger.group(2) or '').strip()
-    if not args or ' ' not in args:
-        _pm_reply(bot, trigger, '❓ Usage: $act <#channel|nick> <action>')
-        return
-    target, action = args.split(' ', 1)
-    bot.action(action.strip(), target.strip())
-
-
-# ------------------------------------------------------------------
-# $raw <irc command> — send a raw IRC line
-# ------------------------------------------------------------------
-@module.commands('raw')
-def raw_cmd(bot, trigger):
-    """$raw <irc line> — Send raw IRC command (owner only)."""
-    if not _is_owner(bot, trigger):
-        _deny(bot, trigger)
-        return
-    line = (trigger.group(2) or '').strip()
-    if not line:
-        _pm_reply(bot, trigger, '❓ Usage: $raw <irc command>')
-        return
-    LOG.info('RAW from %s: %s', trigger.nick, line)
-    bot.write([line])
-    _pm_reply(bot, trigger, f'📡 Sent: {line}')
-
-
-# ------------------------------------------------------------------
-# $botnick <newnick> — change bot's nick
-# ------------------------------------------------------------------
-@module.commands('botnick')
-def botnick(bot, trigger):
-    """$botnick <newnick> — Change the bot's IRC nick (owner only)."""
-    if not _is_owner(bot, trigger):
-        _deny(bot, trigger)
-        return
-    newnick = (trigger.group(2) or '').strip()
-    if not newnick:
-        _pm_reply(bot, trigger, '❓ Usage: $botnick <newnick>')
-        return
-    LOG.info('NICK change requested by %s: %s -> %s', trigger.nick, bot.nick, newnick)
-    bot.write(['NICK', newnick])
-    _pm_reply(bot, trigger, f'✅ Nick change sent: {bot.nick} → {newnick}')
-
-
-# ------------------------------------------------------------------
-# $bjoin <#channel> [key] — join a channel
-# ------------------------------------------------------------------
-@module.commands('bjoin')
-def bjoin(bot, trigger):
-    """$bjoin <#channel> [key] — Make the bot join a channel (admin only)."""
-    if not _is_admin(bot, trigger):
-        _deny(bot, trigger)
-        return
-    args = (trigger.group(2) or '').strip().split()
-    if not args or not args[0].startswith('#'):
-        _pm_reply(bot, trigger, '❓ Usage: $bjoin #channel [key]')
-        return
-    channel = args[0]
-    key = args[1] if len(args) > 1 else None
-    bot.join(channel, key)
-    _pm_reply(bot, trigger, f'✅ Joining {channel}')
-
-
-# ------------------------------------------------------------------
-# $bpart <#channel> [message] — leave a channel
-# ------------------------------------------------------------------
-@module.commands('bpart')
-def bpart(bot, trigger):
-    """$bpart <#channel> [message] — Make the bot leave a channel (admin only)."""
-    if not _is_admin(bot, trigger):
-        _deny(bot, trigger)
-        return
-    args = (trigger.group(2) or '').strip()
-    if not args:
-        _pm_reply(bot, trigger, '❓ Usage: $bpart #channel [message]')
-        return
-    parts = args.split(' ', 1)
-    channel = parts[0]
-    if not channel.startswith('#'):
-        _pm_reply(bot, trigger, '❓ Usage: $bpart #channel [message]')
-        return
-    msg = parts[1].strip() if len(parts) > 1 else ''
-    bot.part(channel, msg or None)
-    _pm_reply(bot, trigger, f'✅ Parting {channel}')
-
-
-# ------------------------------------------------------------------
-# $bmode <#channel> <mode> [target] — set a channel mode
-# ------------------------------------------------------------------
-@module.commands('bmode')
-def bmode(bot, trigger):
-    """$bmode <#channel> <mode> [target] — Set channel mode (admin only)."""
-    if not _is_admin(bot, trigger):
-        _deny(bot, trigger)
-        return
-    args = (trigger.group(2) or '').strip().split()
-    if len(args) < 2:
-        _pm_reply(bot, trigger, '❓ Usage: $bmode #channel +o Nick')
-        return
-    channel = args[0]
-    mode = args[1]
-    target = args[2] if len(args) > 2 else None
-    if target:
-        bot.write(['MODE', channel, mode, target])
-    else:
-        bot.write(['MODE', channel, mode])
-    _pm_reply(bot, trigger, f'✅ MODE {channel} {mode} {target or ""}')
-
-
-# ------------------------------------------------------------------
 # $bothelp — list available admin commands
 # ------------------------------------------------------------------
 @module.commands('bothelp')
@@ -320,16 +169,22 @@ def bothelp(bot, trigger):
         return
     lines = [
         '🛠️ Bot Admin Commands:',
-        '  $restart — Restart the bot (owner)',
+        '  $restart — Restart the bot process (owner)',
+        '  $rehash — Hot-reload config and all plugins (owner)',
         '  $breload <module|all> — Reload a plugin or all (owner)',
-        '  $botquit [msg] — Shut down the bot (owner)',
+        '  $reload <module> — Reload a single plugin (owner)',
+        '  $bquit [msg] — Shut down the bot (owner)',
         '  $say <target> <msg> — Say something (admin)',
         '  $act <target> <action> — /me action (admin)',
         '  $raw <irc line> — Raw IRC command (owner)',
-        '  $botnick <nick> — Change bot nick (owner)',
+        '  $bnick <nick> — Change bot nick (owner)',
         '  $bjoin #chan [key] — Join channel (admin)',
         '  $bpart #chan [msg] — Leave channel (admin)',
         '  $bmode #chan <mode> [nick] — Set mode (admin)',
+        '  $enable <plugin> <#chan> — Enable plugin in channel (admin, PM only)',
+        '  $disable <plugin> <#chan> — Disable plugin in channel (admin, PM only)',
+        '  $disabled [#chan] — List disabled plugins (admin, PM only)',
+        '  $bstatus — Show bot status info (admin)',
     ]
     for line in lines:
         if trigger.sender.startswith('#'):

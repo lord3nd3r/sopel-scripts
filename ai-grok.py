@@ -2970,7 +2970,20 @@ def grokreset(bot, trigger):
                     pass
                 return
         else:
-            if not (_is_admin(bot, trigger) or _is_channel_op(bot, trigger)):
+            # In #8chan, only bot admins can reset channel history;
+            # in other channels, channel ops are also allowed.
+            if str(trigger.sender).lower() == '#8chan':
+                if not _is_admin(bot, trigger):
+                    try:
+                        bot.say(
+                            'Only a bot admin may reset Grok history in this channel. '
+                            'Use $grokreset (or $grokreset me) to reset only your history.',
+                            trigger.sender,
+                        )
+                    except Exception:
+                        pass
+                    return
+            elif not (_is_admin(bot, trigger) or _is_channel_op(bot, trigger)):
                 try:
                     bot.say(
                         'Only a bot admin/owner or a channel operator may reset Grok history for a channel. '
@@ -3018,8 +3031,13 @@ def talkback(bot, trigger):
         bot.say("Talkback can only be configured in channels.")
         return
 
-    # Check privileges: Op or higher
-    if not (_is_admin(bot, trigger) or _is_channel_op(bot, trigger)):
+    # Check privileges: in #8chan only bot admins can change settings;
+    # in other channels, channel ops are also allowed.
+    if str(trigger.sender).lower() == '#8chan':
+        if not _is_admin(bot, trigger):
+            bot.reply("Only bot admins can change talkback settings in this channel.")
+            return
+    elif not (_is_admin(bot, trigger) or _is_channel_op(bot, trigger)):
         bot.reply("Only channel operators or bot admins can change talkback settings.")
         return
 
@@ -3049,8 +3067,13 @@ def ai_toggle(bot, trigger):
         bot.say("AI status can only be configured in channels.")
         return
 
-    # Check privileges: Op or higher
-    if not (_is_admin(bot, trigger) or _is_channel_op(bot, trigger)):
+    # Check privileges: in #8chan only bot admins can change settings;
+    # in other channels, channel ops are also allowed.
+    if str(trigger.sender).lower() == '#8chan':
+        if not _is_admin(bot, trigger):
+            bot.reply("Only bot admins can change AI status in this channel.")
+            return
+    elif not (_is_admin(bot, trigger) or _is_channel_op(bot, trigger)):
         bot.reply("Only channel operators or bot admins can change AI status.")
         return
 
