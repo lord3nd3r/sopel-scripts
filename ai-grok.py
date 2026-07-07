@@ -918,40 +918,6 @@ def sanitize_reply(bot, trigger, reply):
     return reply
 
 
-def _detect_action_reply(reply):
-    """Detect action-style replies: AI responded with a third-person verb.
-
-    e.g. "farts on End3r", "hugs End3r warmly", "waves at everyone", "uppercuts boliver"
-    """
-    words = reply.split()
-    if not words:
-        return False
-    first_word = words[0].lower().rstrip('.,;:!?')
-    if not first_word.endswith('s') or len(first_word) <= 2:
-        return False
-
-    NON_ACTION_WORDS = {
-        'is', 'was', 'has', 'does', 'says', 'seems', 'looks', 'feels', 'sounds', 'appears',
-        'this', 'its', 'us', 'yes', 'sometimes', 'always', 'perhaps', 'besides', 'unless',
-        'anyways', 'anyway', 'thanks', 'congrats', 'cheers', 'oops', 'alas', 'please', 'thus',
-        'so', 'as', 'itself', 'ours', 'yours', 'his', 'hers', 'theirs', 'whose', 'whats', "what's",
-        'theres', "there's", 'heres', "here's", 'lets', "let's", 'thinks', 'knows', 'wants',
-        'needs', 'likes', 'hopes', 'wishes', 'means', 'keeps', 'makes', 'takes', 'gives', 'goes',
-        'comes', 'gets', 'finds', 'tells', 'asks', 'calls', 'tries', 'should', 'would', 'could',
-        'must', 'news', 'bias', 'basis', 'focus', 'chaos', 'status', 'series', 'species', 'progress'
-    }
-    if first_word in NON_ACTION_WORDS:
-        return False
-
-    if len(words) > 1:
-        second_word = words[1].lower().rstrip('.,;:!?')
-        PLURAL_FOLLOW_VERBS = {'are', 'were', 'have', 'do', 'will', 'can', 'should', 'would', 'could'}
-        if second_word in PLURAL_FOLLOW_VERBS:
-            return False
-
-    return True
-
-
 def _call_responses_api(bot, messages, model, temp, max_toks, search_mode=False, conv_id=None):
     """Call Responses API with request validation and response schema validation."""
     if not messages or not isinstance(messages, list):
@@ -1285,12 +1251,7 @@ def _api_worker(*, bot, trigger, messages, review_mode, is_pm, bot_nick, chan_lo
         except Exception:
             pass
 
-        # Detect action-style replies: AI responded with a third-person verb
-        # e.g. "farts on End3r", "hugs End3r warmly", "waves at everyone"
-        # These should be sent as /me actions, not prefixed with the requester's nick.
-        _reply_is_action = _detect_action_reply(reply)
-
-        if is_action or _reply_is_action:
+        if is_action:
             final_reply = reply
         elif not is_chimein and trigger.nick.lower() not in reply.lower() and not _is_owner(bot, trigger):
             # Check if the reply already addresses someone in the channel
@@ -1314,7 +1275,7 @@ def _api_worker(*, bot, trigger, messages, review_mode, is_pm, bot_nick, chan_lo
         _typing_delay = random.uniform(TYPING_DELAY_MIN, TYPING_DELAY_MAX)
         time.sleep(_typing_delay)
 
-        if is_action or _reply_is_action:
+        if is_action:
             bot.action(final_reply, trigger.sender)
         else:
             send(bot, trigger.sender, final_reply)

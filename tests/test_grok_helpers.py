@@ -85,3 +85,5 @@ def test_sanitize_reply():
     out = ai_grok.sanitize_reply(bot, trig, reply)
     assert 'code removed' in out or 'I was gonna draw' in out or '@everyone' not in out
     assert len(out) <= 1405
+
+
