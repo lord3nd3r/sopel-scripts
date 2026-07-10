@@ -9,6 +9,11 @@ from sopel import module, tools
 from sqlalchemy.sql import text
 import re
 import time
+import threading
+import logging
+from collections import deque
+
+LOGGER = logging.getLogger(__name__)
 
 # ──────────────────────────────────────────────────────────────
 # Configuration
@@ -35,6 +40,16 @@ _LEET_MAP = str.maketrans({
     '+': 't', '!': 'i', '|': 'i',
 })
 
+# ──────────────────────────────────────────────────────────────
+# Karma Flood Protection — Defaults (ON by default, tunable per-channel)
+# ──────────────────────────────────────────────────────────────
+KARMA_FLOOD_DEFAULTS = {
+    'window': 60,          # seconds to look back for coordinated attacks
+    'threshold': 3,        # unique givers targeting same nick → triggers protection
+    'ban_duration': 600,   # ban length in seconds (10 min)
+}
+KARMA_FLOOD_ANNOUNCE_CD = 30  # rate-limit flood announcements (seconds)
+
 
 def _normalize(word: str) -> str:
     """Lowercase + collapse leet substitutions for slur detection."""
@@ -47,7 +62,21 @@ def is_forbidden(word: str) -> bool:
 
 
 def setup(bot):
-    """One-time purge of any forbidden karma entries from the live DB the bot uses."""
+    """Initialize karma module — flood protection memory + one-time DB cleanup."""
+    # ── Karma flood protection in-memory structures ──
+    if 'karma_flood_events' not in bot.memory:
+        bot.memory['karma_flood_events'] = {}       # {(target, chan): deque}
+    if 'karma_flood_unbans' not in bot.memory:
+        bot.memory['karma_flood_unbans'] = {}       # {(chan, banmask): Timer}
+    if 'karma_flood_last_announce' not in bot.memory:
+        bot.memory['karma_flood_last_announce'] = {} # {chan: timestamp}
+    if 'karma_flood_banned_hosts' not in bot.memory:
+        bot.memory['karma_flood_banned_hosts'] = set()
+    bot.memory['karma_flood_settings'] = (
+        bot.db.get_plugin_value('karma', 'flood_settings') or {}
+    )
+
+    # ── One-time purge of forbidden karma entries ──
     if bot.memory.get("karma_forbidden_cleaned"):
         return
 
@@ -154,6 +183,220 @@ def cleanup_cooldowns(bot):
 @module.interval(7200)
 def cooldown_cleanup(bot):
     cleanup_cooldowns(bot)
+    _cleanup_flood_events(bot)
+
+
+# ──────────────────────────────────────────────────────────────
+# Karma Flood Protection — Helpers
+# ──────────────────────────────────────────────────────────────
+
+def _flood_enabled(bot, channel):
+    """Check if karma flood protection is enabled for this channel."""
+    disabled = bot.db.get_plugin_value('karma', 'flood_disabled_channels') or []
+    return str(channel).lower() not in disabled
+
+
+def _flood_settings(bot, channel):
+    """Get flood protection settings for a channel, with defaults."""
+    chan = str(channel).lower()
+    custom = bot.memory.get('karma_flood_settings', {}).get(chan, {})
+    return {**KARMA_FLOOD_DEFAULTS, **custom}
+
+
+def _flood_format_duration(seconds):
+    """Format seconds into a human-readable string."""
+    seconds = int(seconds)
+    if seconds < 60:
+        return f"{seconds}s"
+    m = seconds // 60
+    s = seconds % 60
+    if seconds < 3600:
+        return f"{m}m {s}s" if s else f"{m}m"
+    h = seconds // 3600
+    m = (seconds % 3600) // 60
+    return f"{h}h {m}m" if m else f"{h}h"
+
+
+def _flood_bot_has_op(bot, channel):
+    """Check if the bot has operator status in a channel."""
+    chan = str(channel)
+    if chan in bot.channels:
+        privs = bot.channels[chan].privileges.get(bot.nick, 0)
+        return bool(privs & module.OP)
+    return False
+
+
+def _schedule_karma_unban(bot, channel, banmask, giver_host, duration):
+    """Schedule an automatic unban after duration seconds."""
+    if duration <= 0:
+        return
+
+    key = (str(channel).lower(), banmask)
+
+    # Cancel any existing timer for this mask
+    old = bot.memory['karma_flood_unbans'].get(key)
+    if old:
+        old.cancel()
+
+    def _do_unban():
+        bot.write(['MODE', channel, '-b', banmask])
+        bot.memory['karma_flood_unbans'].pop(key, None)
+        bot.memory['karma_flood_banned_hosts'].discard(giver_host)
+        LOGGER.info("Karma flood: Auto-unbanned %s in %s", banmask, channel)
+
+    timer = threading.Timer(duration, _do_unban)
+    timer.daemon = True
+    timer.start()
+    bot.memory['karma_flood_unbans'][key] = timer
+
+
+def _can_flood_announce(bot, channel):
+    """Rate-limit flood announcements to avoid self-flooding."""
+    now = time.time()
+    chan = str(channel).lower()
+    last = bot.memory['karma_flood_last_announce'].get(chan, 0)
+    if now - last < KARMA_FLOOD_ANNOUNCE_CD:
+        return False
+    bot.memory['karma_flood_last_announce'][chan] = now
+    return True
+
+
+def _record_flood_event(bot, target, channel, giver_host, direction):
+    """Record a karma event for flood tracking. Returns the event dict."""
+    key = (str(target).lower(), str(channel).lower())
+    events = bot.memory['karma_flood_events'].setdefault(key, deque(maxlen=200))
+    event = {
+        'time': time.time(),
+        'giver_host': giver_host,
+        'direction': direction,
+        'applied': False,
+    }
+    events.append(event)
+    return event
+
+
+def _check_karma_flood(bot, target, channel, direction):
+    """Check if the target is being karma-flooded.
+
+    Returns (is_flood, recent_events) where recent_events are all events
+    in the window targeting this nick with the same direction.
+    """
+    settings = _flood_settings(bot, channel)
+    window = settings['window']
+    threshold = settings['threshold']
+
+    key = (str(target).lower(), str(channel).lower())
+    events = bot.memory['karma_flood_events'].get(key, deque())
+
+    now = time.time()
+    cutoff = now - window
+
+    # Events within the window going the same direction
+    recent = [e for e in events if e['time'] >= cutoff and e['direction'] == direction]
+
+    # Count unique giver hostmasks
+    unique_givers = set(e['giver_host'] for e in recent)
+
+    if len(unique_givers) >= threshold:
+        return True, recent
+
+    return False, []
+
+
+def _handle_karma_flood(bot, target, channel, trigger, flood_events):
+    """Handle a detected karma flood — ban attackers, rollback karma, announce."""
+    chan = str(channel)
+    settings = _flood_settings(bot, channel)
+    ban_dur = settings['ban_duration']
+
+    # Current attacker identity
+    current_host = f"{trigger.user or '*'}@{trigger.host or '*'}"
+
+    # Collect all unique attacker hostmasks from flood events + current
+    all_hosts = set(e['giver_host'] for e in flood_events)
+    all_hosts.add(current_host)
+
+    if _flood_bot_has_op(bot, chan):
+        # Ban the current attacker first
+        current_host_part = trigger.host or '*'
+        current_banmask = f"*!*@{current_host_part}"
+        bot.write(['MODE', chan, '+b', current_banmask])
+        _schedule_karma_unban(bot, chan, current_banmask, current_host, ban_dur)
+
+        # Ban any earlier attackers from this flood not yet banned
+        for host_entry in all_hosts:
+            if host_entry == current_host:
+                continue  # Already handled above
+            if host_entry in bot.memory['karma_flood_banned_hosts']:
+                continue  # Already banned from a previous detection
+            host_part = host_entry.split('@', 1)[-1] if '@' in host_entry else host_entry
+            banmask = f"*!*@{host_part}"
+            bot.write(['MODE', chan, '+b', banmask])
+            _schedule_karma_unban(bot, chan, banmask, host_entry, ban_dur)
+
+        # Mark all hosts as banned
+        for host_entry in all_hosts:
+            bot.memory['karma_flood_banned_hosts'].add(host_entry)
+
+        # Kick the current attacker (the one whose trigger we have)
+        reason = f"Karma flood protection \u2014 banned {_flood_format_duration(ban_dur)}"
+        bot.write(['KICK', chan, str(trigger.nick), f':{reason}'])
+    else:
+        # No op — can't ban/kick, but still block karma and rollback
+        for host_entry in all_hosts:
+            bot.memory['karma_flood_banned_hosts'].add(host_entry)
+
+    # Rollback all applied karma damage from the flood window
+    rolled_back = 0
+    target_str = str(target)
+    for event in flood_events:
+        if event.get('applied'):
+            reverse_delta = 1 if event['direction'] == '--' else -1
+            new_global = get_karma(bot.db, target_str) + reverse_delta
+            set_karma(bot.db, target_str, new_global)
+            add_channel_karma(bot.db, target_str, chan, reverse_delta)
+            event['applied'] = False
+            rolled_back += 1
+
+    # Get restored karma values for the announcement
+    restored_global = get_karma(bot.db, target_str)
+    restored_chan = get_channel_karma(bot.db, target_str, chan)
+
+    # Announce (rate-limited)
+    unique_attackers = len(all_hosts)
+    if _can_flood_announce(bot, chan):
+        parts = [f"\U0001f6e1\ufe0f Karma flood detected \u2014 protecting {target}."]
+        if rolled_back:
+            parts.append(
+                f"Rolled back {rolled_back} karma change{'s' if rolled_back != 1 else ''} "
+                f"(\U0001f3af {restored_chan} in {chan} | \U0001f310 {restored_global} global)."
+            )
+        parts.append(
+            f"Banned {unique_attackers} attacker{'s' if unique_attackers != 1 else ''} "
+            f"for {_flood_format_duration(ban_dur)}."
+        )
+        bot.say(" ".join(parts), chan)
+
+    LOGGER.info(
+        "Karma flood: protected %s in %s — rolled back %d, %d attackers banned",
+        target, chan, rolled_back, unique_attackers,
+    )
+
+
+def _cleanup_flood_events(bot):
+    """Prune stale flood event entries (called periodically)."""
+    flood_events = bot.memory.get('karma_flood_events')
+    if not flood_events:
+        return
+    cutoff = time.time() - 300  # keep 5 minutes of history
+    empty_keys = []
+    for key, events in flood_events.items():
+        while events and events[0]['time'] < cutoff:
+            events.popleft()
+        if not events:
+            empty_keys.append(key)
+    for key in empty_keys:
+        del flood_events[key]
 
 
 # ──────────────────────────────────────────────────────────────
@@ -170,6 +413,11 @@ def karma_increment_decrement(bot, trigger):
             return
     except Exception:
         pass
+
+    # Quick reject: already-banned karma-flood hostmask (silent drop)
+    giver_host = f"{trigger.user or '*'}@{trigger.host or '*'}"
+    if giver_host in bot.memory.get('karma_flood_banned_hosts', set()):
+        return
 
     # Find all karma patterns in the message (capture nick + sign pair)
     # We'll strip surrounding punctuation from the captured nick below.
@@ -226,11 +474,30 @@ def karma_increment_decrement(bot, trigger):
         except ValueError:
             pass
 
+        # ── Karma flood check ──
+        flood_event = None
+        if _flood_enabled(bot, chan_id):
+            flood_event = _record_flood_event(
+                bot, target_id, chan_id, giver_host, sign
+            )
+            is_flood, flood_events = _check_karma_flood(
+                bot, target_id, chan_id, sign
+            )
+            if is_flood:
+                _handle_karma_flood(
+                    bot, target_id, chan_id, trigger, flood_events
+                )
+                return  # Block all karma from this message
+
         # Apply karma (sign is '++' or '--' from the new regex)
         delta = 1 if sign == '++' else -1
         new_global = get_karma(bot.db, target) + delta
         set_karma(bot.db, target, new_global)
         karma_applied = True
+
+        # Mark flood event as applied (for potential rollback later)
+        if flood_event:
+            flood_event['applied'] = True
 
         # Friendly message bits
         if delta > 0:
@@ -440,4 +707,103 @@ def setkarma(bot, trigger):
 
     set_karma(bot.db, target, value)
     bot.say(f"🛠️ {target}'s karma has been set to {value}.")
+
+
+# ──────────────────────────────────────────────────────────────
+# $karmaflood — Admin command for flood protection
+# ──────────────────────────────────────────────────────────────
+@module.commands('karmaflood')
+@module.require_chanmsg("This command works only in channels.")
+def cmd_karmaflood(bot, trigger):
+    """Toggle or configure karma flood protection for this channel."""
+    chan = str(trigger.sender)
+    chan_lower = chan.lower()
+
+    # Require halfop+ or bot owner
+    privs = 0
+    if chan in bot.channels:
+        privs = bot.channels[chan].privileges.get(trigger.nick, 0)
+    is_owner = False
+    try:
+        is_owner = str(trigger.nick).lower() == str(bot.config.core.owner).lower()
+    except Exception:
+        pass
+    if not (privs >= module.HALFOP or is_owner):
+        return bot.reply("⚠️ Requires halfop (+h) or above.")
+
+    args = (trigger.group(2) or '').strip().lower().split()
+
+    if not args:
+        enabled = _flood_enabled(bot, chan)
+        settings = _flood_settings(bot, chan)
+        status = "✅ ON" if enabled else "❌ OFF"
+        bot.say(
+            f"🛡️ Karma flood protection: {status} │ "
+            f"Window: {settings['window']}s │ "
+            f"Threshold: {settings['threshold']} unique givers │ "
+            f"Ban: {_flood_format_duration(settings['ban_duration'])}"
+        )
+        return
+
+    action = args[0]
+
+    if action == 'on':
+        disabled = bot.db.get_plugin_value('karma', 'flood_disabled_channels') or []
+        if chan_lower in disabled:
+            disabled.remove(chan_lower)
+            bot.db.set_plugin_value('karma', 'flood_disabled_channels', disabled)
+        bot.say("🛡️ Karma flood protection: ✅ enabled")
+        return
+
+    if action == 'off':
+        disabled = bot.db.get_plugin_value('karma', 'flood_disabled_channels') or []
+        if chan_lower not in disabled:
+            disabled.append(chan_lower)
+            bot.db.set_plugin_value('karma', 'flood_disabled_channels', disabled)
+        bot.say("🛡️ Karma flood protection: ❌ disabled")
+        return
+
+    if action == 'set' and len(args) >= 3:
+        param = args[1]
+        try:
+            value = int(args[2])
+        except ValueError:
+            return bot.reply("⚠️ Value must be a number.")
+
+        valid_params = {
+            'window': (10, 300),
+            'threshold': (2, 20),
+            'ban_duration': (60, 86400),
+        }
+        if param not in valid_params:
+            return bot.reply(
+                f"⚠️ Valid params: {', '.join(valid_params.keys())}"
+            )
+
+        lo, hi = valid_params[param]
+        if not (lo <= value <= hi):
+            return bot.reply(f"⚠️ {param} must be between {lo} and {hi}.")
+
+        overrides = bot.db.get_plugin_value('karma', 'flood_settings') or {}
+        chan_settings = overrides.get(chan_lower, {})
+        chan_settings[param] = value
+        overrides[chan_lower] = chan_settings
+        bot.db.set_plugin_value('karma', 'flood_settings', overrides)
+        bot.memory.setdefault('karma_flood_settings', {})[chan_lower] = chan_settings
+        bot.say(f"🛡️ Karma flood {param} → {value} for {chan}")
+        return
+
+    bot.reply(
+        "Usage: $karmaflood [on|off] │ "
+        "$karmaflood set <window|threshold|ban_duration> <value>"
+    )
+
+
+# ──────────────────────────────────────────────────────────────
+# Shutdown — clean up timers
+# ──────────────────────────────────────────────────────────────
+def shutdown(bot):
+    """Cancel all pending karma flood unban timers on shutdown."""
+    for timer in bot.memory.get('karma_flood_unbans', {}).values():
+        timer.cancel()
 

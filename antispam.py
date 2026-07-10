@@ -23,6 +23,12 @@ Commands:
     $spam trigger add <phrase>          - Add a trigger phrase (instant kick)
     $spam trigger del <phrase>          - Remove a trigger phrase
     $spam trigger list                  - List all trigger phrases
+    $spam exempt add <nick>             - Exempt a user from spam detection
+    $spam exempt del <nick>             - Remove a user exemption
+    $spam exempt list                   - List exempt users
+    $spam cmdexempt add <prefix>        - Exempt a command prefix (e.g. !bang)
+    $spam cmdexempt del <prefix>        - Remove a command exemption
+    $spam cmdexempt list                - List exempt command prefixes
     $spam copypasta status              - Show copypasta DB stats
     $spam copypasta clear               - Wipe the copypasta DB for this channel
     $spam help                          - Show help via NOTICE
@@ -119,9 +125,17 @@ def _is_channel_enabled(bot, channel):
 
 
 def _is_exempt(bot, nick, channel):
-    """Check if a user holds halfop (+h) or higher — exempt from spam kicks.
-    Voiced (+v) users are explicitly NOT exempt."""
+    """Check if a user holds halfop (+h) or higher, OR is on the per-channel
+    exempt list — exempt from spam kicks.
+    Voiced (+v) users are explicitly NOT exempt (unless on the exempt list)."""
     chan = str(channel)
+
+    # Check per-channel user exempt list first
+    exempt_users = _get_exempt_users(bot, chan)
+    if nick.lower() in [u.lower() for u in exempt_users]:
+        LOGGER.debug("Antispam: %s is on the exempt list for %s", nick, chan)
+        return True
+
     if chan not in bot.channels:
         return False
     privs = bot.channels[chan].privileges.get(nick, 0)
@@ -161,6 +175,40 @@ def _check_triggers(bot, channel, text):
         if phrase.lower() in text_lower:
             return phrase
     return None
+
+
+# ========================= USER & COMMAND EXEMPTIONS =========================
+
+def _get_exempt_users(bot, channel):
+    """Get the list of exempt users (nicks) for a channel."""
+    return bot.db.get_plugin_value('antispam', f'exempt_users_{channel.lower()}') or []
+
+
+def _save_exempt_users(bot, channel, users):
+    """Save the list of exempt users for a channel."""
+    bot.db.set_plugin_value('antispam', f'exempt_users_{channel.lower()}', users)
+
+
+def _get_exempt_cmds(bot, channel):
+    """Get the list of exempt command prefixes for a channel."""
+    return bot.db.get_plugin_value('antispam', f'exempt_cmds_{channel.lower()}') or []
+
+
+def _save_exempt_cmds(bot, channel, cmds):
+    """Save the list of exempt command prefixes for a channel."""
+    bot.db.set_plugin_value('antispam', f'exempt_cmds_{channel.lower()}', cmds)
+
+
+def _is_exempt_command(bot, channel, text):
+    """Check if a message starts with an exempt command prefix."""
+    exempt_cmds = _get_exempt_cmds(bot, channel)
+    if not exempt_cmds:
+        return False
+    text_stripped = text.strip()
+    for prefix in exempt_cmds:
+        if text_stripped.lower().startswith(prefix.lower()):
+            return True
+    return False
 
 
 # Unicode art character ranges used in braille/block art floods
@@ -412,6 +460,10 @@ def on_message(bot, trigger):
     hostmask = f"{trigger.user or '*'}@{trigger.host or '*'}"
     message_text = str(trigger)
 
+    # --- Command prefix exemption (e.g. !bang, !befriend) ---
+    if _is_exempt_command(bot, channel, message_text):
+        return
+
     # --- Content-based detection (instant kick) ---
     matched = _check_triggers(bot, channel, message_text)
     LOGGER.debug(
@@ -623,6 +675,8 @@ def cmd_spam(bot, trigger):
         'off':       lambda: _cmd_toggle(bot, trigger, channel, enable=False),
         'set':       lambda: _cmd_set(bot, trigger, channel, args[1:]),
         'trigger':   lambda: _cmd_trigger(bot, trigger, channel, args[1:]),
+        'exempt':    lambda: _cmd_exempt(bot, trigger, channel, args[1:]),
+        'cmdexempt': lambda: _cmd_cmdexempt(bot, trigger, channel, args[1:]),
         'copypasta': lambda: _cmd_copypasta(bot, trigger, channel, args[1:]),
         'help':      lambda: _cmd_help(bot, trigger),
     }
@@ -647,6 +701,9 @@ def _cmd_status(bot, trigger, channel):
     with bot.memory['spam_lock']:
         active = sum(1 for (ch, _) in bot.memory['spam_messages'] if ch == channel)
 
+    exempt_users = _get_exempt_users(bot, channel)
+    exempt_cmds = _get_exempt_cmds(bot, channel)
+
     bot.say(
         f"🛡️ {B}Antispam Status{B} for {B}{channel}{B}{SEP}"
         f"{icon} {'Enabled' if enabled else 'Disabled'}{SEP}"
@@ -654,6 +711,8 @@ def _cmd_status(bot, trigger, channel):
         f"🎯 Threshold: {B}{settings['threshold']}{B} msgs{SEP}"
         f"🎨 Unicode: {B}{settings['unicode_threshold']}{B} msgs / {B}{settings['unicode_window']}s{B}{SEP}"
         f"🔑 Triggers: {B}{len(triggers)}{B}{SEP}"
+        f"👤 Exempt users: {B}{len(exempt_users)}{B}{SEP}"
+        f"🎮 Exempt cmds: {B}{len(exempt_cmds)}{B}{SEP}"
         f"📊 Tracking: {B}{active}{B} user(s)"
     )
 
@@ -795,6 +854,94 @@ def _cmd_copypasta(bot, trigger, channel, args):
     bot.reply(f"⚠️ Usage: {B}$spam copypasta{B} <status|clear>")
 
 
+def _cmd_exempt(bot, trigger, channel, args):
+    """Manage per-channel user exemptions. Usage: $spam exempt <add|del|list> [nick]"""
+    subcmd = args[0].lower() if args else 'list'
+
+    if subcmd == 'list':
+        users = _get_exempt_users(bot, channel)
+        if not users:
+            bot.say(f"📋 No exempt users for {B}{channel}{B}.")
+        else:
+            bot.say(
+                f"📋 {B}Exempt Users{B} for {B}{channel}{B} ({len(users)}): "
+                + ", ".join(f"{B}{u}{B}" for u in users)
+            )
+        return
+
+    if subcmd == 'add':
+        if len(args) < 2:
+            return bot.reply(f"Usage: {B}$spam exempt add{B} <nick>")
+        nick = args[1]
+        users = _get_exempt_users(bot, channel)
+        if nick.lower() in [u.lower() for u in users]:
+            return bot.reply(f"⚠️ {B}{nick}{B} is already exempt.")
+        users.append(nick)
+        _save_exempt_users(bot, channel, users)
+        bot.say(f"✅ {B}{nick}{B} is now exempt from antispam in {B}{channel}{B}")
+        LOGGER.info("Antispam: Exempted user '%s' in %s by %s", nick, channel, trigger.nick)
+        return
+
+    if subcmd in ('del', 'rm', 'remove'):
+        if len(args) < 2:
+            return bot.reply(f"Usage: {B}$spam exempt del{B} <nick>")
+        nick = args[1]
+        users = _get_exempt_users(bot, channel)
+        new_users = [u for u in users if u.lower() != nick.lower()]
+        if len(new_users) == len(users):
+            return bot.reply(f"⚠️ {B}{nick}{B} is not on the exempt list.")
+        _save_exempt_users(bot, channel, new_users)
+        bot.say(f"✅ Removed {B}{nick}{B} from antispam exemptions in {B}{channel}{B}")
+        LOGGER.info("Antispam: Un-exempted user '%s' in %s by %s", nick, channel, trigger.nick)
+        return
+
+    bot.reply(f"⚠️ Usage: {B}$spam exempt{B} <add|del|list> [nick]")
+
+
+def _cmd_cmdexempt(bot, trigger, channel, args):
+    """Manage per-channel command prefix exemptions. Usage: $spam cmdexempt <add|del|list> [prefix]"""
+    subcmd = args[0].lower() if args else 'list'
+
+    if subcmd == 'list':
+        cmds = _get_exempt_cmds(bot, channel)
+        if not cmds:
+            bot.say(f"📋 No exempt command prefixes for {B}{channel}{B}.")
+        else:
+            bot.say(
+                f"📋 {B}Exempt Commands{B} for {B}{channel}{B} ({len(cmds)}): "
+                + ", ".join(f"{B}{c}{B}" for c in cmds)
+            )
+        return
+
+    if subcmd == 'add':
+        if len(args) < 2:
+            return bot.reply(f"Usage: {B}$spam cmdexempt add{B} <prefix>")
+        prefix = args[1]
+        cmds = _get_exempt_cmds(bot, channel)
+        if prefix.lower() in [c.lower() for c in cmds]:
+            return bot.reply(f"⚠️ {B}{prefix}{B} is already exempt.")
+        cmds.append(prefix)
+        _save_exempt_cmds(bot, channel, cmds)
+        bot.say(f"✅ Commands starting with {B}{prefix}{B} are now exempt in {B}{channel}{B}")
+        LOGGER.info("Antispam: Exempted cmd prefix '%s' in %s by %s", prefix, channel, trigger.nick)
+        return
+
+    if subcmd in ('del', 'rm', 'remove'):
+        if len(args) < 2:
+            return bot.reply(f"Usage: {B}$spam cmdexempt del{B} <prefix>")
+        prefix = args[1]
+        cmds = _get_exempt_cmds(bot, channel)
+        new_cmds = [c for c in cmds if c.lower() != prefix.lower()]
+        if len(new_cmds) == len(cmds):
+            return bot.reply(f"⚠️ {B}{prefix}{B} is not on the exempt list.")
+        _save_exempt_cmds(bot, channel, new_cmds)
+        bot.say(f"✅ Removed {B}{prefix}{B} from command exemptions in {B}{channel}{B}")
+        LOGGER.info("Antispam: Un-exempted cmd prefix '%s' in %s by %s", prefix, channel, trigger.nick)
+        return
+
+    bot.reply(f"⚠️ Usage: {B}$spam cmdexempt{B} <add|del|list> [prefix]")
+
+
 def _cmd_help(bot, trigger):
     """Send the command reference via NOTICE."""
     nick = trigger.nick
@@ -823,8 +970,16 @@ def _cmd_help(bot, trigger):
         f"when a spammer is kicked, their text is learned and future matches are "
         f"auto-kicked. (4) Grok AI — classifies long messages as copypasta spam "
         f"vs normal trolling. Users with +h or higher are exempt. "
+        f"Per-user and command prefix exemptions available. "
         f"No bans, just kicks. Off by default — use $spam on to enable.",
         nick,
     )
+    bot.notice(" ", nick)
+    bot.notice(f"  {B}$spam exempt list{B}                      — List exempt users", nick)
+    bot.notice(f"  {B}$spam exempt add <nick>{B}                — Exempt a user from all spam checks", nick)
+    bot.notice(f"  {B}$spam exempt del <nick>{B}                — Remove user exemption", nick)
+    bot.notice(f"  {B}$spam cmdexempt list{B}                   — List exempt command prefixes", nick)
+    bot.notice(f"  {B}$spam cmdexempt add <prefix>{B}           — Exempt a command prefix (e.g. !bang)", nick)
+    bot.notice(f"  {B}$spam cmdexempt del <prefix>{B}           — Remove command exemption", nick)
     bot.say(f"📬 {B}{nick}{B}, check your notices for antispam command help!")
 

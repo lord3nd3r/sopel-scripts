@@ -1,6 +1,6 @@
 # 🎬 YouTube Titles (youtube_titles)
 
-No commands — fully automatic. The bot detects any YouTube URL posted in chat and replies with the video title and channel/author name.
+Automatic YouTube video metadata fetching for Sopel. When a user posts a YouTube URL in chat, the bot automatically fetches and displays the video title and channel/author name. It includes a command to enable/disable this feature per channel.
 
 ---
 
@@ -17,11 +17,20 @@ No commands — fully automatic. The bot detects any YouTube URL posted in chat 
 
 ---
 
+## Commands
+
+Requires **channel operator** (`+o`, `%` halfop or above, privilege level $\ge$ 2) or **bot owner** status.
+
+| Command | Arguments | Description | Example |
+|---------|-----------|-------------|---------|
+| `$yt` | — | Display the current status of YouTube title fetching in the channel | `$yt` |
+| `$yt` | `on` / `off` | Enable/disable YouTube title fetching in the current channel | `$yt off` |
+
+---
+
 ## Triggers
 
-| Trigger | Description |
-|---------|-------------|
-| Any YouTube URL in chat | Bot replies with video title and author |
+When enabled in a channel, the bot automatically scans all messages for YouTube URLs.
 
 ### Supported URL Formats
 
@@ -48,37 +57,3 @@ YouTube: Video Title
 > **Fail-silent:** If the oEmbed API call fails or the video is private/deleted, the bot simply doesn't respond — no error message is shown.
 >
 > **No cooldown.** Every YouTube link gets a response.
-
----
-
-## Examples
-
-**Standard YouTube link:**
-```
-<User> check this out https://www.youtube.com/watch?v=dQw4w9WgXcQ
-<Glitchy> YouTube: Rick Astley - Never Gonna Give You Up — Rick Astley
-```
-
-**Short URL:**
-```
-<User> https://youtu.be/dQw4w9WgXcQ
-<Glitchy> YouTube: Rick Astley - Never Gonna Give You Up — Rick Astley
-```
-
-**Link embedded in a sentence:**
-```
-<User> this song is stuck in my head https://www.youtube.com/watch?v=dQw4w9WgXcQ lol
-<Glitchy> YouTube: Rick Astley - Never Gonna Give You Up — Rick Astley
-```
-
-**Mobile link:**
-```
-<User> https://m.youtube.com/watch?v=dQw4w9WgXcQ
-<Glitchy> YouTube: Rick Astley - Never Gonna Give You Up — Rick Astley
-```
-
-**Private/deleted video (no response):**
-```
-<User> https://www.youtube.com/watch?v=DELETED123
-(no response — video metadata not available)
-```

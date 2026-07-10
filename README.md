@@ -13,6 +13,7 @@ A collection of custom [Sopel](https://sopel.chat/) IRC bot plugins for fun, uti
 - [Weed & Trippy Commands](docs/weed.md)
 - [Mug Game](docs/mug.md)
 - [Bot Admin](docs/botadmin.md)
+- [Oper Scanner](docs/operscan.md)
 - [Moo Counter](docs/moo.md)
 - [Karma](docs/karma.md)
 - [Trivia](docs/trivia.md)
@@ -26,11 +27,16 @@ A collection of custom [Sopel](https://sopel.chat/) IRC bot plugins for fun, uti
 - [PromoteMe](docs/opme.md)
 - [Join](docs/join.md)
 - [YouTube Titles](docs/youtube_titles.md)
+- [URL Titles](docs/url_titles.md)
 - [Auto Voice](docs/autovoice.md)
 - [Auto Op](docs/autoop.md)
+- [Antiflood](docs/antiflood.md)
+- [Anti-Spam](docs/antispam.md)
+- [JPQ Flood Protection](docs/jpq.md)
 - [Markov Chain](docs/markov.md)
 - [Wiki Search](docs/wiki.md)
 - [Quotes](docs/quote.md)
+- [Typo Correction (sed)](docs/fix.md)
 - [Rizon Help](docs/rizonhelp.md)
 - [Tell](docs/tell.md)
 - [Seen](docs/seen.md)
@@ -299,27 +305,36 @@ intent_check = heuristic
 
 ## 🍺 beer — Virtual Bartender
 
-A full-featured virtual bartender with a tip-based economy! Order drinks, food, and tip other users.
+A virtual bartender with a tipping economy integrated with the **mug** game's coin system.
 
 ### Commands
 
 | Command | Description | Example |
 |---------|-------------|---------|
-| `$beer [nick]` | Serve a random beer (🍺 $5) | `$beer m0n` |
-| `$shot [nick]` | Serve a random shot (🥃 $7) | `$shot` |
-| `$whiskey [nick]` / `$whisky` | Serve a fine whiskey (🥃 $12) | `$whiskey JohnDoe` |
-| `$wine [nick]` | Serve a glass of wine (🍷 $8) | `$wine` |
-| `$magners [nick]` | Serve a Magners cider (🍎 $6) | `$magners` |
-| `$drink [nick]` | Serve a mixed drink (🍹 $10) | `$drink` |
-| `$mocktail [nick]` / `$virgin` | Serve a mocktail (🍹 $4) | `$mocktail` |
-| `$coffee [nick]` / `$caffeine` | Serve coffee (☕ $3) | `$coffee` |
-| `$tea [nick]` / `$cuppa` | Serve tea (🍵 $3) | `$tea` |
-| `$water [nick]` / `$hydrate` | Serve water (💧 free!) | `$water` |
-| `$pizza [nick]` | Serve a pizza (🍕 $15) | `$pizza` |
-| `$appetizer [nick]` / `$snack` / `$food` | Serve an appetizer (🍽️ $8) | `$appetizer` |
-| `$surprise [nick]` / `$random` | Random item from the menu (🎉) | `$surprise` |
-| `$tip <nick> <amount>` | Tip another user | `$tip m0n 20` |
-| `$barcash` | Check your current balance | `$barcash` |
+| `$beer [nick]` | Serve a random beer (5 🪙) | `$beer m0n` |
+| `$shot [nick]` | Serve a random shot (7 🪙) | `$shot` |
+| `$whiskey [nick]` / `$whisky` | Serve a fine whiskey (12 🪙) | `$whiskey JohnDoe` |
+| `$vodka [nick]` | Serve a premium vodka (10 🪙) | `$vodka` |
+| `$rum [nick]` | Serve a spiced rum (10 🪙) | `$rum` |
+| `$tequila [nick]` | Serve a fine tequila (10 🪙) | `$tequila` |
+| `$gin [nick]` | Serve a botanical gin (10 🪙) | `$gin` |
+| `$brandy [nick]` / `$cognac` | Serve brandy / cognac (12 🪙) | `$brandy` |
+| `$margarita [nick]` / `$marg` | Serve a margarita (9 🪙) | `$margarita` |
+| `$sake [nick]` | Serve sake (9 🪙) | `$sake` |
+| `$liqueur [nick]` / `$cordial` | Serve a liqueur (8 🪙) | `$liqueur` |
+| `$wine [nick]` | Serve a glass of wine (8 🪙) | `$wine` |
+| `$mead [nick]` | Serve a horn of mead (7 🪙) | `$mead` |
+| `$magners [nick]` | Serve a Magners cider (6 🪙) | `$magners` |
+| `$drink [nick]` | Serve a mixed drink (10 🪙) | `$drink` |
+| `$mocktail [nick]` / `$virgin` | Serve a mocktail (4 🪙) | `$mocktail` |
+| `$coffee [nick]` / `$caffeine` | Serve coffee (3 🪙) | `$coffee` |
+| `$tea [nick]` / `$cuppa` | Serve tea (3 🪙) | `$tea` |
+| `$water [nick]` / `$hydrate` | Serve water (free!) | `$water` |
+| `$pizza [nick]` | Serve a pizza (15 🪙) | `$pizza` |
+| `$appetizer [nick]` / `$snack` / `$food` | Serve an appetizer (8 🪙) | `$appetizer` |
+| `$surprise [nick]` / `$random` | Random item from the menu (Varies) | `$surprise` |
+| `$tip <nick> <amount>` | Tip another user (deducts from your coins) | `$tip m0n 50` |
+| `$barcash` / `$balance` | Check your coin balance | `$barcash` |
 | `$toptip` | Top 5 most tipped bartenders | `$toptip` |
 | `$barhelp` | Full help menu (sent via PM) | `$barhelp` |
 
@@ -327,22 +342,20 @@ A full-featured virtual bartender with a tip-based economy! Order drinks, food, 
 
 | Command | Description | Example |
 |---------|-------------|---------|
-| `$adjbal <nick> <+/-amount>` | Adjust a user's balance | `$adjbal m0n +100` |
-| `$barreset <nick>` | Reset a user's balance to $100 | `$barreset m0n` |
-| `$barreset all confirm` | Reset ALL balances | `$barreset all confirm` |
-
-> **Note:** All beer commands use the `$` prefix (e.g. `$beer`, not `!beer`).
+| `$adjbal <nick> <+/-amount>` | Adjust a user's coin balance | `$adjbal m0n +100` |
+| `$barreset <nick>` | Reset a user's balance to 1,000 coins | `$barreset m0n` |
+| `$barreset all confirm` | Reset ALL balances and clear tips | `$barreset all confirm` |
 
 ### Economy
-- Every user receives a **daily $100 credit**
-- Items cost between $0 (water) and $15 (pizza)
-- Tip data is stored in `~/.sopel/bartender_tips.json`
+- Coins are shared with the **mug** game's unified coin economy.
+- New users receive **1,000 starting coins** on their first order.
+- Every user receives a **100 coin daily bonus** once per 24 hours (applied when checking tab or ordering).
 
 ---
 
 ## 🌿 weed — Smoking & Psychedelic Sessions
 
-Share lighthearted party messages with themed countdowns, gifts, and action messages. Features multiple substances, each with unique theming, emojis, and color schemes.
+Share lighthearted party messages with themed countdowns, gifts, and action messages. Features 15 substances, each with unique theming, emojis, and color schemes.
 
 ### Commands
 
@@ -352,32 +365,31 @@ Share lighthearted party messages with themed countdowns, gifts, and action mess
 | `$bong [nick]` | — | Bong rip session with water/ice countdown 🫧 |
 | `$joint [nick]` | — | Roll up and spark a joint 📜 |
 | `$keef [nick]` | `$kief` | Sprinkle some keef ✨ |
+| `$toke [nick]` | — | Take a bowl/pipe toke 🌬️ |
+| `$edible [nick]` | `$edibles` | Share an edible 🍪 |
+| `$dab [nick]` | `$dabs` | Take a dab 💎🔥 |
+| `$blunt [nick]` | — | Spark a blunt 🍂 |
+| `$vape [nick]` | — | Discreet vapor hit 🔌☁️ |
+| `$hash [nick]` | — | Old-world hash 🟤 |
+| `$munchies [nick]` | — | Share snacks 🍕🍿 |
 | `$trip [nick]` | — | DMT breakthrough experience 👽🌀 |
 | `$shrooms [nick]` | `$mushrooms` | Mushroom trip 🍄 |
 | `$acid [nick]` | `$lsd` | Acid trip with fractal visuals 🌈 |
 | `$peyote [nick]` | `$mescaline` | Peyote desert vision quest 🌵 |
+| `$pass <nick>` | — | Take a hit and pass rotation (requires target in channel) |
+| `$weedhelp` | — | PM a complete command reference card |
 
 ### Behavior
 - **With a target:** Sends an action message gifting the target a random item (target must be in the channel)
   ```
   * Bot hands m0n a fat bong rip 🌊
   ```
-- **Without a target:** Performs a themed 3-step countdown (6s between each), then posts a random colorful final message
-  ```
-  🫧 3... Filling the water...
-  🧊 2... Adding ice...
-  🔥 1... Lighting the bowl...
-  Bong rip incoming — lean back and ride the clouds 🌊💨
-  ```
-- **Mid-sentence triggers:** Commands work anywhere in a message, not just at the start
-  ```
-  I feel the need for $weed
-  someone pass me a $bong please
-  ```
+- **Without a target:** Performs a themed 3-step countdown (6s between each), then posts a random colorful final message.
+- **Mid-sentence triggers:** Commands work anywhere in a message, not just at the start (e.g. `I feel the need for $weed`).
 
 ### Cooldowns
-- **Channel cooldown:** 20 minutes between countdown sessions (does not apply to gift actions)
-- **Per-user cooldown:** 30 seconds between gift commands (does not apply to countdowns)
+- **Channel cooldown:** 20 minutes between countdown sessions (shared per channel).
+- **Per-user cooldown:** 30 seconds between gift/pass commands (prevent spam).
 - Mid-sentence triggers respect the same cooldowns and show a notice if on cooldown
 
 ---
@@ -613,6 +625,9 @@ Give and receive karma with `++` and `--`. Features per-channel and global track
 | `$channeltop [N]` / `$ctop` | Channel-specific top karma (default 10) | `$channeltop` |
 | `$channelbottom [N]` / `$cbottom` | Channel-specific bottom karma | `$channelbottom` |
 | `$setkarma <nick> <value>` | Set karma (channel ops only) | `$setkarma m0n 100` |
+| `$karmaflood` | Show flood protection status (halfop+) | `$karmaflood` |
+| `$karmaflood <on\|off>` | Enable/disable flood protection (halfop+) | `$karmaflood off` |
+| `$karmaflood set <param> <val>` | Tune parameters (`window`, `threshold`, `ban_duration`) | `$karmaflood set threshold 2` |
 
 ### Cooldowns
 - **10-minute cooldown** per user per channel between karma changes
@@ -895,16 +910,18 @@ Owner-only command to make the bot join a channel.
 
 ## 🎬 youtube_titles — YouTube Link Titles
 
-Automatically fetches and displays the title and author of YouTube links posted in chat.
+Automatically fetches and displays the title and author of YouTube links posted in chat. Can be toggled on/off per channel.
 
 ### Trigger
 Any YouTube URL posted in chat is automatically detected.
 
-### Example
-```
-User: check this out https://www.youtube.com/watch?v=dQw4w9WgXcQ
-Bot:  YouTube: Rick Astley - Never Gonna Give You Up — Rick Astley
-```
+### Commands
+Requires **channel operator** or **bot owner** status.
+
+| Command | Arguments | Description | Example |
+|---------|-----------|-------------|---------|
+| `$yt` | — | Display current status in channel | `$yt` |
+| `$yt` | `on` / `off` | Enable/disable fetching in current channel | `$yt off` |
 
 ---
 
@@ -958,6 +975,86 @@ Automatically grants `+o`, `+h`, or `+v` to specific users when they join the ch
 | `$alist` | List all auto-modes configured for the current channel |
 
 📖 **Full docs:** [docs/autoop.md](docs/autoop.md)
+
+---
+
+## 🛡️ antiflood — Join/Part Flood Protection
+
+Join/part flood protection. Detects and bans users who cycle joins or quits too rapidly in a short window. Off by default per-channel.
+
+### Commands (Admin Only)
+- `$flood` — Show status in channel
+- `$flood <on|off>` — Enable/disable per-channel
+- `$flood set <param> <val>` — Tune parameters (`window`, `threshold`, `duration`, `banmask`)
+- `$flood whitelist <add|del|list> [user@host]` — Manage whitelist
+- `$flood stats` — Show recent flood actions
+- `$flood top` — Show top 5 kicked users
+- `$floodtop` — Shortcut for stats top
+
+📖 **Full docs:** [docs/antiflood.md](docs/antiflood.md)
+
+---
+
+## 🛡️ antispam — Anti-Spam Protection
+
+Multi-mode anti-spam kick protection. Detects rate-based spam, unicode art, trigger word matches, copypasta shingles, and includes Grok AI text classification. Off by default.
+
+### Commands (Admin Only)
+- `$spam` — Show status in channel
+- `$spam <on|off>` — Enable/disable per-channel
+- `$spam set <param> <val>` — Tune parameters
+- `$spam trigger <add|del|list> <phrase>` — Manage trigger phrases
+- `$spam exempt <add|del|list> [nick]` — Manage user exemptions (e.g., game bots)
+- `$spam cmdexempt <add|del|list> [prefix]` — Manage command prefix exemptions (e.g., `!bang` for duckhunt)
+- `$spam copypasta <status|clear>` — View or clear shingles DB
+
+📖 **Full docs:** [docs/antispam.md](docs/antispam.md)
+
+---
+
+## 🛡️ jpq — JPQ Flood Protection
+
+Join/Part/Quit cycle protection. Detects users who rapidly cycle joins, parts, or quits. Enabled by default.
+
+### Commands (Admin Only)
+- `$jpq` — Show status in channel
+- `$jpq <on|off>` — Enable/disable per-channel
+- `$jpq set <param> <val>` — Tune parameters
+- `$jpq whitelist <add|del|list> [user@host]` — Manage whitelist
+- `$jpq stats` — Show recent actions
+
+📖 **Full docs:** [docs/jpq.md](docs/jpq.md)
+
+---
+
+## 🔍 operscan — IRC Operator Scanner
+
+PM-only scanner to identify network/server IRC operators in a channel.
+
+### Commands
+- `/msg BotNick $operscan #channel` — Scan channel for IRC operators
+
+📖 **Full docs:** [docs/operscan.md](docs/operscan.md)
+
+---
+
+## 🔗 url_titles — URL Title Fetcher
+
+Automatically fetches and displays the HTML `<title>` tag of URLs posted in chat. Skips YouTube domains.
+
+📖 **Full docs:** [docs/url_titles.md](docs/url_titles.md)
+
+---
+
+## 🔧 fix — Typo Correction
+
+Sed-style typo correction plugin (`s/find/replace/`) that records message history and allows users to correct typos in their own or others' messages.
+
+### Usage
+- `s/find/replace/` — Correct your own last message
+- `Nick: s/find/replace/` — Correct another user's last message
+
+📖 **Full docs:** [docs/fix.md](docs/fix.md)
 
 ---
 

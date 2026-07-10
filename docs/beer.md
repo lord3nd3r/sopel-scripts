@@ -1,6 +1,6 @@
 # 🍺 Bartender (beer)
 
-Virtual bartender with a tip economy. Every user gets a $100 daily credit.
+Virtual bartender with a tip economy integrated directly with the **mug** game's coin system.
 
 ---
 
@@ -13,102 +13,87 @@ Virtual bartender with a tip economy. Every user gets a $100 daily credit.
 ~/.sopel/scripts/beer.py
 ```
 
-**Data file:** Tip balances are stored in `~/.sopel/bartender_tips.json` (created automatically on first use).
+**Data Persistence:**
+All coin balances are stored in `bot.db` under the `mug_game` plugin. Bartender tip stats are stored in `bot.db` under the `beer` plugin.
 
 ---
 
-## Menu
+## Menu & Prices
 
-| Command | Cost | Description |
-|---------|------|-------------|
-| `$beer [nick]` | $5 | Serve a random beer 🍺 |
-| `$shot [nick]` | $7 | Serve a random shot 🥃 |
-| `$whiskey [nick]` / `$whisky` | $12 | Fine whiskey 🥃 |
-| `$vodka [nick]` | $10 | Vodka 🥃 |
-| `$rum [nick]` | $10 | Rum 🏴‍☠️🥃 |
-| `$tequila [nick]` | $10 | Tequila 🇲🇽🥃 |
-| `$gin [nick]` | $10 | Gin 🌿🥃 |
-| `$brandy [nick]` / `$cognac` | $12 | Brandy / Cognac 🥃 |
-| `$wine [nick]` | $8 | Glass of wine 🍷 |
-| `$magners [nick]` | $6 | Magners cider 🍎 |
-| `$drink [nick]` | $10 | Mixed drink 🍹 |
-| `$mocktail [nick]` / `$virgin` | $4 | Mocktail 🍹 |
-| `$coffee [nick]` / `$caffeine` | $3 | Coffee ☕ |
-| `$tea [nick]` / `$cuppa` | $3 | Tea 🍵 |
-| `$water [nick]` / `$hydrate` | Free | Water 💧 |
-| `$pizza [nick]` | $15 | Pizza 🍕 |
-| `$appetizer [nick]` / `$snack` / `$food` | $8 | Appetizer 🍽️ |
-| `$surprise [nick]` / `$random` | Varies | Random menu item 🎉 |
+All prices are in **coins** (🪙).
+
+| Command | Aliases | Cost | Description |
+|---------|---------|------|-------------|
+| `$beer [nick]` | — | 5 🪙 | Serve a random beer 🍺 |
+| `$shot [nick]` | — | 7 🪙 | Serve a random shot 🥃 |
+| `$whiskey [nick]` | `$whisky` | 12 🪙 | Fine whiskey 🥃 |
+| `$vodka [nick]` | — | 10 🪙 | Premium vodka 🥃 |
+| `$rum [nick]` | — | 10 🪙 | Spiced rum 🏴‍☠️🥃 |
+| `$tequila [nick]` | — | 10 🪙 | Fine tequila 🇲🇽🥃 |
+| `$gin [nick]` | — | 10 🪙 | Botanical gin 🌿🥃 |
+| `$brandy [nick]` | `$cognac` | 12 🪙 | Brandy / Cognac 🥃 |
+| `$margarita [nick]` | `$marg` | 9 🪙 | Margarita Salt rim! 🧂🍹 |
+| `$sake [nick]` | — | 9 🪙 | Sake 🍶 |
+| `$liqueur [nick]` | `$cordial` | 8 🪙 | Liqueur 🍯🥃 |
+| `$wine [nick]` | — | 8 🪙 | Glass of wine 🍷 |
+| `$mead [nick]` | — | 7 🪙 | Horn of mead ⚔️🍯 |
+| `$magners [nick]` | — | 6 🪙 | Magners cider 🍎🍺 |
+| `$drink [nick]` | — | 10 🪙 | Mixed drink 🍹 |
+| `$mocktail [nick]` | `$virgin` | 4 🪙 | Mocktail (non-alcoholic) 🍹 |
+| `$coffee [nick]` | `$caffeine` | 3 🪙 | Coffee ☕ |
+| `$tea [nick]` | `$cuppa` | 3 🪙 | Tea 🍵 |
+| `$water [nick]` | `$hydrate` | Free | Water (Responsible hydration!) 💧 |
+| `$pizza [nick]` | — | 15 🪙 | Pizza 🍕 |
+| `$appetizer [nick]` | `$snack`, `$food` | 8 🪙 | Appetizer 🍽️ |
+| `$surprise [nick]` | `$random` | Varies | Random menu item and price 🎉 |
+
+---
 
 ## Economy
 
-| Command | Description |
-|---------|-------------|
-| `$tip <nick> <amount>` | Tip another user |
-| `$barcash` / `$balance` | Check your balance |
-| `$toptip` | Top 5 most tipped bartenders |
-| `$barhelp` | Full help guide (PM) |
+* **Starting Tab**: Ordering for the first time opens a tab with **1,000 starting coins**.
+* **Daily Bonus**: Users receive a **100 coin credit** once every 24 hours. Credits are applied when you order or check your tab.
+* **Shared Balance**: Coins are shared with the **mug** game. It is a single unified economy.
 
-## Admin PM Commands
+### Commands
 
-| Command | Description |
-|---------|-------------|
-| `$adjbal <nick> <+/-amount>` | Adjust a user's balance |
-| `$barreset <nick>` | Reset a user's balance to $100 |
-| `$barreset all confirm` | Reset ALL balances |
+| Command | Description | Example |
+|---------|-------------|---------|
+| `$tip <nick> <amount>` | Tip another user for great service (deducts from your coins) | `$tip m0n 50` |
+| `$barcash` / `$balance` | Check your current coin balance | `$barcash` |
+| `$toptip` | See the top 5 most tipped bartenders | `$toptip` |
+| `$barhelp` | Get the full menu and command guide (sent via PM) | `$barhelp` |
+
+### Admin PM Commands
+
+Must be private messaged to the bot. Requires bot admin/owner status.
+
+| Command | Description | Example |
+|---------|-------------|---------|
+| `$adjbal <nick> <+/-amount>` | Adjust a user's coin balance | `$adjbal m0n +500` |
+| `$barreset <nick>` | Reset a user's balance to 1,000 coins and clear their tips | `$barreset m0n` |
+| `$barreset all confirm` | Reset ALL users' balances and clear all tips (requires `confirm`) | `$barreset all confirm` |
 
 ---
 
 ## Examples
 
-**Order a beer for yourself:**
+**Order a drink for yourself:**
 ```
 <User> $beer
-<Glitchy> 🍺 User grabs a cold Guinness from the bar! ($5)
+* Glitchy slides a frosty Guinness 🍺 across the bar to User ✨
+```
+*(You will receive a PM notice: Paid 5 coins - Remaining balance: 995 coins 🪙)*
+
+**Buy someone else a drink:**
+```
+<User> $shot Friend
+* Glitchy lines up a shot of Jägermeister 🦌🥃 for Friend
 ```
 
-**Buy someone a drink:**
+**Tip another user:**
 ```
-<User> $beer Friend
-<Glitchy> 🍺 User slides a Heineken down the bar to Friend! ($5)
+<User> $tip Friend 100
+<Glitchy> User tips Friend 100 coins! 💰✨
 ```
-
-**Order a whiskey:**
-```
-<User> $whiskey
-<Glitchy> 🥃 User enjoys a glass of Jameson 18-Year. Smooth. ($12)
-```
-
-**Get a surprise drink:**
-```
-<User> $surprise
-<Glitchy> 🎉 User gets a surprise Mojito! ($10)
-```
-
-**Tip someone:**
-```
-<User> $tip Bartender 20
-<Glitchy> User tipped Bartender $20! 💰
-```
-
-**Check your balance:**
-```
-<User> $barcash
-<Glitchy> User, your bar tab balance is $63.00
-```
-
-**Top tippers:**
-```
-<User> $toptip
-<Glitchy> 🏆 Top Tipped: 1. Bartender ($450) 2. Server ($280) ...
-```
-
-**Admin — adjust a balance:**
-```
-/msg Glitchy $adjbal User +500
-```
-
-**Admin — reset all balances:**
-```
-/msg Glitchy $barreset all confirm
-```
+*(You will receive a PM notice: New balance: 895 coins 🪙)*

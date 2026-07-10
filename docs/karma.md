@@ -96,5 +96,40 @@ pip install sqlalchemy
 **Set karma (ops only):**
 ```
 <@Admin> $setkarma Troll 0
-<Glitchy> ⭐ Troll's karma in #channel set to 0
+<Glitchy> 🛠️ Troll's karma has been set to 0.
 ```
+
+---
+
+## Karma Flood Protection
+
+Built-in protection against coordinated karma bombing attacks (bot swarms sending `nick--` or `nick++` from many accounts at once). **Enabled by default — no setup needed.**
+
+### How It Works
+
+When **3 or more unique accounts** target the same nick with karma changes in the **same direction** (`++` or `--`) within a **60-second window**, the system:
+
+1. **Blocks** the karma change
+2. **Bans** all attacker hostmasks (`*!*@host`)
+3. **Kicks** the current attacker
+4. **Rolls back** all karma damage from the flood window
+5. **Auto-unbans** after 10 minutes
+6. **Announces** the protection with restored karma values
+
+Subsequent attackers from the same wave are silently dropped and banned on arrival.
+
+### Admin Commands
+
+Requires **halfop** (`+h`) or above, or **bot owner**.
+
+| Command | Description | Example |
+|---------|-------------|---------|
+| `$karmaflood` | Show protection status and current settings | `$karmaflood` |
+| `$karmaflood on` | Enable protection (on by default) | `$karmaflood on` |
+| `$karmaflood off` | Disable protection | `$karmaflood off` |
+| `$karmaflood set window <N>` | Detection window in seconds (10–300, default 60) | `$karmaflood set window 30` |
+| `$karmaflood set threshold <N>` | Unique givers to trigger (2–20, default 3) | `$karmaflood set threshold 2` |
+| `$karmaflood set ban_duration <N>` | Ban length in seconds (60–86400, default 600) | `$karmaflood set ban_duration 1800` |
+
+> **Note:** Even if the bot doesn't have channel operator status, karma changes are still blocked and rolled back — the bot just can't ban/kick without ops.
+

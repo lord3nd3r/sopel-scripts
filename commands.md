@@ -9,10 +9,11 @@ The bot command prefix is **`$`** unless noted otherwise.
 | Script | Description |
 |--------|-------------|
 | [🧠 AI Chatbot](docs/ai-grok.md) | Talk to the bot via xAI Grok with web search |
-| [🍺 Bartender](docs/beer.md) | Virtual bar with drinks, tips, and a daily $100 credit |
+| [🍺 Bartender](docs/beer.md) | Virtual bar with drinks, tips, and a unified coin economy |
 | [🌿 Weed & Trippy](docs/weed.md) | Themed smoke/trip messages with countdown animations |
 | [💰 Coins & Mugging](docs/mug.md) | IRC economy — coins, mugging, bounties, shop, gambling |
 | [🛠️ Bot Admin](docs/botadmin.md) | Owner/admin bot management commands |
+| [🔍 IRC Oper Scanner](docs/operscan.md) | PM-only scanner to identify network/server IRC operators |
 | [🐄 Moo Counter](docs/moo.md) | Say moo to increment your counter, network leaderboards |
 | [⭐ Karma](docs/karma.md) | Inline `++` / `--` karma with per-channel & global tracking |
 | [🧩 Trivia](docs/trivia.md) | Multi-player trivia with categories, hints, and streaks |
@@ -26,11 +27,16 @@ The bot command prefix is **`$`** unless noted otherwise.
 | [🔑 PromoteMe](docs/opme.md) | Promote yourself or a target to channel op |
 | [🚪 Join](docs/join.md) | Make the bot join a channel (owner only) |
 | [🎬 YouTube Titles](docs/youtube_titles.md) | Auto-detect YouTube links and show video info |
+| [🔗 URL Titles](docs/url_titles.md) | Automatic webpage title fetching |
 | [🎙️ Auto Voice](docs/autovoice.md) | Activity-based auto-voicing for active chatters |
 | [🤖 Auto Op](docs/autoop.md) | Auto-mode list for +o, +h, and +v on join |
+| [🛡️ Antiflood](docs/antiflood.md) | Join/part cycle flood protection |
+| [🛡️ Antispam](docs/antispam.md) | Multi-mode anti-spam and Grok AI kick protection |
+| [🛡️ JPQ Flood Protection](docs/jpq.md) | Join/Part/Quit cycle flood protection (enabled by default) |
 | [🔗 Markov Chain](docs/markov.md) | Learns from chat and generates random sentences from word trigrams |
 | [🔍 Wiki Search](docs/wiki.md) | Search Grokepedia and Wikipedia |
 | [💬 Quotes](docs/quote.md) | Save and search funny channel quotes |
+| [🔧 Typo Correction](docs/fix.md) | Sed-style typo correction (`s/find/replace/`) |
 | [🆘 Rizon Help](docs/rizonhelp.md) | Rizon network help and FAQ |
 | [📬 Tell](docs/tell.md) | Leave offline messages for users, delivered when they next speak (`$tell`) |
 | [👁️ Seen](docs/seen.md) | Report when a user was last seen in the channel |
