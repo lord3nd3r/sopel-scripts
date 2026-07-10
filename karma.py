@@ -5,7 +5,7 @@ karma.py - Karma module for Sopel 7/8+
 Now with extra ✨fun✨.
 """
 
-from sopel import module, tools
+from sopel import module, plugin, tools
 from sqlalchemy.sql import text
 import re
 import time
@@ -222,7 +222,7 @@ def _flood_bot_has_op(bot, channel):
     chan = str(channel)
     if chan in bot.channels:
         privs = bot.channels[chan].privileges.get(bot.nick, 0)
-        return bool(privs & module.OP)
+        return bool(privs & plugin.OP)
     return False
 
 
@@ -728,7 +728,7 @@ def cmd_karmaflood(bot, trigger):
         is_owner = str(trigger.nick).lower() == str(bot.config.core.owner).lower()
     except Exception:
         pass
-    if not (privs >= module.HALFOP or is_owner):
+    if not (privs >= plugin.HALFOP or is_owner):
         return bot.reply("⚠️ Requires halfop (+h) or above.")
 
     args = (trigger.group(2) or '').strip().lower().split()
