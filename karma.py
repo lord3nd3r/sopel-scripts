@@ -446,15 +446,20 @@ def karma_increment_decrement(bot, trigger):
 
     processed_targets = set()
     karma_applied = False
-    for target, sign in matches:
-        # Strip common surrounding punctuation from target
-        target = target.strip('()[]{}<>"\',:;.!?')
+    for target_raw, sign in matches:
+        # Resolve target nick: if the raw target is present in the channel, keep it.
+        # Otherwise, try stripping common surrounding punctuation.
+        target_raw_id = tools.Identifier(target_raw)
+        if chan_id in bot.channels and target_raw_id in bot.channels[chan_id].users:
+            target = target_raw
+            target_id = target_raw_id
+        else:
+            target = target_raw.strip('()[]{}<>"\',:;.!?')
+            target_id = tools.Identifier(target)
 
         # Block abusive/hate speech targets
         if is_forbidden(target):
             continue
-
-        target_id = tools.Identifier(target)
 
         # Only allow karma for nicks actually present in the channel
         if chan_id in bot.channels and target_id not in bot.channels[chan_id].users:
