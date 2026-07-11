@@ -402,7 +402,7 @@ def _cleanup_flood_events(bot):
 # ──────────────────────────────────────────────────────────────
 # ++ / -- handler
 # ──────────────────────────────────────────────────────────────
-@module.rule(r'^\s*[^\s\+\-][^\s]*?\w(?:\+\+|--)\s*$')
+@module.rule(r'^\s*(?:[a-zA-Z0-9_\[\]\\^`{\}\|-]|[^\s\+\-][^\s]*?[a-zA-Z0-9_\[\]\\^`{\}\|-])(?:\+\+|--)\s*$')
 def karma_increment_decrement(bot, trigger):
     if trigger.is_privmsg:
         return bot.reply(PRIVATE_KARMA_MESSAGE)
@@ -421,8 +421,10 @@ def karma_increment_decrement(bot, trigger):
 
     # Find all karma patterns in the message (capture nick + sign pair)
     # We'll strip surrounding punctuation from the captured nick below.
-    # Require \w before ++/-- so arrows like <-- or --> don't trigger karma.
-    matches = re.findall(r'^\s*([^\s\+\-][^\s]*?\w)(\+\+|--)\s*$', trigger.group(0))
+    matches = re.findall(
+        r'^\s*([a-zA-Z0-9_\[\]\\^`{\}\|-]|[^\s\+\-][^\s]*?[a-zA-Z0-9_\[\]\\^`{\}\|-])(\+\+|--)\s*$',
+        trigger.group(0)
+    )
     if not matches:
         return
 
