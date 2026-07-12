@@ -2703,12 +2703,18 @@ def handle(bot, trigger):
     
     # Add profiles for mentioned users
     # In channels, suppress auto-learned facts to avoid cross-channel leakage
-    # UNLESS the query needs a location lookup (sunrise/sunset) — then include
-    # facts so the AI can find the mentioned user's city.
+    # UNLESS the query needs a location lookup (sunrise/sunset), or the user is
+    # explicitly asking about the mentioned nick ("who is X?", "tell me about X").
+    _asking_about_user_re = re.compile(
+        r'\b(?:who\s+is|tell\s+me\s+about|what\s+(?:do\s+you\s+)?know\s+about|'
+        r'what\s+can\s+you\s+(?:tell|say)\s+about|describe|info\s+on)\b',
+        re.IGNORECASE,
+    )
+    _asking_about_user = bool(_asking_about_user_re.search(user_message))
     for mentioned_nick in mentioned_nicks:
         mentioned_profile = _db_get_user_profile(bot, mentioned_nick)
         if mentioned_profile:
-            _include_mentioned_facts = is_pm or _time_needs_lookup
+            _include_mentioned_facts = is_pm or _time_needs_lookup or _asking_about_user
             profile_text = _format_profile_for_context(mentioned_nick, mentioned_profile, include_facts=_include_mentioned_facts)
             if profile_text:
                 messages.append({"role": "system", "content": profile_text})
@@ -2811,6 +2817,9 @@ def handle(bot, trigger):
                             f"and your own plugin outputs (lines from '{bot_nick}'). "
                             "When asked who said something or what a specific user said, "
                             "always answer accurately based on this log — name the correct nick. "
+                            "When asked 'who is [nick]?' or about a user's identity, "
+                            "prioritize recent statements from the log (e.g., name changes, "
+                            "preferences stated in conversation) over older stored facts. "
                             "Do not invent or attribute statements to yourself or the wrong person.\n\n"
                             + bg_text
                         ),
