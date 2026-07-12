@@ -21,7 +21,7 @@ db_path = voting.db
 message_delay = 0.5
 ```
 
-**Data storage:** Votes are stored in a SQLite database (default: `voting.db` in the working directory). Created automatically on first use.
+**Data storage:** Votes are stored in a SQLite database (default: `voting.db` in the working directory or resolved relative to the bot's home directory). Created automatically on first use.
 
 ---
 
@@ -29,13 +29,13 @@ message_delay = 0.5
 
 | Command | Description |
 |---------|-------------|
-| `$vote Q:<question> A1:<opt> A2:<opt> [A3:...] T:<duration>` | Create a poll |
-| `$v <number>` / `$castvote` | Cast your vote |
+| `$vote Q:<question> A1:<opt> A2:<opt> [A3:...] T:<duration>` | Create a poll (Halfop+ only) |
+| `$v <number>` / `$castvote` | Cast or change your vote |
 | `$votestats` / `$vstats` / `$voteresults` | Show current poll results |
 | `$endvote` | End the poll early (creator or halfop+) |
-| `$votehelp` | Full help guide (PM) |
+| `$votehelp` | Full help guide (sent via PM) |
 
-> **Duration formats:** `30m`, `24h`, `2d`
+> **Duration formats:** `30s` (seconds), `15m` (minutes), `24h` (hours), `7d` (days).
 
 ---
 
@@ -44,30 +44,66 @@ message_delay = 0.5
 **Create a poll:**
 ```
 <%Admin> $vote Q:Best programming language? A1:Python A2:JavaScript A3:Rust A4:Go T:1h
-<Glitchy> 🗳️ Poll created! "Best programming language?" — Vote with $v 1-4. Ends in 1 hour.
-<Glitchy> 1. Python | 2. JavaScript | 3. Rust | 4. Go
+<Glitchy> 📊 ═══════════════════════════════════════
+<Glitchy> 🗳️  NEW VOTE by Admin
+<Glitchy> ❓ Best programming language?
+<Glitchy> ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+<Glitchy> 1️⃣ Option 1: Python
+<Glitchy> 2️⃣ Option 2: JavaScript
+<Glitchy> 3️⃣ Option 3: Rust
+<Glitchy> 4️⃣ Option 4: Go
+<Glitchy> ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+<Glitchy> ⏰ Vote ends in 1h
+<Glitchy> 💡 Vote with: .v 1 or 2 or 3 or 4
+<Glitchy> 📊 ═══════════════════════════════════════
 ```
 
 **Cast a vote:**
 ```
 <User> $v 3
-<Glitchy> 🗳️ User voted for option 3 (Rust)!
+<Glitchy> User: ✅ Vote recorded for 3️⃣ Option 3!
 ```
 
 **Check results mid-poll:**
 ```
 <User> $votestats
-<Glitchy> 🗳️ "Best programming language?" — Python: 4 | JavaScript: 2 | Rust: 6 | Go: 1 | Total: 13
+<Glitchy> 📊 ═══════════════════════════════════════
+<Glitchy> 📈 VOTE STATISTICS
+<Glitchy> ❓ Best programming language?
+<Glitchy> ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+<Glitchy> 🗳️  Total Votes: 1
+<Glitchy> ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+<Glitchy> 1️⃣ Option 1: Python
+<Glitchy>    [░░░░░░░░░░░░░░░░░░░░] 0 votes (0.0%)
+<Glitchy> 2️⃣ Option 2: JavaScript
+<Glitchy>    [░░░░░░░░░░░░░░░░░░░░] 0 votes (0.0%)
+<Glitchy> 3️⃣ Option 3: Rust
+<Glitchy>    [████████████████████] 1 votes (100.0%)
+<Glitchy> 4️⃣ Option 4: Go
+<Glitchy>    [░░░░░░░░░░░░░░░░░░░░] 0 votes (0.0%)
+<Glitchy> ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+<Glitchy> ⏰ Time remaining: 59m 45s
+<Glitchy> 📊 ═══════════════════════════════════════
 ```
 
 **End poll early:**
 ```
 <%Admin> $endvote
-<Glitchy> 🗳️ Poll ended! Results: 1st Rust (6) | 2nd Python (4) | 3rd JavaScript (2) | 4th Go (1)
-```
-
-**Simple yes/no poll:**
-```
-<%Admin> $vote Q:Should we add a new channel? A1:Yes A2:No T:24h
-<Glitchy> 🗳️ Poll created! "Should we add a new channel?" — Vote with $v 1-2. Ends in 24 hours.
+<Glitchy> 🏁 ═══════════════════════════════════════
+<Glitchy> 🎉 VOTE ENDED - FINAL RESULTS
+<Glitchy> ❓ Best programming language?
+<Glitchy> ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+<Glitchy> 🗳️  Total Votes: 1
+<Glitchy> ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+<Glitchy> 🏆 3️⃣ Option 3: Rust
+<Glitchy>    [████████████████████] 1 votes (100.0%)
+<Glitchy>    1️⃣ Option 1: Python
+<Glitchy>    [░░░░░░░░░░░░░░░░░░░░] 0 votes (0.0%)
+<Glitchy>    2️⃣ Option 2: JavaScript
+<Glitchy>    [░░░░░░░░░░░░░░░░░░░░] 0 votes (0.0%)
+<Glitchy>    4️⃣ Option 4: Go
+<Glitchy>    [░░░░░░░░░░░░░░░░░░░░] 0 votes (0.0%)
+<Glitchy> ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+<Glitchy> 🏆 WINNER: 3️⃣ Option 3 - Rust
+<Glitchy> 🏁 ═══════════════════════════════════════
 ```

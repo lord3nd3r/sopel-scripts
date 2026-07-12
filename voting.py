@@ -10,6 +10,7 @@ import threading
 import time
 from datetime import datetime, timedelta
 import re
+import os
 from collections import defaultdict
 
 # Database lock for thread safety
@@ -26,16 +27,63 @@ class VotingSection(StaticSection):
     message_delay = ValidatedAttribute('message_delay', default=0.5)  # Delay between messages in seconds
 
 
+def get_db_path(bot):
+    """Get the absolute path to the database, resolving it relative to bot's homedir if necessary."""
+    db_path = bot.config.voting.db_path
+    if not os.path.isabs(db_path):
+        homedir = getattr(bot.config.core, 'homedir', None)
+        if homedir:
+            db_path = os.path.join(homedir, db_path)
+        else:
+            db_path = os.path.abspath(db_path)
+    return db_path
+
+
+def parse_db_datetime(dt_str):
+    """Robustly parse SQLite datetime string into a naive datetime object."""
+    if not dt_str:
+        return datetime.now()
+    if isinstance(dt_str, datetime):
+        return dt_str
+    
+    # Standardize separator
+    dt_str = dt_str.replace(' ', 'T')
+    try:
+        return datetime.fromisoformat(dt_str)
+    except ValueError:
+        try:
+            return datetime.strptime(dt_str.split('.')[0], '%Y-%m-%dT%H:%M:%S')
+        except ValueError:
+            return datetime.now()
+
+
 def setup(bot):
-    """Setup the module and initialize database."""
+    """Setup the module, initialize database, and load active votes."""
     bot.config.define_section('voting', VotingSection)
     init_database(bot)
+    load_active_votes(bot)
+
+
+def shutdown(bot):
+    """Cancel all active vote timers on plugin unload to prevent leaks."""
+    for channel, timer in list(vote_timers.items()):
+        try:
+            timer.cancel()
+        except Exception:
+            pass
+    vote_timers.clear()
+    active_votes.clear()
 
 
 def init_database(bot):
     """Initialize the SQLite database for storing votes."""
-    db_path = bot.config.voting.db_path
+    db_path = get_db_path(bot)
     
+    # Ensure parent directory exists
+    db_dir = os.path.dirname(db_path)
+    if db_dir:
+        os.makedirs(db_dir, exist_ok=True)
+        
     with db_lock:
         conn = sqlite3.connect(db_path)
         cursor = conn.cursor()
@@ -83,6 +131,60 @@ def init_database(bot):
         conn.close()
 
 
+def load_active_votes(bot):
+    """Load active votes from the database and restart their end timers."""
+    db_path = get_db_path(bot)
+    now = datetime.now()
+    
+    with db_lock:
+        try:
+            conn = sqlite3.connect(db_path)
+            cursor = conn.cursor()
+            
+            cursor.execute('''
+                SELECT vote_id, channel, creator, question, expires_at
+                FROM votes
+                WHERE status = 'active'
+            ''')
+            rows = cursor.fetchall()
+            
+            for row in rows:
+                vote_id, channel, creator, question, expires_at_str = row
+                expires_at = parse_db_datetime(expires_at_str)
+                
+                # Fetch options
+                cursor.execute('''
+                    SELECT option_number, option_text
+                    FROM vote_options
+                    WHERE vote_id = ?
+                ''', (vote_id,))
+                opt_rows = cursor.fetchall()
+                options = {opt_num: opt_text for opt_num, opt_text in opt_rows}
+                
+                time_left = (expires_at - now).total_seconds()
+                
+                # If it already expired, end it after a short delay
+                if time_left <= 0:
+                    timer = threading.Timer(5.0, end_vote, args=[bot, channel, vote_id])
+                else:
+                    timer = threading.Timer(time_left, end_vote, args=[bot, channel, vote_id])
+                
+                active_votes[channel] = {
+                    'vote_id': vote_id,
+                    'question': question,
+                    'options': options,
+                    'expires_at': expires_at,
+                    'creator': creator
+                }
+                
+                timer.start()
+                vote_timers[channel] = timer
+            
+            conn.close()
+        except Exception:
+            pass
+
+
 def parse_time_duration(time_str):
     """Parse time duration like '24h', '30m', '2d' into seconds."""
     time_str = time_str.lower().strip()
@@ -120,8 +222,13 @@ def is_halfop_or_above(bot, channel, nick):
     
     privileges = bot.channels[channel].privileges.get(nick, 0)
     
-    # Check for halfop (4), op (8), admin (16), or owner (32)
-    return privileges >= 4
+    # Using Sopel/ibot constants for bitwise privilege verification
+    halfop = getattr(plugin, 'HALFOP', 2)
+    op = getattr(plugin, 'OP', 4)
+    admin = getattr(plugin, 'ADMIN', 8)
+    owner = getattr(plugin, 'OWNER', 16)
+    
+    return bool(privileges & (halfop | op | admin | owner))
 
 
 @plugin.command('votehelp')
@@ -133,71 +240,71 @@ def vote_help(bot, trigger):
     """
     nick = trigger.nick
     
-    # Send help via PM using bot.say with destination parameter
-    bot.say("📚 ═══════════════════════════════════════", destination=nick)
-    bot.say("🗳️  VOTING SYSTEM HELP", destination=nick)
-    bot.say("📚 ═══════════════════════════════════════", destination=nick)
-    bot.say("", destination=nick)
-    bot.say("🎯 CREATING A VOTE (Halfop+ only)", destination=nick)
-    bot.say("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━", destination=nick)
-    bot.say("Command: .vote Q:question A1:option1 A2:option2 T:duration", destination=nick)
-    bot.say("", destination=nick)
-    bot.say("📝 Format:", destination=nick)
-    bot.say("  Q: = Your question", destination=nick)
-    bot.say("  A1: = First option", destination=nick)
-    bot.say("  A2: = Second option", destination=nick)
-    bot.say("  A3: = Third option (optional)", destination=nick)
-    bot.say("  T: = Time duration", destination=nick)
-    bot.say("", destination=nick)
-    bot.say("⏰ Time formats:", destination=nick)
-    bot.say("  30s = 30 seconds", destination=nick)
-    bot.say("  15m = 15 minutes", destination=nick)
-    bot.say("  24h = 24 hours", destination=nick)
-    bot.say("  7d = 7 days", destination=nick)
-    bot.say("", destination=nick)
-    bot.say("💡 Example:", destination=nick)
-    bot.say("  .vote Q:Best pizza? A1:Pepperoni A2:Cheese A3:Veggie T:1h", destination=nick)
-    bot.say("", destination=nick)
-    bot.say("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━", destination=nick)
-    bot.say("🗳️  CASTING YOUR VOTE", destination=nick)
-    bot.say("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━", destination=nick)
-    bot.say("Command: .v <number>", destination=nick)
-    bot.say("", destination=nick)
-    bot.say("💡 Examples:", destination=nick)
-    bot.say("  .v 1    - Vote for option 1", destination=nick)
-    bot.say("  .v 2    - Vote for option 2", destination=nick)
-    bot.say("", destination=nick)
-    bot.say("✨ You can change your vote anytime!", destination=nick)
-    bot.say("", destination=nick)
-    bot.say("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━", destination=nick)
-    bot.say("📊 VIEWING STATISTICS", destination=nick)
-    bot.say("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━", destination=nick)
-    bot.say("Commands:", destination=nick)
-    bot.say("  .votestats   - Show current results", destination=nick)
-    bot.say("  .vstats      - Same as above", destination=nick)
-    bot.say("  .voteresults - Same as above", destination=nick)
-    bot.say("", destination=nick)
-    bot.say("Shows: vote counts, percentages, progress bars, time left", destination=nick)
-    bot.say("", destination=nick)
-    bot.say("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━", destination=nick)
-    bot.say("🛑 ENDING A VOTE EARLY", destination=nick)
-    bot.say("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━", destination=nick)
-    bot.say("Command: .endvote", destination=nick)
-    bot.say("", destination=nick)
-    bot.say("⚠️  Only the vote creator or halfops+ can end votes", destination=nick)
-    bot.say("", destination=nick)
-    bot.say("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━", destination=nick)
-    bot.say("ℹ️  ADDITIONAL INFO", destination=nick)
-    bot.say("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━", destination=nick)
-    bot.say("• One active vote per channel at a time", destination=nick)
-    bot.say("• One vote per person (can be changed)", destination=nick)
-    bot.say("• Votes auto-close when time expires", destination=nick)
-    bot.say("• Winner announced with 🏆 trophy", destination=nick)
-    bot.say("• All votes saved to database", destination=nick)
-    bot.say("", destination=nick)
-    bot.say("📚 ═══════════════════════════════════════", destination=nick)
+    # Send help via PM using standard bot.say without destination= keyword
+    bot.say("📚 ═══════════════════════════════════════", nick)
+    bot.say("🗳️  VOTING SYSTEM HELP", nick)
+    bot.say("📚 ═══════════════════════════════════════", nick)
+    bot.say("", nick)
+    bot.say("🎯 CREATING A VOTE (Halfop+ only)", nick)
+    bot.say("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━", nick)
+    bot.say("Command: .vote Q:question A1:option1 A2:option2 T:duration", nick)
+    bot.say("", nick)
+    bot.say("📝 Format:", nick)
+    bot.say("  Q: = Your question", nick)
+    bot.say("  A1: = First option", nick)
+    bot.say("  A2: = Second option", nick)
+    bot.say("  A3: = Third option (optional)", nick)
+    bot.say("  T: = Time duration", nick)
+    bot.say("", nick)
+    bot.say("⏰ Time formats:", nick)
+    bot.say("  30s = 30 seconds", nick)
+    bot.say("  15m = 15 minutes", nick)
+    bot.say("  24h = 24 hours", nick)
+    bot.say("  7d = 7 days", nick)
+    bot.say("", nick)
+    bot.say("💡 Example:", nick)
+    bot.say("  .vote Q:Best pizza? A1:Pepperoni A2:Cheese A3:Veggie T:1h", nick)
+    bot.say("", nick)
+    bot.say("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━", nick)
+    bot.say("🗳️  CASTING YOUR VOTE", nick)
+    bot.say("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━", nick)
+    bot.say("Command: .v <number>", nick)
+    bot.say("", nick)
+    bot.say("💡 Examples:", nick)
+    bot.say("  .v 1    - Vote for option 1", nick)
+    bot.say("  .v 2    - Vote for option 2", nick)
+    bot.say("", nick)
+    bot.say("✨ You can change your vote anytime!", nick)
+    bot.say("", nick)
+    bot.say("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━", nick)
+    bot.say("📊 VIEWING STATISTICS", nick)
+    bot.say("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━", nick)
+    bot.say("Commands:", nick)
+    bot.say("  .votestats   - Show current results", nick)
+    bot.say("  .vstats      - Same as above", nick)
+    bot.say("  .voteresults - Same as above", nick)
+    bot.say("", nick)
+    bot.say("Shows: vote counts, percentages, progress bars, time left", nick)
+    bot.say("", nick)
+    bot.say("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━", nick)
+    bot.say("🛑 ENDING A VOTE EARLY", nick)
+    bot.say("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━", nick)
+    bot.say("Command: .endvote", nick)
+    bot.say("", nick)
+    bot.say("⚠️  Only the vote creator or halfops+ can end votes", nick)
+    bot.say("", nick)
+    bot.say("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━", nick)
+    bot.say("ℹ️  ADDITIONAL INFO", nick)
+    bot.say("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━", nick)
+    bot.say("• One active vote per channel at a time", nick)
+    bot.say("• One vote per person (can be changed)", nick)
+    bot.say("• Votes auto-close when time expires", nick)
+    bot.say("• Winner announced with 🏆 trophy", nick)
+    bot.say("• All votes saved to database", nick)
+    bot.say("", nick)
+    bot.say("📚 ═══════════════════════════════════════", nick)
     
-    # Confirm in channel
+    # Confirm in channel/trigger source
     bot.reply("📬 Help information sent via PM!")
 
 
@@ -219,6 +326,11 @@ def create_vote(bot, trigger):
     # Check if user has required privileges
     if not is_halfop_or_above(bot, trigger.sender, trigger.nick):
         bot.reply("❌ You need to be at least halfop to create a vote!")
+        return
+    
+    # Check if there is already an active vote in this channel
+    if trigger.sender in active_votes:
+        bot.reply("❌ There is already an active vote in this channel! End it with .endvote first.")
         return
     
     if not trigger.group(2):
@@ -260,7 +372,7 @@ def create_vote(bot, trigger):
         return
     
     # Create vote in database
-    db_path = bot.config.voting.db_path
+    db_path = get_db_path(bot)
     expires_at = datetime.now() + timedelta(seconds=duration_seconds)
     
     with db_lock:
@@ -299,31 +411,34 @@ def create_vote(bot, trigger):
     timer.start()
     vote_timers[trigger.sender] = timer
     
-    # Get message delay setting
-    delay = bot.config.voting.message_delay
+    # Get message delay setting safely as float
+    try:
+        delay = float(bot.config.voting.message_delay)
+    except (ValueError, TypeError):
+        delay = 0.5
     
-    # Announce the vote (with anti-flood delays)
-    bot.say(f"📊 ═══════════════════════════════════════")
+    # Announce the vote (with anti-flood delays, using standard bot.say without destination= keyword)
+    bot.say("📊 ═══════════════════════════════════════", trigger.sender)
     time.sleep(delay)
-    bot.say(f"🗳️  NEW VOTE by {trigger.nick}")
+    bot.say(f"🗳️  NEW VOTE by {trigger.nick}", trigger.sender)
     time.sleep(delay)
-    bot.say(f"❓ {question}")
+    bot.say(f"❓ {question}", trigger.sender)
     time.sleep(delay)
-    bot.say(f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+    bot.say("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━", trigger.sender)
     time.sleep(delay)
     
     for opt_num, opt_text in sorted(options.items()):
         emoji = get_number_emoji(opt_num)
-        bot.say(f"{emoji} Option {opt_num}: {opt_text}")
+        bot.say(f"{emoji} Option {opt_num}: {opt_text}", trigger.sender)
         time.sleep(delay)
     
-    bot.say(f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+    bot.say("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━", trigger.sender)
     time.sleep(delay)
-    bot.say(f"⏰ Vote ends in {format_duration(duration_seconds)}")
+    bot.say(f"⏰ Vote ends in {format_duration(duration_seconds)}", trigger.sender)
     time.sleep(delay)
-    bot.say(f"💡 Vote with: .v {' or '.join([str(n) for n in sorted(options.keys())])}")
+    bot.say(f"💡 Vote with: .v {' or '.join([str(n) for n in sorted(options.keys())])}", trigger.sender)
     time.sleep(delay)
-    bot.say(f"📊 ═══════════════════════════════════════")
+    bot.say("📊 ═══════════════════════════════════════", trigger.sender)
 
 
 @plugin.command('v', 'castvote')
@@ -354,7 +469,7 @@ def cast_vote(bot, trigger):
         return
     
     # Record vote in database
-    db_path = bot.config.voting.db_path
+    db_path = get_db_path(bot)
     vote_id = vote_data['vote_id']
     
     with db_lock:
@@ -440,7 +555,7 @@ def show_vote_stats(bot, trigger):
     vote_id = vote_data['vote_id']
     
     # Get current stats from database
-    db_path = bot.config.voting.db_path
+    db_path = get_db_path(bot)
     
     with db_lock:
         conn = sqlite3.connect(db_path)
@@ -459,27 +574,31 @@ def show_vote_stats(bot, trigger):
             SELECT total_votes FROM votes WHERE vote_id = ?
         ''', (vote_id,))
         
-        total_votes = cursor.fetchone()[0]
+        row = cursor.fetchone()
+        total_votes = row[0] if row else 0
         conn.close()
     
     # Calculate time remaining
     time_left = (vote_data['expires_at'] - datetime.now()).total_seconds()
     
-    # Get message delay setting
-    delay = bot.config.voting.message_delay
+    # Get message delay setting safely as float
+    try:
+        delay = float(bot.config.voting.message_delay)
+    except (ValueError, TypeError):
+        delay = 0.5
     
-    # Display stats (with anti-flood delays)
-    bot.say(f"📊 ═══════════════════════════════════════")
+    # Display stats (with anti-flood delays, using standard bot.say without destination= keyword)
+    bot.say("📊 ═══════════════════════════════════════", trigger.sender)
     time.sleep(delay)
-    bot.say(f"📈 VOTE STATISTICS")
+    bot.say("📈 VOTE STATISTICS", trigger.sender)
     time.sleep(delay)
-    bot.say(f"❓ {vote_data['question']}")
+    bot.say(f"❓ {vote_data['question']}", trigger.sender)
     time.sleep(delay)
-    bot.say(f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+    bot.say("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━", trigger.sender)
     time.sleep(delay)
-    bot.say(f"🗳️  Total Votes: {total_votes}")
+    bot.say(f"🗳️  Total Votes: {total_votes}", trigger.sender)
     time.sleep(delay)
-    bot.say(f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+    bot.say("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━", trigger.sender)
     time.sleep(delay)
     
     for opt_num, opt_text, vote_count in options:
@@ -487,21 +606,21 @@ def show_vote_stats(bot, trigger):
         bar = create_progress_bar(percentage)
         emoji = get_number_emoji(opt_num)
         
-        bot.say(f"{emoji} Option {opt_num}: {opt_text}")
+        bot.say(f"{emoji} Option {opt_num}: {opt_text}", trigger.sender)
         time.sleep(delay)
-        bot.say(f"   {bar} {vote_count} votes ({percentage:.1f}%)")
+        bot.say(f"   {bar} {vote_count} votes ({percentage:.1f}%)", trigger.sender)
         time.sleep(delay)
     
-    bot.say(f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+    bot.say("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━", trigger.sender)
     time.sleep(delay)
     
     if time_left > 0:
-        bot.say(f"⏰ Time remaining: {format_duration(int(time_left))}")
+        bot.say(f"⏰ Time remaining: {format_duration(int(time_left))}", trigger.sender)
     else:
-        bot.say(f"⏰ Vote has ended!")
+        bot.say("⏰ Vote has ended!", trigger.sender)
     
     time.sleep(delay)
-    bot.say(f"📊 ═══════════════════════════════════════")
+    bot.say("📊 ═══════════════════════════════════════", trigger.sender)
 
 
 @plugin.command('endvote')
@@ -523,7 +642,10 @@ def manual_end_vote(bot, trigger):
     
     # Cancel timer if exists
     if trigger.sender in vote_timers:
-        vote_timers[trigger.sender].cancel()
+        try:
+            vote_timers[trigger.sender].cancel()
+        except Exception:
+            pass
         del vote_timers[trigger.sender]
     
     # End the vote
@@ -537,8 +659,12 @@ def end_vote(bot, channel, vote_id):
     
     vote_data = active_votes[channel]
     
+    # Protect against racing or mismatched closing
+    if vote_data['vote_id'] != vote_id:
+        return
+    
     # Mark vote as closed in database
-    db_path = bot.config.voting.db_path
+    db_path = get_db_path(bot)
     
     with db_lock:
         conn = sqlite3.connect(db_path)
@@ -563,25 +689,29 @@ def end_vote(bot, channel, vote_id):
             SELECT total_votes FROM votes WHERE vote_id = ?
         ''', (vote_id,))
         
-        total_votes = cursor.fetchone()[0]
+        row = cursor.fetchone()
+        total_votes = row[0] if row else 0
         conn.commit()
         conn.close()
     
-    # Get message delay setting
-    delay = bot.config.voting.message_delay
+    # Get message delay setting safely as float
+    try:
+        delay = float(bot.config.voting.message_delay)
+    except (ValueError, TypeError):
+        delay = 0.5
     
-    # Display final results (with anti-flood delays)
-    bot.say(f"🏁 ═══════════════════════════════════════", destination=channel)
+    # Display final results (with anti-flood delays, using standard bot.say without destination= keyword)
+    bot.say("🏁 ═══════════════════════════════════════", channel)
     time.sleep(delay)
-    bot.say(f"🎉 VOTE ENDED - FINAL RESULTS", destination=channel)
+    bot.say("🎉 VOTE ENDED - FINAL RESULTS", channel)
     time.sleep(delay)
-    bot.say(f"❓ {vote_data['question']}", destination=channel)
+    bot.say(f"❓ {vote_data['question']}", channel)
     time.sleep(delay)
-    bot.say(f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━", destination=channel)
+    bot.say("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━", channel)
     time.sleep(delay)
-    bot.say(f"🗳️  Total Votes: {total_votes}", destination=channel)
+    bot.say(f"🗳️  Total Votes: {total_votes}", channel)
     time.sleep(delay)
-    bot.say(f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━", destination=channel)
+    bot.say("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━", channel)
     time.sleep(delay)
     
     if total_votes > 0:
@@ -596,22 +726,23 @@ def end_vote(bot, channel, vote_id):
             # Add trophy for winner
             trophy = "🏆 " if opt_num == winner[0] else "   "
             
-            bot.say(f"{trophy}{emoji} Option {opt_num}: {opt_text}", destination=channel)
+            bot.say(f"{trophy}{emoji} Option {opt_num}: {opt_text}", channel)
             time.sleep(delay)
-            bot.say(f"   {bar} {vote_count} votes ({percentage:.1f}%)", destination=channel)
+            bot.say(f"   {bar} {vote_count} votes ({percentage:.1f}%)", channel)
             time.sleep(delay)
         
-        bot.say(f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━", destination=channel)
+        bot.say("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━", channel)
         time.sleep(delay)
-        bot.say(f"🏆 WINNER: {winner_emoji} Option {winner[0]} - {winner[1]}", destination=channel)
+        bot.say(f"🏆 WINNER: {winner_emoji} Option {winner[0]} - {winner[1]}", channel)
     else:
-        bot.say(f"😔 No votes were cast!", destination=channel)
+        bot.say("😔 No votes were cast!", channel)
     
     time.sleep(delay)
-    bot.say(f"🏁 ═══════════════════════════════════════", destination=channel)
+    bot.say("🏁 ═══════════════════════════════════════", channel)
     
     # Clean up
-    del active_votes[channel]
+    if channel in active_votes:
+        del active_votes[channel]
     if channel in vote_timers:
         del vote_timers[channel]
 
