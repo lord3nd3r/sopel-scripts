@@ -173,6 +173,12 @@ _PERSONALITY_CHANNEL_INDICATOR_RE = re.compile(
     re.IGNORECASE,
 )
 
+# Match per-user personality indicator: "to me", "for me", "with me", "me only"
+_PERSONALITY_USER_INDICATOR_RE = re.compile(
+    r'\b(?:to\s+me|for\s+me|with\s+me|me\s+only|only\s+to\s+me|just\s+to\s+me)\b',
+    re.IGNORECASE,
+)
+
 # Match personality command (defaults to per-user unless channel indicator present).
 # Verb classes matter here — bare "be"/"talk"/"reply" show up constantly in normal
 # chat ("be honest", "talk later"), so:
@@ -2469,6 +2475,8 @@ def handle(bot, trigger):
     try:
         # Check if it's explicitly a channel-wide command
         _is_channel_wide = bool(_PERSONALITY_CHANNEL_INDICATOR_RE.search(user_message))
+        # Check if it's explicitly a per-user command
+        _is_per_user = bool(_PERSONALITY_USER_INDICATOR_RE.search(user_message))
         
         # Check for personality command with explicit target: "speak to burnout like..."
         _user_target_match = _PERSONALITY_USER_TARGET_RE.search(user_message)
@@ -2487,7 +2495,7 @@ def handle(bot, trigger):
                     pass
                 return
         
-        # Check for general personality command (defaults to per-user)
+        # Check for general personality command
         _personality_match = _PERSONALITY_COMMAND_RE.search(user_message)
         if _personality_match:
             # Bare "be ..." is everyday chat ("be honest, do you like us?") —
@@ -2503,33 +2511,44 @@ def handle(bot, trigger):
                 _personality_match = None
         if _personality_match:
             _personality_desc = _personality_match.group('desc').strip()
-            # Remove channel indicators from the description if present
+            # Remove channel/user indicators from the description if present
             _personality_desc = _PERSONALITY_CHANNEL_INDICATOR_RE.sub('', _personality_desc).strip()
-            # Strip leading connector words left over after channel indicator removal
+            _personality_desc = _PERSONALITY_USER_INDICATOR_RE.sub('', _personality_desc).strip()
+            # Strip leading connector words left over after indicator removal
             _personality_desc = re.sub(r'^(?:like|as(?:\s+if)?|in|a|an)\s+', '', _personality_desc, flags=re.IGNORECASE).strip()
             
             if _personality_desc:
-                if _is_channel_wide:
+                # In channels, personality defaults to channel-wide unless explicitly per-user ("to me", "for me", etc.)
+                _set_channel_wide = False
+                if not is_pm:
+                    _set_channel_wide = _is_channel_wide or not _is_per_user
+                
+                _desc_short = _personality_desc[:60] + ('…' if len(_personality_desc) > 60 else '')
+                
+                if _set_channel_wide:
                     # Channel-wide: affects everyone
                     bot.memory['grok_channel_personality'][_personality_key] = _personality_desc
                     _log(bot).info('Set channel-wide personality for %s: %s', _personality_key, _personality_desc[:50])
+                    _announce_msg = f"ok, new channel-wide personality: {_desc_short} (say 'reset personality' to undo)"
                 else:
-                    # Per-user (default): only affects the person who said it
+                    # Per-user: only affects the person who said it
                     if not is_pm:
                         _chan_key = trigger.sender.lower()
                         if _chan_key not in bot.memory['grok_user_personality']:
                             bot.memory['grok_user_personality'][_chan_key] = {}
                         bot.memory['grok_user_personality'][_chan_key][trigger.nick.lower()] = _personality_desc
                         _log(bot).info('Set per-user personality for %s in %s: %s', trigger.nick.lower(), _chan_key, _personality_desc[:50])
+                        _announce_msg = f"ok, new personality for {trigger.nick}: {_desc_short} (say 'reset personality' to undo)"
                     else:
                         # In PM, just use the personality
                         bot.memory['grok_channel_personality'][_personality_key] = _personality_desc
                         _log(bot).info('Set PM personality for %s: %s', _personality_key, _personality_desc[:50])
+                        _announce_msg = f"ok, new personality: {_desc_short} (say 'reset personality' to undo)"
+                
                 # Acknowledge so accidental triggers are discoverable instead of
                 # the bot silently going weird.
                 try:
-                    _desc_short = _personality_desc[:60] + ('…' if len(_personality_desc) > 60 else '')
-                    bot.say(f"ok, new personality: {_desc_short} (say 'reset personality' to undo)", trigger.sender)
+                    bot.say(_announce_msg, trigger.sender)
                 except Exception:
                     pass
                 return

@@ -149,6 +149,33 @@ Grok: search for election results with sources
 
 ---
 
+## 🎭 Dynamic Personalities (Roleplay)
+
+You can change the bot's personality dynamically in conversation. In channels, these commands change the personality **channel-wide** by default, unless you explicitly request it only for yourself.
+
+### Setting a Personality
+
+Set a new roleplay style or persona:
+
+| Format | Scope | Example |
+|--------|-------|---------|
+| `BotNick: reply as a <vibe>` | Channel-wide | `Grok: reply as a drunken pirate` |
+| `BotNick: from now on be <vibe>` | Channel-wide | `Grok: from now on be a grumpy wizard` |
+| `BotNick: reply to me as a <vibe>` | Per-user | `Grok: reply to me as a helpful butler` |
+| `BotNick: speak to <nick> like <vibe>` | Target user | `Grok: speak to burnout like a drill sergeant` |
+
+The bot will acknowledge the change, e.g. `ok, new channel-wide personality: drunken pirate` or `ok, new personality for User: helpful butler`.
+
+### Resetting Personality
+
+Clear any dynamic personalities and return the bot to its default configuration:
+
+- `BotNick: reset personality`
+- `BotNick: stop acting`
+- `BotNick: be yourself`
+
+---
+
 ## 🕐 Time & Date Queries
 
 Ask the bot about the current time or date and it responds **instantly with the exact time** from your saved timezone preferences — no AI involved, no jokes, just the real answer. Time queries **bypass rate-limiting** so you can always get a fresh answer.
