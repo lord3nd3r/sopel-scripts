@@ -457,7 +457,7 @@ def _handle_moo_increment(bot, nick, chan, legendary=None, say_response=True, in
 # --------------------------------------------------------------
 # Moo detector (text) — EXCLUDES "sudo moo" (incl whitespace variants)
 # --------------------------------------------------------------
-@plugin.rule(r"(?i)^(?!\s*sudo\s+moo\s*$).*?\b(m[0o]+s?)\b")
+@plugin.rule(r"(?i)^(?!\s*sudo\s+moo\s*$).*?\b(m[0o]{2,}s?)\b")
 def moo_response(bot, trigger):
     if not trigger.nick or trigger.nick.lower() == bot.nick.lower():
         return
