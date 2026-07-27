@@ -40,7 +40,6 @@ A collection of custom [Sopel](https://sopel.chat/) IRC bot plugins for fun, uti
 - [Rizon Help](docs/rizonhelp.md)
 - [Tell](docs/tell.md)
 - [Seen](docs/seen.md)
-- [Wolfram Alpha](docs/wolframalpha.md)
 - [Installation](#-installation)
 - [Configuration](#-configuration)
 
@@ -1179,20 +1178,6 @@ Tracks and reports the last time a user was seen speaking in a channel.
 
 ---
 
-## 🧠 wolframalpha — Wolfram Alpha
-
-Query Wolfram Alpha for math, unit conversions, factual lookups, and more.
-
-| Command | Description |
-|---------|-------------|
-| `$wa <query>` | Query Wolfram Alpha |
-| `$calc <expr>` | Calculate a math expression |
-| `$math <expr>` | Alias for `$calc` |
-| `$convert <query>` | Unit/currency conversion |
-
-📖 **Full docs:** [docs/wolframalpha.md](docs/wolframalpha.md)
-
----
 
 ## �📦 Installation
 
