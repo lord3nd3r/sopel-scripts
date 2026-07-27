@@ -316,6 +316,8 @@ class GrokSection(types.StaticSection):
         ),
     )
     blocked_channels = types.ListAttribute('blocked_channels', default=[])
+    # model is accepted for config compatibility but falls back to heuristic
+    # (not implemented as a separate model-based classifier).
     intent_check = types.ChoiceAttribute(
         'intent_check',
         choices=['heuristic', 'off', 'model'],
@@ -375,6 +377,130 @@ def _load_channel_prompts():
             _CHANNEL_PROMPTS_CACHE_TIME = now
             return _CHANNEL_PROMPTS_CACHE
 
+def _core_bot(bot):
+    """Return the long-lived bot core (ibot) or the bot itself (Sopel).
+
+    ibot passes a fresh SopelWrapper into every handler and into setup(); the
+    real IRC client lives at wrapper._bot and is what we must patch/store on.
+    """
+    return getattr(bot, '_bot', bot)
+
+
+def _log_bot_channel_line(core, target, text):
+    """Append a bot-originated channel line to the Grok channel log."""
+    try:
+        t = str(target or '')
+        if not t.startswith('#'):
+            return
+        memory = getattr(core, 'memory', None)
+        if memory is None:
+            return
+        lock = memory.get('grok_say_lock')
+        chan_log = memory.get('grok_channel_log')
+        if chan_log is None:
+            return
+        nick = getattr(core, 'nick', 'bot')
+        entry = (nick, str(text), time.time())
+        if lock is not None:
+            with lock:
+                dq = chan_log.setdefault(t.lower(), deque(maxlen=300))
+                dq.append(entry)
+        else:
+            dq = chan_log.setdefault(t.lower(), deque(maxlen=300))
+            dq.append(entry)
+    except Exception:
+        pass
+
+
+def _install_channel_log_hooks(bot):
+    """Hook outbound PRIVMSG so the AI sees other plugins' channel output.
+
+    On ibot, patching the setup SopelWrapper is useless (it is discarded).
+    ibot 1.x often sends via send_privmsg_chunk (used by SopelWrapper.say);
+    send_privmsg itself calls send_privmsg_chunk. Hook the chunk path when
+    present so we log once per IRC line without double-counting.
+    """
+    core = _core_bot(bot)
+    if getattr(core, '_grok_privmsg_hooked', False):
+        return
+
+    if hasattr(core, 'send_privmsg_chunk'):
+        _orig_chunk = core.send_privmsg_chunk
+
+        def _grok_send_privmsg_chunk(target, text, *args, **kwargs):
+            _orig_chunk(target, text, *args, **kwargs)
+            _log_bot_channel_line(core, target, text)
+
+        core.send_privmsg_chunk = _grok_send_privmsg_chunk
+        core._grok_original_send_privmsg_chunk = _orig_chunk
+        core._grok_privmsg_hooked = True
+        core._grok_privmsg_hook_kind = 'chunk'
+    elif hasattr(core, 'send_privmsg'):
+        _orig_privmsg = core.send_privmsg
+
+        def _grok_send_privmsg(target, text, *args, **kwargs):
+            _orig_privmsg(target, text, *args, **kwargs)
+            _log_bot_channel_line(core, target, text)
+
+        core.send_privmsg = _grok_send_privmsg
+        core._grok_original_send_privmsg = _orig_privmsg
+        core._grok_privmsg_hooked = True
+        core._grok_privmsg_hook_kind = 'privmsg'
+    else:
+        # Pure Sopel-style: only bot.say exists on the long-lived bot object.
+        if not getattr(bot, '_grok_say_hooked', False):
+            _orig_say = bot.say
+
+            def _grok_say_wrapper(text, destination=None, *args, **kwargs):
+                result = _orig_say(text, destination, *args, **kwargs)
+                dest = destination if destination is not None else kwargs.get('target')
+                if dest is None and args:
+                    dest = args[0]
+                _log_bot_channel_line(_core_bot(bot), dest, text)
+                return result
+
+            bot.say = _grok_say_wrapper
+            bot._grok_original_say = _orig_say
+            bot._grok_say_hooked = True
+
+
+def _remove_channel_log_hooks(bot):
+    """Undo hooks installed by _install_channel_log_hooks."""
+    core = _core_bot(bot)
+    if getattr(core, '_grok_privmsg_hooked', False):
+        kind = getattr(core, '_grok_privmsg_hook_kind', None)
+        if kind == 'chunk':
+            orig = getattr(core, '_grok_original_send_privmsg_chunk', None)
+            if orig is not None:
+                core.send_privmsg_chunk = orig
+        else:
+            orig = getattr(core, '_grok_original_send_privmsg', None)
+            if orig is not None:
+                core.send_privmsg = orig
+        for attr in (
+            '_grok_original_send_privmsg',
+            '_grok_original_send_privmsg_chunk',
+            '_grok_privmsg_hooked',
+            '_grok_privmsg_hook_kind',
+        ):
+            if hasattr(core, attr):
+                try:
+                    delattr(core, attr)
+                except Exception:
+                    pass
+
+    if getattr(bot, '_grok_say_hooked', False):
+        orig = getattr(bot, '_grok_original_say', None)
+        if orig is not None:
+            bot.say = orig
+        for attr in ('_grok_original_say', '_grok_say_hooked'):
+            if hasattr(bot, attr):
+                try:
+                    delattr(bot, attr)
+                except Exception:
+                    pass
+
+
 def setup(bot):
     bot.config.define_section('grok', GrokSection)
     # Read API key directly from the underlying configparser - the ibot shim
@@ -402,56 +528,46 @@ def setup(bot):
         except Exception:
             pass
 
-    session = requests.Session()
-    adapter = requests.adapters.HTTPAdapter(
-        pool_connections=10,
-        pool_maxsize=20,
-        max_retries=2
-    )
-    session.mount('https://', adapter)
-    session.headers.update({
-        "Authorization": f"Bearer {_raw_key}",
-        "Content-Type": "application/json",
-    })
-    bot.memory['grok_session'] = session
-
-    # Per-conversation rolling history & last-response time
+    # Shared state always initialised so handlers can no-op cleanly.
     bot.memory['grok_history'] = {}
-    # Bounded: keyed per (channel, nick) so transient nicks must not accumulate
     bot.memory['grok_last'] = _BoundedTTLCache(maxsize=5000, ttl=300.0)
     bot.memory['grok_locks'] = {}
     bot.memory['grok_locks_lock'] = threading.Lock()
-    bot.memory['grok_channel_log'] = {}  # per-channel chronological message log
-    bot.memory['grok_say_lock'] = threading.Lock()  # thread-safe say wrapper lock
-    bot.memory['grok_api_failures'] = {}  # circuit breaker: channel -> failure count
-    bot.memory['grok_chimein_last'] = {}  # per-channel last chime-in timestamp
-    bot.memory['grok_channel_personality'] = {}  # per-channel dynamic personality overrides
-    bot.memory['grok_user_personality'] = {}  # per-user personalities: {channel: {nick: personality}}
-    # Bounded TTL caches for ephemeral data (replaces unbounded bot.memory keys)
-    bot.memory['grok_dedup_cache'] = _BoundedTTLCache(maxsize=2000, ttl=10.0)  # must exceed dedup window (5s)
+    bot.memory['grok_channel_log'] = {}
+    bot.memory['grok_say_lock'] = threading.Lock()
+    bot.memory['grok_api_failures'] = {}
+    bot.memory['grok_chimein_last'] = {}
+    bot.memory['grok_channel_personality'] = {}
+    bot.memory['grok_user_personality'] = {}
+    bot.memory['grok_dedup_cache'] = _BoundedTTLCache(maxsize=2000, ttl=10.0)
     bot.memory['grok_user_last_cache'] = _BoundedTTLCache(maxsize=5000, ttl=300.0)
-    bot.memory['grok_learn_counters'] = {}  # per-channel learn counter (bounded by # channels)
+    bot.memory['grok_learn_counters'] = {}
+    bot.memory['grok_intent_model_warned'] = False
 
-    # Wrap bot.say so ALL bot output (from every plugin) is captured in channel log.
-    # This lets the AI see game results, mug outcomes, bet payouts, etc.
-    # Guard against stacking on reload: only wrap if not already wrapped.
-    if not hasattr(bot, '_grok_original_say'):
-        bot._grok_original_say = bot.say
-    _original_say = bot._grok_original_say
+    if not _raw_key:
+        bot.memory['grok_session'] = None
+        bot.memory['grok_api_disabled'] = True
+        _log(bot).error(
+            'Grok api_key missing or unreadable — AI replies disabled. '
+            'Set [grok] api_key in the config. Local remember/forget still work.'
+        )
+    else:
+        bot.memory['grok_api_disabled'] = False
+        session = requests.Session()
+        adapter = requests.adapters.HTTPAdapter(
+            pool_connections=10,
+            pool_maxsize=20,
+            max_retries=2
+        )
+        session.mount('https://', adapter)
+        session.headers.update({
+            "Authorization": f"Bearer {_raw_key}",
+            "Content-Type": "application/json",
+        })
+        bot.memory['grok_session'] = session
 
-    def _grok_say_wrapper(text, target=None, *args, **kwargs):
-        _original_say(text, target, *args, **kwargs)
-        try:
-            t = target or ''
-            if isinstance(t, str) and t.startswith('#'):
-                with bot.memory['grok_say_lock']:
-                    chan_log = bot.memory.get('grok_channel_log')
-                    if chan_log is not None:
-                        dq = chan_log.setdefault(t.lower(), deque(maxlen=300))
-                        dq.append((bot.nick, str(text), time.time()))
-        except Exception:
-            pass
-    bot.say = _grok_say_wrapper
+    # Capture bot + other-plugin channel output for AI context (ibot-safe).
+    _install_channel_log_hooks(bot)
 
     try:
         base_dir = os.environ.get('AI_GROK_DIR') or os.path.join(os.path.dirname(__file__), 'grok_data')
@@ -465,15 +581,14 @@ def setup(bot):
     except Exception:
         _log(bot).exception('Failed to initialize Grok DB')
 
-    # Start API worker threads
     global API_WORKER_SHUTDOWN
     API_WORKER_SHUTDOWN = False
     worker_threads = []
-    for _ in range(API_WORKER_COUNT):
-        t = threading.Thread(target=_api_worker_loop, daemon=True)
-        t.start()
-        worker_threads.append(t)
-    # Store so shutdown() can join them before resetting the global flag.
+    if not bot.memory.get('grok_api_disabled'):
+        for _ in range(API_WORKER_COUNT):
+            t = threading.Thread(target=_api_worker_loop, daemon=True)
+            t.start()
+            worker_threads.append(t)
     bot.memory['grok_worker_threads'] = worker_threads
 
 
@@ -482,21 +597,16 @@ def shutdown(bot):
     global API_WORKER_SHUTDOWN
     API_WORKER_SHUTDOWN = True
 
-    # Send poison pills to stop workers
     for _ in range(API_WORKER_COUNT):
         try:
             API_TASK_QUEUE.put_nowait(None)
         except queue.Full:
             pass
 
-    # Wait for all worker threads to exit before returning.
-    # This ensures setup() never resets API_WORKER_SHUTDOWN while old threads
-    # are still running (the reload race condition).
     workers = bot.memory.pop('grok_worker_threads', [])
     for t in workers:
         t.join(timeout=3.0)
 
-    # Drain any remaining tasks
     try:
         while not API_TASK_QUEUE.empty():
             API_TASK_QUEUE.get_nowait()
@@ -504,7 +614,6 @@ def shutdown(bot):
     except queue.Empty:
         pass
 
-    # Close the HTTP session
     session = bot.memory.pop('grok_session', None)
     if session:
         try:
@@ -512,11 +621,8 @@ def shutdown(bot):
         except Exception:
             pass
 
-    # Restore original bot.say to prevent stacking on reload
-    original = getattr(bot, '_grok_original_say', None)
-    if original:
-        bot.say = original
-        del bot._grok_original_say
+    bot.memory['grok_api_disabled'] = True
+    _remove_channel_log_hooks(bot)
 
     _log(bot).info('Grok plugin shut down cleanly')
 
@@ -605,35 +711,53 @@ def _is_pm(trigger):
         return False
 
 def _is_channel_op(bot, trigger, channel=None):
-    """Check op status in `channel` (defaults to the channel the trigger came from)."""
+    """True if nick has OP or higher in channel (not mere voice).
+
+    ibot privileges are a bitmask (VOICE=1, HALFOP=2, OP=4, ADMIN=8, OWNER=16).
+    Never treat ``v != 0`` as op — that incorrectly authorized +v users for
+    $scheck / $skick / $skban.
+    """
+    _OP = 4
+    try:
+        from sopel import privileges as _priv
+        _OP = int(getattr(_priv, 'OP', 4))
+    except Exception:
+        pass
+
     try:
         chan = getattr(bot, 'channels', {}).get(channel or trigger.sender)
         if not chan:
             return False
+
+        # ibot Channel helpers (bitmask is_op, hierarchy has_privilege)
+        if hasattr(chan, 'is_op') and chan.is_op(trigger.nick):
+            return True
+        if hasattr(chan, 'is_admin') and chan.is_admin(trigger.nick):
+            return True
+        if hasattr(chan, 'is_owner') and chan.is_owner(trigger.nick):
+            return True
+        if hasattr(chan, 'has_privilege') and chan.has_privilege(trigger.nick, _OP):
+            return True
+
         privs = getattr(chan, 'privileges', None) or getattr(chan, 'privs', None)
         if isinstance(privs, dict):
-            v = privs.get(trigger.nick) or privs.get(trigger.nick.lower())
+            v = privs.get(trigger.nick)
             if v is None:
-                for k in privs.keys():
-                    if k.lower() == trigger.nick.lower():
-                        v = privs.get(k)
+                v = privs.get(trigger.nick.lower()) if hasattr(trigger.nick, 'lower') else None
+            if v is None:
+                for k, val in privs.items():
+                    if str(k).lower() == str(trigger.nick).lower():
+                        v = val
                         break
-            if v is not None:
-                if isinstance(v, (set, list, tuple)):
-                    if 'o' in v or 'op' in v or '@' in v:
-                        return True
-                if isinstance(v, int) and v != 0:
-                    return True
-                if isinstance(v, str) and ('o' in v or '@' in v):
-                    return True
-        if hasattr(chan, 'is_oper'):
-            if chan.is_oper(trigger.nick):
-                return True
-        users = getattr(chan, 'users', None)
-        if isinstance(users, dict):
-            u = users.get(trigger.nick) or users.get(trigger.nick.lower())
-            if isinstance(u, (set, list, tuple)) and ('o' in u or '@' in u):
-                return True
+            if isinstance(v, int):
+                # Require OP bit (or admin/owner bits), not voice/halfop alone
+                return bool(v & _OP) or bool(v & 8) or bool(v & 16)
+            if isinstance(v, (set, list, tuple)):
+                markers = {str(x).lower() for x in v}
+                return bool(markers & {'o', 'op', '@', 'a', 'admin', 'q', 'owner', '~', '&'})
+            if isinstance(v, str):
+                low = v.lower()
+                return any(m in low for m in ('@', 'o', '~', '&', 'op', 'admin', 'owner'))
     except Exception:
         return False
     return False
@@ -2110,12 +2234,23 @@ def handle(bot, trigger):
             )
         )
 
-    if (not is_pm) and mentioned and not action_bot_mentioned and getattr(bot.config.grok, 'intent_check', 'heuristic') == 'heuristic':
-        try:
-            if not _heuristic_intent_check(bot, trigger, line, bot_nick):
-                return
-        except Exception:
-            pass
+    # intent_check: heuristic (default) | off | model
+    # model is not implemented — fall back to heuristic once and log.
+    if (not is_pm) and mentioned and not action_bot_mentioned:
+        _intent_mode = str(getattr(bot.config.grok, 'intent_check', 'heuristic') or 'heuristic').lower()
+        if _intent_mode == 'off':
+            pass  # treat every nick mention as intentional
+        else:
+            if _intent_mode == 'model' and not bot.memory.get('grok_intent_model_warned'):
+                bot.memory['grok_intent_model_warned'] = True
+                _log(bot).warning(
+                    "intent_check=model is not implemented; using heuristic"
+                )
+            try:
+                if not _heuristic_intent_check(bot, trigger, line, bot_nick):
+                    return
+            except Exception:
+                pass
 
     if mentioned:
         text_for_history = re.sub(
@@ -2233,19 +2368,22 @@ def handle(bot, trigger):
                                     "not older parts of the log."
                                 )},
                             ]
-                            _chimein_lock = _get_channel_lock(bot, trigger.sender)
-                            try:
-                                API_TASK_QUEUE.put_nowait({
-                                    'bot': bot, 'trigger': trigger, 'messages': _chimein_msgs,
-                                    'review_mode': False, 'is_pm': False,
-                                    'bot_nick': _bot_nick, 'chan_lock': _chimein_lock,
-                                    'search_mode': False, 'wants_sources': False,
-                                    'is_chimein': True, 'is_action': False,
-                                })
-                            except queue.Full:
+                            if bot.memory.get('grok_api_disabled') or not bot.memory.get('grok_session'):
                                 pass
-                            except Exception:
-                                pass
+                            else:
+                                _chimein_lock = _get_channel_lock(bot, trigger.sender)
+                                try:
+                                    API_TASK_QUEUE.put_nowait({
+                                        'bot': bot, 'trigger': trigger, 'messages': _chimein_msgs,
+                                        'review_mode': False, 'is_pm': False,
+                                        'bot_nick': _bot_nick, 'chan_lock': _chimein_lock,
+                                        'search_mode': False, 'wants_sources': False,
+                                        'is_chimein': True, 'is_action': False,
+                                    })
+                                except queue.Full:
+                                    pass
+                                except Exception:
+                                    pass
             except Exception:
                 pass
         return
@@ -2518,20 +2656,29 @@ def handle(bot, trigger):
             _personality_desc = re.sub(r'^(?:like|as(?:\s+if)?|in|a|an)\s+', '', _personality_desc, flags=re.IGNORECASE).strip()
             
             if _personality_desc:
-                # In channels, personality defaults to channel-wide unless explicitly per-user ("to me", "for me", etc.)
+                # Default: per-user only. Channel-wide requires an explicit
+                # "in this channel"/"for everyone" phrase AND op/admin.
                 _set_channel_wide = False
-                if not is_pm:
-                    _set_channel_wide = _is_channel_wide or not _is_per_user
-                
+                if not is_pm and _is_channel_wide:
+                    if not (_is_admin(bot, trigger) or _is_channel_op(bot, trigger)):
+                        try:
+                            bot.say(
+                                "channel-wide personality needs op/admin "
+                                "(or say it 'for me' / 'to me')",
+                                trigger.sender,
+                            )
+                        except Exception:
+                            pass
+                        return
+                    _set_channel_wide = True
+
                 _desc_short = _personality_desc[:60] + ('…' if len(_personality_desc) > 60 else '')
-                
+
                 if _set_channel_wide:
-                    # Channel-wide: affects everyone
                     bot.memory['grok_channel_personality'][_personality_key] = _personality_desc
                     _log(bot).info('Set channel-wide personality for %s: %s', _personality_key, _personality_desc[:50])
                     _announce_msg = f"ok, new channel-wide personality: {_desc_short} (say 'reset personality' to undo)"
                 else:
-                    # Per-user: only affects the person who said it
                     if not is_pm:
                         _chan_key = trigger.sender.lower()
                         if _chan_key not in bot.memory['grok_user_personality']:
@@ -2540,7 +2687,6 @@ def handle(bot, trigger):
                         _log(bot).info('Set per-user personality for %s in %s: %s', trigger.nick.lower(), _chan_key, _personality_desc[:50])
                         _announce_msg = f"ok, new personality for {trigger.nick}: {_desc_short} (say 'reset personality' to undo)"
                     else:
-                        # In PM, just use the personality
                         bot.memory['grok_channel_personality'][_personality_key] = _personality_desc
                         _log(bot).info('Set PM personality for %s: %s', _personality_key, _personality_desc[:50])
                         _announce_msg = f"ok, new personality: {_desc_short} (say 'reset personality' to undo)"
@@ -2876,6 +3022,16 @@ def handle(bot, trigger):
         messages.append({"role": "user", "content": combined})
 
     try:
+        if bot.memory.get('grok_api_disabled') or not bot.memory.get('grok_session'):
+            try:
+                bot.say(
+                    "Grok API is not configured (missing api_key).",
+                    trigger.sender,
+                )
+            except Exception:
+                pass
+            return
+
         search_mode = _channel_always_search or bool(_SEARCH_INTENT_RE.search(user_message))
         wants_sources = bool(_WANTS_SOURCES_RE.search(user_message))
         # If user is asking for sources/URLs, force search so the API returns real citations

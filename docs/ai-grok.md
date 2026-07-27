@@ -39,8 +39,14 @@ ignored_nicks =
 
 # Optional — how to detect if a mention is directed at the bot
 # Choices: heuristic (default), off, model
+#   heuristic — skip third-person / "about the bot" mentions
+#   off       — respond to any nick mention
+#   model     — not implemented; falls back to heuristic
 intent_check = heuristic
 ```
+
+**Personality (natural language to the bot):** defaults to **per-user**.  
+Channel-wide (`in this channel` / `for everyone`) requires **op or bot admin**.
 
 **3. Place the script in your ibot plugin extra directory:**
 ```
