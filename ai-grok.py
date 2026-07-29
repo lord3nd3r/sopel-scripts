@@ -2326,16 +2326,21 @@ def handle(bot, trigger):
                         _chance = CHIMEIN_CHANCE_PCT
                         if CHIMEIN_BOOST_RE.search(text_for_history):
                             _chance = min(95, _chance * 3)
-                        # Skip chime-in on short greetings directed at other users
-                        # e.g. "hey owo o/", "yo burnout", "hi there nick"
+                        # Skip chime-in on short greetings — bare ("hello",
+                        # "hallo!") or directed at other users ("hey owo o/",
+                        # "yo burnout"). Only a greeting aimed at the bot's own
+                        # nick may pass through.
                         _chimein_skip = False
                         if len(text_for_history.split()) <= 5:
                             _greeting_m = re.match(
-                                r'^(?:hey|hi|hello|yo|sup|wb|welcome back|o/|\\o)\s+(\S+)',
+                                r'^(?:hey|hiya|hi|hello|hallo|howdy|hola|yo|sup|wb|'
+                                r'welcome back|(?:good )?(?:morning|evening|afternoon)|'
+                                r'o/|\\o)'
+                                r'(?:[\s,:;!.?]*$|[\s,]+(\S+))',
                                 text_for_history, re.IGNORECASE,
                             )
                             if _greeting_m:
-                                _greeted = _greeting_m.group(1).strip(',:!?').lower()
+                                _greeted = (_greeting_m.group(1) or '').strip(',:!?').lower()
                                 if _greeted != bot.nick.lower():
                                     _chimein_skip = True
                         if not _chimein_skip and random.random() * 100 < _chance:
@@ -2355,6 +2360,7 @@ def handle(bot, trigger):
                                 "Talk like a real IRC user: lowercase ok, slang ok, 'lol' 'ngl' 'tbh' 'fr' ok. "
                                 "Sometimes just react with one word. Do NOT summarize or explain what people said. "
                                 "Single line only — this is IRC. "
+                                "Write in the same language the channel is currently speaking. "
                                 "IMPORTANT: You only know what has been said in THIS channel's recent log shown below. "
                                 "Do NOT reference events, facts, or conversations from other channels."
                             )
@@ -2823,6 +2829,8 @@ def handle(bot, trigger):
             "content": (
                 f"Current date/time for {trigger.nick}: {now_str}. Use this ONLY if {trigger.nick} explicitly asks for the time or date in their message — do NOT volunteer it unprompted. "
                 f"Your IRC nick is '{bot_nick}'. You're talking to {trigger.nick}. "
+                f"ALWAYS reply in the same language {trigger.nick}'s message is written in — "
+                f"German gets German, Dutch gets Dutch, English gets English, and so on. "
                 f"You also run game/utility plugins ($ commands like $bet, $mug, $coins, etc.). "
                 f"Messages from '{bot_nick}' in the channel log are things you said — reference "
                 f"game events, coin balances, mug outcomes naturally when relevant. "
