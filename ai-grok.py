@@ -1121,17 +1121,41 @@ def _call_responses_api(bot, messages, model, temp, max_toks, search_mode=False,
                             text = content_part.get('text')
                             if text:
                                 reply += text
-            
-    # URL extraction: scan the raw JSON response for all URLs.
-    try:
-        raw_json_str = json.dumps(data, default=str)
-        raw_urls = re.findall(r'https?://[^\s()<>\[\]{}"]+', raw_json_str)
-        for u in raw_urls:
-            u = u.replace('\\/', '/').strip(').,;:!?\'">')
-            if u and 'x.ai' not in u.lower() and 'google.com' not in u.lower():
-                citations.append({"url": u, "title": ""})
-    except Exception as e:
-        _log(bot).error('URL extraction failed: %s', str(e))
+                            # Structured citations: url_citation annotations
+                            # attached to this content part.
+                            anns = content_part.get('annotations')
+                            if anns and isinstance(anns, list):
+                                for ann in anns:
+                                    if not isinstance(ann, dict):
+                                        continue
+                                    a_url = ann.get('url') or (ann.get('url_citation') or {}).get('url')
+                                    if a_url:
+                                        a_title = ann.get('title') or (ann.get('url_citation') or {}).get('title') or ''
+                                        citations.append({"url": a_url, "title": a_title})
+
+    # Top-level citations list (some xAI responses include this).
+    top_cits = data.get('citations')
+    if top_cits and isinstance(top_cits, list):
+        for c in top_cits:
+            if isinstance(c, str):
+                citations.append({"url": c, "title": ""})
+            elif isinstance(c, dict) and c.get('url'):
+                citations.append({"url": c['url'], "title": c.get('title', '')})
+
+    # Fallback: extract URLs from the assistant's reply text ONLY.
+    # Never scan the raw JSON response — it echoes instructions, reasoning
+    # summaries, and conversation context, which leaks URLs users pasted
+    # in chat (and JSON-escaped '\n' isn't whitespace, so junk like
+    # 'foo.jpeg\nEnd3r' gets glued onto URLs).
+    if not citations:
+        try:
+            raw_urls = re.findall(r'https?://[^\s\\()<>\[\]{}"]+', reply)
+            for u in raw_urls:
+                u = u.strip(').,;:!?\'">')
+                if u and 'x.ai' not in u.lower() and 'google.com' not in u.lower():
+                    citations.append({"url": u, "title": ""})
+        except Exception as e:
+            _log(bot).error('URL extraction failed: %s', str(e))
 
     # Cleanup and dedupe raw extraction
     seen_raw = set()
@@ -2557,20 +2581,25 @@ def handle(bot, trigger):
     if _what_match:
         try:
             _target = _what_match.group(1) or trigger.nick
+            # Privacy: only the person a profile belongs to can view it
+            # (bot admins can view anyone's), and the fact list is always
+            # delivered via PM — never dumped into the channel.
+            _is_self = _target.lower() == trigger.nick.lower()
+            if not _is_self and not _is_admin(bot, trigger):
+                bot.say("I only share what I remember with the person it's about — ask them yourself", trigger.sender)
+                return
             _profile = _db_get_user_profile(bot, _target)
             if _profile and _profile.get('facts'):
                 _facts_list = _profile['facts']
-                if len(_facts_list) <= 5:
-                    _facts_str = ' | '.join(_facts_list)
-                    bot.say(f"I remember: {_facts_str}", trigger.sender)
-                else:
-                    bot.say(f"I remember {len(_facts_list)} things about {'you' if _target.lower() == trigger.nick.lower() else _target}:", trigger.sender)
-                    for i in range(0, len(_facts_list), 5):
-                        chunk = ' | '.join(_facts_list[i:i+5])
-                        bot.say(chunk, trigger.sender)
+                _who = 'you' if _is_self else _target
+                if not is_pm:
+                    bot.say(f"I remember {len(_facts_list)} things about {_who} — check your PM", trigger.sender)
+                bot.say(f"I remember {len(_facts_list)} things about {_who}:", trigger.nick)
+                for i in range(0, len(_facts_list), 5):
+                    chunk = ' | '.join(_facts_list[i:i+5])
+                    bot.say(chunk, trigger.nick)
             else:
-                _who = 'you' if _target.lower() == trigger.nick.lower() else _target
-                bot.say(f"I don't have anything saved about {_who}", trigger.sender)
+                bot.say(f"I don't have anything saved about {'you' if _is_self else _target}", trigger.sender)
         except Exception:
             _log(bot).exception('What-do-you-remember handler failed')
         return
