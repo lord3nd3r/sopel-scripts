@@ -423,12 +423,23 @@ Long-lived structures like `grok_history`, `grok_locks`, and `grok_channel_log` 
 | Setting | Type | Default | Description |
 |---------|------|---------|-------------|
 | `api_key` | string | — | xAI API key (**required**) |
-| `model` | choice | `grok-4-1-fast-reasoning` | AI model |
+| `model` | choice | `grok-4.3` | AI model (see table below) |
 | `system_prompt` | string | (see code) | Bot personality |
 | `blocked_channels` | list | — | Channels where AI won't respond |
 | `banned_nicks` | list | — | Nicks completely blocked |
 | `ignored_nicks` | list | — | Nicks silently ignored |
 | `intent_check` | choice | `heuristic` | Mention detection mode |
+
+**Supported models:**
+
+| Model | Context | Notes |
+|-------|---------|-------|
+| `grok-4.5` | 500K | Newest flagship; high reasoning by default |
+| `grok-4.3` | 1M | Value flagship; configurable reasoning (default) |
+| `grok-4.20` | 2M | Prior flagship with reasoning |
+| `grok-4.20-non-reasoning` | 2M | Non-thinking variant of grok-4.20 |
+| `grok-4.20-multi-agent` | 2M | Multi-agent optimised variant |
+| `grok-build-0.1` | 256K | Code / scaffolding focused |
 
 | Env Variable | Description |
 |--------------|-------------|

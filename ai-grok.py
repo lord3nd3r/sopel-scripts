@@ -292,8 +292,15 @@ class GrokSection(types.StaticSection):
     api_key = types.ValidatedAttribute('api_key')
     model = types.ChoiceAttribute(
         'model',
-        choices=['grok-4-1-fast-reasoning', 'grok-4-fast-reasoning', 'grok-4-20', 'grok-4.3', 'grok-3', 'grok-beta'],
-        default='grok-4-1-fast-reasoning',
+        choices=[
+            'grok-4.5',               # newest flagship (500K ctx, high reasoning)
+            'grok-4.3',               # value flagship (1M ctx, configurable reasoning)
+            'grok-4.20',              # prior flagship with 2M ctx window
+            'grok-4.20-non-reasoning',# non-thinking variant of grok-4.20
+            'grok-4.20-multi-agent',  # multi-agent optimised variant
+            'grok-build-0.1',         # code/scaffolding focused model
+        ],
+        default='grok-4.3',
     )
     system_prompt = types.ValidatedAttribute(
         'system_prompt',
