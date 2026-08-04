@@ -1481,10 +1481,13 @@ def _db_get_recent(bot, nick, channel=None, limit=MAX_HISTORY_PER_USER):
         return []
 
 def _db_clear_user(bot, nick):
+    """Wipe all stored data for a user: conversation history, profile/facts, and prefs."""
     try:
         with _DBContext(bot) as conn:
             c = conn.cursor()
-            c.execute('DELETE FROM grok_user_history WHERE nick = ?', (nick.lower(),))
+            c.execute('DELETE FROM grok_user_history  WHERE nick = ?', (nick.lower(),))
+            c.execute('DELETE FROM grok_user_profiles WHERE nick = ?', (nick.lower(),))
+            c.execute('DELETE FROM grok_user_prefs    WHERE nick = ?', (nick.lower(),))
     except Exception:
         _log(bot).exception('Failed to clear grok DB for %s', nick)
 
@@ -3142,8 +3145,15 @@ def grokreset(bot, trigger):
             _db_clear_user(bot, trigger.nick)
         except Exception:
             pass
+        # Clear in-memory personality for this nick across all channels
         try:
-            bot.reply('Your Grok history has been reset.')
+            nick_lower = trigger.nick.lower()
+            for chan_perso in bot.memory.get('grok_user_personality', {}).values():
+                chan_perso.pop(nick_lower, None)
+        except Exception:
+            pass
+        try:
+            bot.reply('Your Grok data has been fully reset (history, facts, prefs).')
         except Exception:
             pass
         return
@@ -3208,8 +3218,15 @@ def grokreset(bot, trigger):
         _db_clear_user(bot, trigger.nick)
     except Exception:
         pass
+    # Clear in-memory personality for this nick across all channels
     try:
-        bot.reply('Your personal Grok history has been reset.')
+        nick_lower = trigger.nick.lower()
+        for chan_perso in bot.memory.get('grok_user_personality', {}).values():
+            chan_perso.pop(nick_lower, None)
+    except Exception:
+        pass
+    try:
+        bot.reply('Your Grok data has been fully reset (history, facts, prefs).')
     except Exception:
         pass
 
