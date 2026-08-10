@@ -1,10 +1,10 @@
 # harambe.py — IRC user search service for Sopel
 #
-# Collects user data via WHOIS, CTCP VERSION, and oper-privileged WHO replies.
+# Collects user data via WHOIS, CTCP VERSION, WHOX sweeps, and oper-privileged WHO replies.
 # Stores data in SQLite. Supports wildcard search across: nick, ident, host,
 # vhost, ip, name, account, email, server, version, channels.
 #
-# Commands (via NOTICE to requester):
+# Commands (replied in the access channel):
 #   !help / !commands       — show help
 #   !ping / !p              — liveness check
 #   !search / !s <field> <pattern>   — case-insensitive wildcard search
@@ -15,9 +15,13 @@
 #   [harambe]
 #   oper_name     = myoperaccount
 #   oper_password = secret
-#   access_channel = #3nd3r            ; users in this channel can search
+#   access_channel = #3nd3r            ; channel where commands are accepted + flood alerts posted
 #   access_list   = Nick1, Nick2       ; additional nicks (always allowed)
 #   max_results   = 10                 ; max rows per search (default 10)
+#   flood_window    = 60               ; mass-join detection window, seconds (default 60)
+#   flood_threshold = 5                ; joins per host in window before alert (default 5)
+#   flood_cooldown  = 300              ; min seconds between alerts for same host (default 300)
+#   collect_channels = all             ; 'all' to WHOIS joiners in every channel, or channel name
 
 from __future__ import annotations
 
@@ -43,6 +47,10 @@ class HarambeSection(StaticSection):
     access_channel = ValidatedAttribute('access_channel', default='')
     access_list   = ListAttribute('access_list', default=[])
     max_results   = ValidatedAttribute('max_results', default='10')
+    flood_window    = ValidatedAttribute('flood_window',    default='60')
+    flood_threshold = ValidatedAttribute('flood_threshold', default='5')
+    flood_cooldown  = ValidatedAttribute('flood_cooldown',  default='300')
+    collect_channels = ValidatedAttribute('collect_channels', default='all')
 
 
 def configure(config):
@@ -52,6 +60,10 @@ def configure(config):
     config.harambe.configure_setting('access_channel', 'Channel whose members can use search')
     config.harambe.configure_setting('access_list',    'Comma-separated nicks always allowed')
     config.harambe.configure_setting('max_results',    'Max results per search (default 10)')
+    config.harambe.configure_setting('flood_window',    'Mass-join detection window in seconds (default 60)')
+    config.harambe.configure_setting('flood_threshold', 'Joins per host in window before alert (default 5)')
+    config.harambe.configure_setting('flood_cooldown',  'Min seconds between flood alerts per host (default 300)')
+    config.harambe.configure_setting('collect_channels', "'all' to track joins in every channel, or a channel name")
 
 
 def setup(bot):
@@ -84,6 +96,19 @@ _ctcp_lock = threading.Lock()
 
 # True once the server confirms oper with 381 RPL_YOUREOPER
 _is_oper = False
+
+# Channels for which a WHOX sweep was already issued this oper session
+_who_sent: set = set()
+# Channels that refused WHOX (fell back to plain WHO)
+_who_fallback: set = set()
+# Nicks queued for WHOIS when WHO replies give us hostnames but no IP
+_whois_queue: list = []
+_whois_queue_lock = threading.Lock()
+
+# Mass-join flood detection state
+_join_events: list = []            # list of (timestamp, host, nick, channel)
+_join_events_lock = threading.Lock()
+_flood_alert_cooldown: dict = {}   # host_lower → last alert timestamp
 
 
 # NickServ INFO query state
@@ -193,6 +218,12 @@ def _upsert_user(data: dict):
     nick_lower = data.get('nick_lower') or (data.get('nick') or '').lower()
     if not nick_lower:
         return
+    # Hard guard: never store a record keyed by a channel name — that is
+    # always a parsing bug (we've been bitten twice).
+    if nick_lower.startswith(('#', '&')) or nick_lower in ('}', '{', '|', '~', '^'):
+        LOG.warning('harambe: refusing to upsert bogus nick %r (data keys: %s)',
+                    nick_lower, sorted(k for k, v in data.items() if v))
+        return
 
     with _db_lock, _get_conn() as conn:
         # Fetch existing row
@@ -280,7 +311,7 @@ def _is_authorized(bot, trigger) -> bool:
     """
     try:
         access_list    = [n.strip().lower() for n in bot.config.harambe.access_list]
-        access_channel = (bot.config.harambe.access_channel or '').strip().lower()
+        access_channel = (bot.config.harambe.access_channel or '').strip()
     except Exception:
         return False
 
@@ -290,8 +321,10 @@ def _is_authorized(bot, trigger) -> bool:
         return True
 
     if access_channel:
+        # ibot's Channel.users is a SopelIdentifierMemory — case-insensitive,
+        # IRC case-folding membership test works directly on nicks
         chan_obj = bot.channels.get(access_channel)
-        if chan_obj and nick_lower in [u.lower() for u in chan_obj.users]:
+        if chan_obj and trigger.nick in chan_obj.users:
             return True
 
     return False
@@ -355,7 +388,9 @@ def _start_whois(bot, nick: str):
     """Issue a WHOIS for a nick and start collecting replies."""
     nick_lower = nick.lower()
     with _whois_lock:
-        _whois_pending[nick_lower] = {'nick': nick}
+        # Merge into any in-flight WHOIS for this nick instead of clobbering
+        pending = _whois_pending.setdefault(nick_lower, {})
+        pending['nick'] = nick
     bot.write(['WHOIS', nick, nick])  # double nick = include idle time
 
 
@@ -392,27 +427,136 @@ def _request_version(bot, nick: str):
     bot.write(['PRIVMSG', nick, '\x01VERSION\x01'])
 
 
+# ─────────────────────────── WHO sweep + flood detection ─────────────
+
+def _cfg_int(bot, name: str, default: int) -> int:
+    try:
+        return int(getattr(bot.config.harambe, name))
+    except Exception:
+        return default
+
+
+def _queue_whois(nick: str):
+    """Queue a nick for a rate-limited WHOIS (drained by interval job)."""
+    if not nick:
+        return
+    with _whois_queue_lock:
+        if nick.lower() not in [n.lower() for n in _whois_queue]:
+            _whois_queue.append(nick)
+
+
+def _sweep_channels(bot):
+    """Send WHO for every joined channel (WHOX where supported)."""
+    for chan in list(bot.channels.keys()):
+        chan_l = str(chan).lower()
+        if chan_l in _who_sent:
+            continue
+        _who_sent.add(chan_l)
+        # WHOX: %c=chan %u=ident %h=host %s=server %n=nick %a=account %r=realname
+        bot.write(['WHO', str(chan), '%cuhsnfar,995'])
+        LOG.info('harambe: WHO sweep sent for %s', chan)
+
+
+def _record_join(bot, nick: str, host: str, channel: str):
+    """Track a join for mass-join flood detection; alert on threshold."""
+    if not host:
+        return
+    now = time.time()
+    window    = _cfg_int(bot, 'flood_window', 60)
+    threshold = _cfg_int(bot, 'flood_threshold', 5)
+    cooldown  = _cfg_int(bot, 'flood_cooldown', 300)
+    host_l    = host.lower()
+
+    with _join_events_lock:
+        _join_events.append((now, host_l, nick, channel))
+        # Prune old events
+        cutoff = now - window
+        while _join_events and _join_events[0][0] < cutoff:
+            _join_events.pop(0)
+        recent = [e for e in _join_events if e[1] == host_l]
+
+        if len(recent) < threshold:
+            return
+
+        last_alert = _flood_alert_cooldown.get(host_l, 0)
+        if now - last_alert < cooldown:
+            return
+        _flood_alert_cooldown[host_l] = now
+        nicks = sorted({e[2] for e in recent})
+        chans = sorted({e[3] for e in recent})
+
+    access_channel = (bot.config.harambe.access_channel or '').strip()
+    if not access_channel:
+        return
+    bot.say(
+        f'\x02MASS-JOIN ALERT\x02: {len(recent)} joins from host {host} '
+        f'in {window}s — nicks: {", ".join(nicks)} in {", ".join(chans)}',
+        access_channel,
+    )
+
+
+@plugin.interval(3)
+def drain_whois_queue(bot):
+    """Rate-limit WHOIS requests triggered by plain WHO fallback replies."""
+    if not _is_oper:
+        return
+    with _whois_queue_lock:
+        if not _whois_queue:
+            return
+        nick = _whois_queue.pop(0)
+    _start_whois(bot, nick)
+
+
+@plugin.interval(30)
+def check_floods(bot):
+    """Prune stale join events and cooldown entries periodically."""
+    now = time.time()
+    window = _cfg_int(bot, 'flood_window', 60)
+    with _join_events_lock:
+        cutoff = now - window
+        while _join_events and _join_events[0][0] < cutoff:
+            _join_events.pop(0)
+        for host in list(_flood_alert_cooldown):
+            if now - _flood_alert_cooldown[host] > 3600:
+                del _flood_alert_cooldown[host]
+
+
 # ─────────────────────────── IRC event handlers ───────────────────────
 
-@plugin.rule('.*')
 @plugin.event('JOIN')
 @plugin.priority('low')
 @plugin.thread(True)
 def on_join(bot, trigger):
-    """When a user joins the access channel, queue a WHOIS for them (oper only)."""
-    if not _is_oper:
-        return
+    """Collect data on joins: host snapshot, flood tracking, queue WHOIS."""
     nick = str(trigger.nick)
     if nick.lower() == bot.nick.lower():
         return
-    # Only collect data from the configured access channel
-    access_channel = (bot.config.harambe.access_channel or '').strip().lower()
-    if str(trigger.sender).lower() != access_channel:
+
+    channel = str(trigger.sender)
+    host    = trigger.host or ''
+    ident   = trigger.user or ''
+    account = trigger.account  # from extended-join / account-tag (None or '*')
+
+    # Record whatever we know immediately
+    data = {'nick': nick, 'host': host, 'ident': ident}
+    if account and account != '*':
+        data['account'] = account
+    if host or ident:
+        _upsert_user(data)
+
+    # Mass-join flood detection (all channels)
+    _record_join(bot, nick, host, channel)
+
+    # Deep collection (WHOIS + VERSION) is oper-only
+    if not _is_oper:
+        return
+
+    collect = (bot.config.harambe.collect_channels or 'all').strip().lower()
+    if collect not in ('all', '*') and channel.lower() != collect:
         return
     _start_whois(bot, nick)
 
 
-@plugin.rule('.*')
 @plugin.event('001')  # RPL_WELCOME — we connected
 @plugin.priority('low')
 @plugin.thread(True)
@@ -420,10 +564,11 @@ def on_welcome(bot, trigger):
     """Re-send OPER after connecting (in case the bot restarts mid-session)."""
     global _is_oper
     _is_oper = False  # reset until server confirms with 381
+    _who_sent.clear()
+    _who_fallback.clear()
     _oper_up(bot)
 
 
-@plugin.rule('.*')
 @plugin.event('381')  # RPL_YOUREOPER — server confirmed oper
 @plugin.priority('low')
 @plugin.thread(True)
@@ -432,11 +577,82 @@ def on_youreoper(bot, trigger):
     global _is_oper
     _is_oper = True
     LOG.info('harambe: oper confirmed — CTCP VERSION collection enabled')
+    # Bulk-harvest everyone already in our channels (cold-start gap)
+    _sweep_channels(bot)
+
+
+@plugin.event('354')  # RPL_WHOSPCRPL — WHOX reply
+@plugin.priority('low')
+@plugin.thread(True)
+def whox_reply(bot, trigger):
+    """Parse WHOX 354 replies from our sweep (query token 995).
+    Wire: <me> 995 <chan> <ident> <host> <server> <nick> <account> :<realname>
+    ibot keeps the botnick as args[0], so:
+    args = [me, 995, chan, ident, host, server, nick, account]
+    """
+    args = trigger.args
+    if len(args) < 8 or args[1] != '995':
+        return
+    account = args[7]
+    _upsert_user({
+        'nick':    args[6],
+        'ident':   args[3],
+        'host':    args[4],
+        'server':  args[5],
+        'account': None if account in ('0', '*') else account,
+        'name':    trigger.text or None,
+    })
+
+
+@plugin.event('352')  # RPL_WHOREPLY — plain WHO fallback
+@plugin.priority('low')
+@plugin.thread(True)
+def who_reply(bot, trigger):
+    """Parse plain WHO 352 replies (fallback when WHOX is refused).
+    Wire: <me> <chan> <ident> <host> <server> <nick> <flags> :<hop> <realname>
+    ibot keeps the botnick as args[0], so:
+    args = [me, chan, ident, host, server, nick, flags]
+    Plain WHO gives no IP, so queue a rate-limited WHOIS for oper visibility.
+    """
+    args = trigger.args
+    if len(args) < 7:
+        return
+    chan = args[1]
+    if chan.lower() not in _who_fallback:
+        return  # not from our sweep (some other plugin asked for WHO)
+    nick = args[5]
+    _upsert_user({
+        'nick':  nick,
+        'ident': args[2],
+        'host':  args[3],
+        'server': args[4],
+        'name':  re.sub(r'^\d+\s+', '', trigger.text or ''),
+    })
+    if _is_oper:
+        _queue_whois(nick)
+
+
+@plugin.event('403')  # ERR_NOSUCHCHANNEL — WHOX refused, fall back to plain WHO
+@plugin.priority('low')
+@plugin.thread(True)
+def who_fallback(bot, trigger):
+    # args = [me, channel, :error text]
+    args = trigger.args
+    if len(args) < 2:
+        return
+    chan = args[1]
+    if not chan.startswith(('#', '&')):
+        return
+    chan_l = chan.lower()
+    if chan_l not in _who_sent or chan_l in _who_fallback:
+        return
+    _who_fallback.add(chan_l)
+    LOG.info('harambe: WHOX refused for %s — falling back to plain WHO', chan)
+    bot.write(['WHO', chan])
 
 
 # ── WHOIS reply numerics ──────────────────────────────────────────────
 
-@plugin.rule('.*')
 @plugin.event('311')  # RPL_WHOISUSER  :nick!user@host * :realname
 @plugin.priority('low')
 @plugin.thread(True)
@@ -453,11 +669,10 @@ def whois_user(bot, trigger):
             'nick':  args[1],
             'ident': args[2],
             'host':  args[3],
-            'name':  trigger.group(0) or args[-1] if trigger.group(0) else args[-1],
+            'name':  args[-1],
         })
 
 
-@plugin.rule('.*')
 @plugin.event('312')  # RPL_WHOISSERVER  :nick server :info
 @plugin.priority('low')
 @plugin.thread(True)
@@ -471,7 +686,6 @@ def whois_server(bot, trigger):
             _whois_pending[nick_lower]['server'] = args[2]
 
 
-@plugin.rule('.*')
 @plugin.event('319')  # RPL_WHOISCHANNELS  :nick :channels
 @plugin.priority('low')
 @plugin.thread(True)
@@ -480,13 +694,12 @@ def whois_channels(bot, trigger):
     if len(args) < 2:
         return
     nick_lower = args[1].lower()
-    raw_chans  = (trigger.group(0) or args[-1]).strip()
+    raw_chans  = (trigger.text or args[-1]).strip()
     with _whois_lock:
         if nick_lower in _whois_pending:
             _whois_pending[nick_lower]['channels'] = raw_chans
 
 
-@plugin.rule('.*')
 @plugin.event('330')  # RPL_WHOISACCOUNT  :nick account :is logged in as
 @plugin.priority('low')
 @plugin.thread(True)
@@ -500,34 +713,67 @@ def whois_account(bot, trigger):
             _whois_pending[nick_lower]['account'] = args[2]
 
 
-@plugin.rule('.*')
 @plugin.event('338')  # RPL_WHOISACTUALLY  :nick real@host :actual IP  (oper-visible)
 @plugin.priority('low')
 @plugin.thread(True)
 def whois_actually(bot, trigger):
-    """338 gives us the real IP when the bot has oper."""
+    """338 gives us the real host and IP when the bot has oper.
+    Format: <me> <nick> <user@realhost> <ip> :... (ip optional on some ircds)
+    """
     args = trigger.args
     if len(args) < 3:
         return
     nick_lower = args[1].lower()
-    # args[2] may be ip or user@host; args[3] if present is the IP
-    real_ip = args[3] if len(args) > 3 else args[2]
-    # Strip any user@ prefix
-    if '@' in real_ip:
-        real_ip = real_ip.split('@', 1)[1]
+    real_host = None
+    real_ip = None
+
+    uh = args[2]
+    if '@' in uh:
+        real_host = uh.split('@', 1)[1]
+    if len(args) > 3:
+        candidate = args[3]
+        if '@' in candidate:
+            real_host = candidate.split('@', 1)[1]
+        elif re.match(r'^[\d.]+$|^[0-9a-fA-F:]+$', candidate):
+            real_ip = candidate
+
     with _whois_lock:
-        if nick_lower in _whois_pending:
+        if nick_lower not in _whois_pending:
+            return
+        if real_ip:
             _whois_pending[nick_lower]['ip'] = real_ip
+        if real_host:
+            _whois_pending[nick_lower]['host'] = real_host
 
 
-@plugin.rule('.*')
+@plugin.event('378')  # RPL_WHOISHOST — "is connecting from user@realhost ip" (oper)
+@plugin.priority('low')
+@plugin.thread(True)
+def whois_host(bot, trigger):
+    """378 exposes the real host/IP behind a vhost on UnrealIRCd-family nets."""
+    args = trigger.args
+    if len(args) < 2:
+        return
+    nick_lower = args[1].lower()
+    text = (trigger.text or '').strip()
+    # "is connecting from user@realhost 1.2.3.4"
+    m = re.search(r'(\S+)@(\S+)\s+([\d.]+|[0-9a-fA-F:]+)\s*$', text)
+    if not m:
+        return
+    with _whois_lock:
+        if nick_lower not in _whois_pending:
+            return
+        _whois_pending[nick_lower]['ident'] = m.group(1)
+        _whois_pending[nick_lower]['host']  = m.group(2)
+        _whois_pending[nick_lower]['ip']    = m.group(3)
+
+
 @plugin.event('671')  # RPL_WHOISSECURE  :nick :is using a secure connection
 @plugin.priority('low')
 def whois_secure(bot, trigger):
     pass  # We don't need to track this but don't let it be ignored noisily
 
 
-@plugin.rule('.*')
 @plugin.event('318')  # RPL_ENDOFWHOIS
 @plugin.priority('low')
 @plugin.thread(True)
@@ -539,7 +785,6 @@ def whois_end(bot, trigger):
     _finalize_whois(bot, nick_lower)
 
 
-@plugin.rule('.*')
 @plugin.event('320')  # RPL_WHOISSPECIAL (email on some networks like Rizon)
 @plugin.priority('low')
 @plugin.thread(True)
@@ -549,7 +794,7 @@ def whois_special(bot, trigger):
     if len(args) < 2:
         return
     nick_lower = args[1].lower()
-    text = (trigger.group(0) or '').strip()
+    text = (trigger.text or '').strip()
     # Try to extract an email address from the text
     m = re.search(r'[\w.+-]+@[\w.-]+\.[a-zA-Z]{2,}', text)
     if m:
@@ -560,43 +805,53 @@ def whois_special(bot, trigger):
 
 # ── CTCP VERSION reply ────────────────────────────────────────────────
 
-@plugin.rule('\x01VERSION (.*)\x01')
+@plugin.event('NOTICE')
 @plugin.priority('low')
 @plugin.thread(True)
 def ctcp_version_reply(bot, trigger):
-    """Catch incoming CTCP VERSION replies."""
-    nick_lower = str(trigger.nick).lower()
+    """Catch incoming CTCP VERSION replies.
 
+    Replies arrive as NOTICE with ctcp type VERSION. ibot's @plugin.ctcp
+    dispatch only covers PRIVMSG, so we hook NOTICE directly.
+    (Note: on_nickserv_notice also hooks NOTICE but returns early for
+    non-NickServ senders, so both coexist safely.)
+    """
+    if trigger.ctcp != 'VERSION':
+        return
+    # trigger.text keeps the CTCP wrapper: '\x01VERSION <string>\x01'
+    version = (trigger.text or '').strip().strip('\x01')
+    if version.upper().startswith('VERSION'):
+        version = version[7:].strip()
+    if not version:
+        return
+
+    nick_lower = str(trigger.nick).lower()
     with _ctcp_lock:
         timer = _ctcp_pending.pop(nick_lower, None)
     if timer:
         timer.cancel()
 
-    version = trigger.group(1) or ''
-    _upsert_user({'nick': str(trigger.nick), 'version': version.strip()})
+    _upsert_user({'nick': str(trigger.nick), 'version': version})
     LOG.debug('harambe: VERSION from %s: %s', trigger.nick, version)
 
 
 # ── Track vhost changes (396) ─────────────────────────────────────────
 
-@plugin.rule('.*')
 @plugin.event('396')  # RPL_YOURHOSTIS / vhost applied
 @plugin.priority('low')
 @plugin.thread(True)
 def on_vhost_set(bot, trigger):
-    """396 is sent to a user when their vhost is applied. Also seen in WHOIS."""
+    """396 is only ever sent about the bot's OWN vhost — skip self-records."""
     args = trigger.args
     if len(args) < 2:
         return
-    # 396 target vhost :is now your displayed host
-    nick_lower = args[0].lower()  # usually the target (or botnick for self)
-    vhost = args[1]
-    _upsert_user({'nick': args[0], 'vhost': vhost})
+    # args[0] is the target (us); don't pollute the users table with ourself
+    if args[0].lower() == bot.nick.lower():
+        return
 
 
 # ── NICK changes — update DB ──────────────────────────────────────────
 
-@plugin.rule('.*')
 @plugin.event('NICK')
 @plugin.priority('low')
 @plugin.thread(True)
@@ -624,7 +879,6 @@ def on_nick_change(bot, trigger):
 
 # ── NickServ notice parser ────────────────────────────────────────────
 
-@plugin.rule('.*')
 @plugin.event('NOTICE')
 @plugin.priority('low')
 @plugin.thread(True)
@@ -634,7 +888,7 @@ def on_nickserv_notice(bot, trigger):
     if str(trigger.nick).lower() != 'nickserv':
         return
 
-    text = (trigger.group(0) or '').strip()
+    text = str(trigger).strip()
     if not text:
         return
 
@@ -718,30 +972,30 @@ def _reply(bot, dest: str, text: str):
 # ! as the prefix without changing the bot's global prefix.
 
 _CMD_RE = re.compile(
-    r'^!(?P<cmd>help|commands|ping|p|search|s|csearch|cs|ip|clones|info|last|count|ccount|stats)\s*(?P<rest>.*)$',
+    r'^!(?P<cmd>help|commands|ping|p|search|s|csearch|cs|ip|clones|info|last|count|ccount|stats)(?:\s+(?P<rest>.*))?$',
     re.IGNORECASE
 )
 
 
-@plugin.rule(r'^!(?:help|commands|ping|p|search|s|csearch|cs|ip|clones|info|last|count|ccount|stats).*')
+@plugin.rule(r'^!(?:help|commands|ping|p|search|s|csearch|cs|ip|clones|info|last|count|ccount|stats)(?:\s|$)')
 @plugin.priority('low')
 @plugin.thread(True)
 def harambe_dispatch(bot, trigger):
     """Dispatch all Harambe ! commands."""
-    raw = (trigger.group(0) or '').strip()
+    raw = str(trigger).strip()
     m = _CMD_RE.match(raw)
     if not m:
         return
 
     # Only respond in the configured access_channel — ignore everything else
-    access_channel = (bot.config.harambe.access_channel or '').strip().lower()
-    if str(trigger.sender).lower() != access_channel:
+    access_channel = (bot.config.harambe.access_channel or '').strip()
+    if str(trigger.sender).lower() != access_channel.lower():
         return
 
     nick    = str(trigger.nick)
     dest    = str(trigger.sender)  # channel name
     cmd     = m.group('cmd').lower()
-    rest    = m.group('rest').strip()
+    rest    = (m.group('rest') or '').strip()
 
     if cmd in ('help', 'commands'):
         _cmd_help(bot, nick)  # send help via PM to the requester
@@ -886,7 +1140,8 @@ def _cmd_ip(bot, dest: str, rest: str):
         _reply(bot, dest, f'Lookup failed: {data["error"].get("message", "unknown error")}')
         return
 
-    # Output each field on its own line, matching original Harambe format
+    # Output as a single line, e.g.:
+    # ip: 1.2.3.4 | city: Albany | region: New York | country: US | ...
     fields = [
         ('ip',       data.get('ip', ip_target)),
         ('city',     data.get('city')),
@@ -897,9 +1152,8 @@ def _cmd_ip(bot, dest: str, rest: str):
         ('postal',   data.get('postal')),
         ('timezone', data.get('timezone')),
     ]
-    for name, val in fields:
-        if val:
-            _reply(bot, dest, f'{name}: {val}')
+    parts = [f'{name}: {val}' for name, val in fields if val]
+    _reply(bot, dest, ' | '.join(parts))
 
 
 def _cmd_clones(bot, dest: str, rest: str):
