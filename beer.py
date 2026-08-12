@@ -188,6 +188,7 @@ PRICES = {
     'magners': 6,
     'mocktail': 4,
     'coffee': 3,
+    'decaf': 3,
     'tea': 3,
     'water': 0,  # Water is free!
     'pizza': 15,
@@ -818,14 +819,30 @@ COFFEES = [
     "a Galaxy Latte ☕🌌",
     "a Cloud Macchiato ☕☁️",
     "a Cascara Latte ☕🍒",
-    
-    # Decaf & Alternative Options
+]
+
+# List of decaf & alternative coffees to give out
+DECAFS = [
     "a Decaf Latte ☕😴",
     "a Decaf Americano ☕💤",
+    "a Decaf Cappuccino ☕😴🥛",
+    "a Decaf Mocha ☕💤🍫",
+    "a Decaf Espresso ☕😴",
+    "a Decaf Cold Brew ☕🧊💤",
+    "a Decaf Iced Latte ☕🧊😴",
     "a Half-Caf Coffee ☕½",
+    "a Half-Caf Latte ☕½🥛",
     "a Chicory Coffee ☕🌿",
     "a Barley Coffee ☕🌾",
     "a Dandelion Coffee ☕🌼",
+    "a Carob Latte ☕🍫😴",
+    "a Roasted Fig Latte ☕😴",
+    "a Mushroom Decaf ☕🍄💤",
+    "a Golden Milk Decaf Latte ☕💛😴",
+    "a Decaf Flat White ☕😴🇦🇺",
+    "a Swiss Water Decaf ☕🇨🇭💧",
+    "a Decaf Pumpkin Spice Latte 🎃☕😴",
+    "an Herbal Rooibos 'Coffee' ☕🌿😴",
 ]
 
 # List of teas to give out
@@ -1347,6 +1364,14 @@ def coffee(bot, trigger):
     _serve_item(bot, trigger, 'coffee', COFFEES, COFFEE_MESSAGES)
 
 
+@module.commands('decaf', 'decaffeinated')
+@module.example('$decaf', 'Give yourself a random decaf coffee')
+@module.example('$decaf username', 'Give a user a random decaf coffee')
+def decaf(bot, trigger):
+    """Give someone a decaf coffee - all the flavor, none of the jitters! ☕😴"""
+    _serve_item(bot, trigger, 'decaf', DECAFS, COFFEE_MESSAGES)
+
+
 @module.commands('tea', 'cuppa')
 @module.example('$tea', 'Give yourself a random tea')
 @module.example('$tea username', 'Give a user a random tea')
@@ -1384,7 +1409,7 @@ def surprise(bot, trigger):
         target_user = trigger.group(2).strip()
     
     # Combine all drink lists
-    all_drinks = BEERS + SHOTS + MAGNERS + WHISKEYS + VODKAS + RUMS + TEQUILAS + GINS + BRANDIES + MARGARITAS + SAKES + LIQUEURS + MEADS + MIXED_DRINKS + WINES + MOCKTAILS + COFFEES + TEAS + WATERS
+    all_drinks = BEERS + SHOTS + MAGNERS + WHISKEYS + VODKAS + RUMS + TEQUILAS + GINS + BRANDIES + MARGARITAS + SAKES + LIQUEURS + MEADS + MIXED_DRINKS + WINES + MOCKTAILS + COFFEES + DECAFS + TEAS + WATERS
     all_foods = PIZZAS + APPETIZERS
     
     # Randomly decide if it's a drink or food
@@ -1484,6 +1509,7 @@ def barhelp(bot, trigger):
         "NON-ALCOHOLIC:",
         "  $mocktail [user] ........ 4 coins",
         "  $coffee [user] .......... 3 coins",
+        "  $decaf [user] ........... 3 coins",
         "  $tea [user] ............. 3 coins",
         "  $water [user] ........... FREE",
         "",

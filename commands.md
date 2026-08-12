@@ -8,7 +8,7 @@ The bot command prefix is **`$`** unless noted otherwise.
 
 | Script | Description |
 |--------|-------------|
-| [🧠 AI Chatbot](docs/ai-grok.md) | Talk to the bot via xAI Grok with web search |
+| [🧠 AI Chatbot](docs/ai-multi.md) | Talk to the bot via Grok, Ollama, or an OpenAI-compatible API |
 | [🍺 Bartender](docs/beer.md) | Virtual bar with drinks, tips, and a unified coin economy |
 | [🌿 Weed & Trippy](docs/weed.md) | Themed smoke/trip messages with countdown animations |
 | [💰 Coins & Mugging](docs/mug.md) | IRC economy — coins, mugging, bounties, shop, gambling |

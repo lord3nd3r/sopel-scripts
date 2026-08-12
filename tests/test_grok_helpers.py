@@ -11,6 +11,7 @@ plugin.event = lambda *a, **k: (lambda f: f)
 plugin.rule = lambda *a, **k: (lambda f: f)
 plugin.priority = lambda *a, **k: (lambda f: f)
 plugin.command = lambda *a, **k: (lambda f: f)
+plugin.intent = lambda *a, **k: (lambda f: f)
 
 sopel_stub.plugin = plugin
 
@@ -47,12 +48,12 @@ sys.modules['sopel'] = sopel_stub
 sys.modules['sopel.config'] = config_mod
 sys.modules['sopel.config.types'] = types_mod
 
-# Load ai-grok.py by path
+# Load ai-multi.py by path
 TEST_DIR = os.path.dirname(__file__)
-FILE_PATH = os.path.abspath(os.path.join(TEST_DIR, '..', 'ai-grok.py'))
-spec = importlib.util.spec_from_file_location('ai_grok', FILE_PATH)
-ai_grok = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(ai_grok)
+FILE_PATH = os.path.abspath(os.path.join(TEST_DIR, '..', 'ai-multi.py'))
+spec = importlib.util.spec_from_file_location('ai_multi', FILE_PATH)
+ai_multi = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(ai_multi)
 
 
 def test_heuristic_positive():
@@ -60,7 +61,7 @@ def test_heuristic_positive():
     t = T()
     t.nick = 'm0n'
     line = 'glitchy: do this please'
-    assert ai_grok._heuristic_intent_check(None, t, line, 'glitchy') is True
+    assert ai_multi._heuristic_intent_check(None, t, line, 'glitchy') is True
 
 
 def test_heuristic_negative():
@@ -68,7 +69,7 @@ def test_heuristic_negative():
     t = T()
     t.nick = 'm0n'
     line = "my code is glitchy and slow"
-    assert ai_grok._heuristic_intent_check(None, t, line, 'glitchy') is False
+    assert ai_multi._heuristic_intent_check(None, t, line, 'glitchy') is False
 
 
 def test_sanitize_reply():
@@ -82,7 +83,7 @@ def test_sanitize_reply():
     bot = Bot()
     trig = Trigger()
     reply = "Here's code:\n```print('hi')``` and ping @everyone and art:\n╔═╗\n║ ║\n╚═╝\n" + "x"*1500
-    out = ai_grok.sanitize_reply(bot, trig, reply)
+    out = ai_multi.sanitize_reply(bot, trig, reply)
     assert 'code removed' in out or 'I was gonna draw' in out or '@everyone' not in out
     assert len(out) <= 1405
 

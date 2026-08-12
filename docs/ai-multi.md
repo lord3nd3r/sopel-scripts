@@ -1,6 +1,6 @@
-# 🧠 AI Chatbot (ai-grok)
+# 🧠 AI Chatbot (ai-multi)
 
-Talks to you when mentioned by name. Uses xAI Grok with web search. **v6.0** — memory-safe, proper lifecycle, thread-safe caches.
+Talks to you when mentioned by name. Supports xAI Grok, local Ollama, and OpenAI-compatible APIs, with optional Grok web search. **v6.0** — memory-safe, proper lifecycle, thread-safe caches.
 
 ---
 
@@ -13,12 +13,27 @@ pip install requests
 
 **2. Add to your ibot `.cfg` file (e.g. `~/ibot/glitchy.cfg`):**
 ```ini
-[grok]
-# Required — your xAI API key (get one from https://console.x.ai)
+[ai_multi]
+# Required when using Grok chat or search (get one from https://console.x.ai)
 api_key = xai-XXXXXXXXXXXXXXXXXXXXXXXX
 
-# Optional — model to use (default: grok-4.3)
+# Chat backend: grok (default), ollama, or openai
+chat_backend = grok
+
+# Search backend: grok (default) or none
+search_backend = grok
+
+# Grok model (default: grok-4.3)
 model = grok-4.3
+
+# Ollama settings (when chat_backend = ollama)
+ollama_url = http://localhost:11434
+ollama_model = llama3.2
+
+# OpenAI-compatible settings (when chat_backend = openai)
+openai_api_key =
+openai_base_url = https://api.openai.com/v1
+openai_model = gpt-4o
 
 # Optional — custom system prompt (the bot's personality)
 system_prompt = You are Glitchy, a regular in this IRC channel. You're sharp, geeky, and a little sarcastic.
@@ -50,10 +65,10 @@ Channel-wide (`in this channel` / `for everyone`) requires **op or bot admin**.
 
 **3. Place the script in your ibot plugin extra directory:**
 ```
-~/.sopel/scripts/ai-grok.py
+~/.sopel/scripts/ai-multi.py
 ```
 
-> **Note:** The bot runs on [ibot](https://github.com/lord3nd3r/ibot), a custom asyncio IRC framework with a Sopel-compatible shim. Per-channel system prompts can be set via `grok_channel_prompts.json` in the scripts directory.
+> **Note:** The bot runs on [ibot](https://github.com/lord3nd3r/ibot), a custom asyncio IRC framework with a Sopel-compatible shim. Per-channel system prompts can be set via `grok_channel_prompts.json` in the scripts directory. Set `search_backend = none` when using a local backend without Grok search.
 
 ---
 
@@ -422,8 +437,15 @@ Long-lived structures like `grok_history`, `grok_locks`, and `grok_channel_log` 
 
 | Setting | Type | Default | Description |
 |---------|------|---------|-------------|
-| `api_key` | string | — | xAI API key (**required**) |
-| `model` | choice | `grok-4.3` | AI model (see table below) |
+| `api_key` | string | — | xAI API key when Grok chat or search is enabled |
+| `chat_backend` | choice | `grok` | Normal chat backend: `grok`, `ollama`, or `openai` |
+| `search_backend` | choice | `grok` | Web-search backend: `grok` or `none` |
+| `model` | string | `grok-4.3` | Grok model |
+| `ollama_url` | string | `http://localhost:11434` | Ollama server URL |
+| `ollama_model` | string | `llama3.2` | Ollama model |
+| `openai_api_key` | string | — | Key for OpenAI-compatible chat APIs |
+| `openai_base_url` | string | `https://api.openai.com/v1` | OpenAI-compatible API base URL |
+| `openai_model` | string | `gpt-4o` | OpenAI-compatible model |
 | `system_prompt` | string | (see code) | Bot personality |
 | `blocked_channels` | list | — | Channels where AI won't respond |
 | `banned_nicks` | list | — | Nicks completely blocked |

@@ -8,7 +8,7 @@ A collection of custom [Sopel](https://sopel.chat/) IRC bot plugins for fun, uti
 
 ## 📋 Table of Contents
 
-- [AI & Chat](docs/ai-grok.md)
+- [AI & Chat](docs/ai-multi.md)
 - [Bartender](docs/beer.md)
 - [Weed & Trippy Commands](docs/weed.md)
 - [Mug Game](docs/mug.md)
@@ -45,16 +45,17 @@ A collection of custom [Sopel](https://sopel.chat/) IRC bot plugins for fun, uti
 
 ---
 
-## 🧠 ai-grok — AI Chatbot (v6.0)
+## 🧠 ai-multi — Multi-backend AI Chatbot (v6.0)
 
-An AI chatbot powered by the **xAI Grok API**. The bot responds when mentioned by name, handles emotes/actions, supports web search for current events, and maintains per-user conversation history.
+An AI chatbot supporting **xAI Grok**, local **Ollama**, and OpenAI-compatible APIs. The bot responds when mentioned by name, handles emotes/actions, supports optional web search, and maintains per-user conversation history.
 
 ### Features
 - Responds conversationally when addressed by nick
 - Reacts to `/me` actions (pets, hugs, pokes, etc.) with fun emote replies
 - **Full channel awareness** — sees ALL channel activity including `$` commands (`$bet`, `$mug`, `$coins`, `$top5`, etc.) and the bot's own plugin outputs (game results, payouts, mug outcomes)
 - **Cross-plugin context** — the AI knows it runs other scripts and treats its own output as things it said/did, referencing game events naturally in conversation
-- **Automatic web search** for news, scores, current events, and time-sensitive queries
+- **Automatic web search** for news, scores, current events, and time-sensitive queries when `search_backend = grok`
+- **Configurable chat backends**: Grok, Ollama, or any OpenAI-compatible API
 - Per-user conversation history stored in SQLite
 - **Persistent memory** — users can tell the bot to "remember" facts permanently in SQLite; facts survive restarts and are always included in AI context
 - **Auto-learning** — periodically extracts facts about active users from conversation (semaphore-gated, max 2 concurrent background tasks)
@@ -286,9 +287,11 @@ The bot reacts to `/me` actions and emote-style messages directed at it. Respons
 
 ### Configuration (`default.cfg`)
 ```ini
-[grok]
+[ai_multi]
 api_key = your-xai-api-key
-model = grok-4-1-fast-reasoning
+chat_backend = grok
+search_backend = grok
+model = grok-4.3
 system_prompt = You are a friendly IRC bot.
 blocked_channels = #somechannel
 banned_nicks = baduser1,baduser2
@@ -327,6 +330,7 @@ A virtual bartender with a tipping economy integrated with the **mug** game's co
 | `$drink [nick]` | Serve a mixed drink (10 🪙) | `$drink` |
 | `$mocktail [nick]` / `$virgin` | Serve a mocktail (4 🪙) | `$mocktail` |
 | `$coffee [nick]` / `$caffeine` | Serve coffee (3 🪙) | `$coffee` |
+| `$decaf [nick]` / `$decaffeinated` | Serve decaf coffee (3 🪙) | `$decaf` |
 | `$tea [nick]` / `$cuppa` | Serve tea (3 🪙) | `$tea` |
 | `$water [nick]` / `$hydrate` | Serve water (free!) | `$water` |
 | `$pizza [nick]` | Serve a pizza (15 🪙) | `$pizza` |
@@ -1212,7 +1216,7 @@ Most scripts work out of the box. Scripts with required configuration:
 
 | Script | Config Section | Required Settings |
 |--------|---------------|-------------------|
-| `ai-grok.py` | `[grok]` | `api_key` (xAI API key) |
+| `ai-multi.py` | `[ai_multi]` | `api_key` for Grok, or configure Ollama/OpenAI-compatible backend |
 | `weather.py` | — | API key is hardcoded (PirateWeather) |
 | `opme.py` | `[promoteme]` | Various options (see script section) |
 | `mug.py` | `[mug_game]` | `enabled = true` |

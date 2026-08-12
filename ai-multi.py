@@ -1,4 +1,7 @@
-# grok.py — v6.0: memory-safe refactor, proper shutdown, thread-safe caches
+# ai-multi.py — multi-backend fork of ai-grok.py
+# Supports xAI Grok (Responses API), Ollama (local), and any OpenAI-compatible API.
+# Chat backend is configurable; Grok Responses API is used for web search when available.
+# Original: ai-grok.py v6.0 — memory-safe refactor, proper shutdown, thread-safe caches
 from sopel import plugin
 from sopel.config import types
 from collections import deque
@@ -288,26 +291,51 @@ def _api_worker_loop():
 
 # Worker threads will be started after helper functions are defined (see bottom of file)
 
-class GrokSection(types.StaticSection):
-    api_key = types.ValidatedAttribute('api_key')
-    model = types.ChoiceAttribute(
+class AiMultiSection(types.StaticSection):
+    # ── xAI / Grok settings (used for search and as optional chat backend) ────
+    api_key = types.ValidatedAttribute('api_key', default='')
+    model = types.ValidatedAttribute(
         'model',
-        choices=[
-            'grok-4.5',               # newest flagship (500K ctx, high reasoning)
-            'grok-4.3',               # value flagship (1M ctx, configurable reasoning)
-            'grok-4.20',              # prior flagship with 2M ctx window
-            'grok-4.20-non-reasoning',# non-thinking variant of grok-4.20
-            'grok-4.20-multi-agent',  # multi-agent optimised variant
-            'grok-build-0.1',         # code/scaffolding focused model
-        ],
         default='grok-4.3',
     )
+
+    # ── Backend selection ─────────────────────────────────────────────────────
+    # chat_backend controls which API answers normal (non-search) messages.
+    #   grok   — xAI Responses API (default, same as ai-grok.py)
+    #   ollama — local Ollama instance via OpenAI-compatible chat completions
+    #   openai — OpenAI or any OpenAI-compatible API (set openai_base_url)
+    chat_backend = types.ChoiceAttribute(
+        'chat_backend',
+        choices=['grok', 'ollama', 'openai'],
+        default='grok',
+    )
+    # search_backend controls which API handles web-search queries.
+    #   grok — xAI Responses API with built-in web_search tool (requires api_key)
+    #   none — disable search; fall through to chat_backend for all queries
+    search_backend = types.ChoiceAttribute(
+        'search_backend',
+        choices=['grok', 'none'],
+        default='grok',
+    )
+
+    # ── Ollama settings ───────────────────────────────────────────────────────
+    ollama_url   = types.ValidatedAttribute('ollama_url',   default='http://localhost:11434')
+    ollama_model = types.ValidatedAttribute('ollama_model', default='llama3.2')
+
+    # ── OpenAI / generic OpenAI-compatible API settings ───────────────────────
+    # Set openai_base_url to point at any OpenAI-compatible endpoint
+    # (e.g. https://api.openai.com/v1, http://my-lm-studio:1234/v1, etc.)
+    openai_api_key  = types.ValidatedAttribute('openai_api_key',  default='')
+    openai_base_url = types.ValidatedAttribute('openai_base_url', default='https://api.openai.com/v1')
+    openai_model    = types.ValidatedAttribute('openai_model',    default='gpt-4o')
+
+    # ── Shared / personality settings ────────────────────────────────────────
     system_prompt = types.ValidatedAttribute(
         'system_prompt',
         default=(
-            "You are Grok, a regular in this IRC channel. You're sharp, geeky, and a little "
+            "You are an IRC bot. You're sharp, geeky, and a little "
             "sarcastic — but you genuinely like the people here. Talk like an IRC veteran: "
-            "use lowercase when it feels natural, drop in casual filler like 'lol', 'ngl', "
+            "use lowercase when it feels natural, drop in casual filler like 'ngl', "
             "'tbh', 'lmao', 'fr' occasionally, use sentence fragments, and don't always give "
             "complete polished answers — sometimes just react. You can be blunt, funny, or "
             "deadpan depending on the vibe. Don't start messages with your name. Don't lecture "
@@ -323,15 +351,15 @@ class GrokSection(types.StaticSection):
         ),
     )
     blocked_channels = types.ListAttribute('blocked_channels', default=[])
-    # model is accepted for config compatibility but falls back to heuristic
-    # (not implemented as a separate model-based classifier).
+    # intent_check: 'heuristic' uses regex patterns, 'off' disables intent detection,
+    # 'model' is accepted for config compatibility but falls back to heuristic.
     intent_check = types.ChoiceAttribute(
         'intent_check',
         choices=['heuristic', 'off', 'model'],
         default='heuristic',
     )
-    banned_nicks = types.ListAttribute('banned_nicks', default=[])
-    ignored_nicks = types.ListAttribute('ignored_nicks', default=[])
+    banned_nicks   = types.ListAttribute('banned_nicks',   default=[])
+    ignored_nicks  = types.ListAttribute('ignored_nicks',  default=[])
 
 # Path to the per-channel system prompts file (lives next to this script).
 _CHANNEL_PROMPTS_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'grok_channel_prompts.json')
@@ -509,31 +537,41 @@ def _remove_channel_log_hooks(bot):
 
 
 def setup(bot):
-    bot.config.define_section('grok', GrokSection)
-    # Read API key directly from the underlying configparser - the ibot shim
-    # wraps returned values in objects whose __str__ returns '***' for security.
+    bot.config.define_section('ai_multi', AiMultiSection)
+    # Read the xAI API key (needed for Grok chat backend and/or Grok search backend).
+    # The ibot shim wraps returned values whose __str__ returns '***' for security,
+    # so we read directly from the underlying configparser where possible.
     _raw_key = None
     for _getter in (
-        lambda: bot.config.parser.get('grok', 'api_key'),
-        lambda: bot.config.grok._parser.get('grok', 'api_key'),
-        lambda: str(bot.config.grok.api_key),
+        lambda: bot.config.parser.get('ai_multi', 'api_key'),
+        lambda: bot.config.ai_multi._parser.get('ai_multi', 'api_key'),
+        lambda: str(bot.config.ai_multi.api_key),
     ):
         try:
             v = _getter()
-            if v and v not in ('***', 'None', 'none'):
+            if v and v not in ('***', 'None', 'none', ''):
                 _raw_key = v
                 break
         except Exception:
             pass
-    _log(bot).info('setup: api_key_present=%s key_len=%d', bool(_raw_key), len(_raw_key) if _raw_key else 0)
 
-    # Close any previous session (handles plugin reload gracefully)
-    old_session = bot.memory.get('grok_session')
-    if old_session:
-        try:
-            old_session.close()
-        except Exception:
-            pass
+    _chat_backend  = str(getattr(bot.config.ai_multi, 'chat_backend',  'grok'))
+    _search_backend = str(getattr(bot.config.ai_multi, 'search_backend', 'grok'))
+    _needs_grok_key = (_chat_backend == 'grok') or (_search_backend == 'grok')
+
+    _log(bot).info(
+        'setup: chat_backend=%s search_backend=%s api_key_present=%s',
+        _chat_backend, _search_backend, bool(_raw_key),
+    )
+
+    # Close any previous sessions (handles plugin reload gracefully)
+    for _sess_key in ('grok_session', 'grok_chat_session'):
+        old_session = bot.memory.get(_sess_key)
+        if old_session:
+            try:
+                old_session.close()
+            except Exception:
+                pass
 
     # Shared state always initialised so handlers can no-op cleanly.
     bot.memory['grok_history'] = {}
@@ -551,14 +589,15 @@ def setup(bot):
     bot.memory['grok_learn_counters'] = {}
     bot.memory['grok_intent_model_warned'] = False
 
-    if not _raw_key:
+    # ── Grok / xAI session (used for Responses API: chat and/or search) ───────
+    if _needs_grok_key and not _raw_key:
         bot.memory['grok_session'] = None
         bot.memory['grok_api_disabled'] = True
         _log(bot).error(
-            'Grok api_key missing or unreadable — AI replies disabled. '
-            'Set [grok] api_key in the config. Local remember/forget still work.'
+            'ai_multi: api_key missing but chat_backend or search_backend requires Grok. '
+            'Set [ai_multi] api_key, or set chat_backend=ollama/openai and search_backend=none.'
         )
-    else:
+    elif _raw_key:
         bot.memory['grok_api_disabled'] = False
         session = requests.Session()
         adapter = requests.adapters.HTTPAdapter(
@@ -572,6 +611,27 @@ def setup(bot):
             "Content-Type": "application/json",
         })
         bot.memory['grok_session'] = session
+    else:
+        # No Grok key and none needed — that's fine.
+        bot.memory['grok_session'] = None
+        bot.memory['grok_api_disabled'] = False
+
+    # ── Chat session for Ollama / OpenAI backends ─────────────────────────────
+    # A plain session with no auth (auth added per-request for openai).
+    # Ollama typically runs on HTTP so we mount on both schemes.
+    if _chat_backend in ('ollama', 'openai'):
+        chat_session = requests.Session()
+        chat_adapter = requests.adapters.HTTPAdapter(
+            pool_connections=5,
+            pool_maxsize=10,
+            max_retries=2
+        )
+        chat_session.mount('http://',  chat_adapter)
+        chat_session.mount('https://', chat_adapter)
+        chat_session.headers['Content-Type'] = 'application/json'
+        bot.memory['grok_chat_session'] = chat_session
+    else:
+        bot.memory['grok_chat_session'] = None
 
     # Capture bot + other-plugin channel output for AI context (ibot-safe).
     _install_channel_log_hooks(bot)
@@ -591,7 +651,12 @@ def setup(bot):
     global API_WORKER_SHUTDOWN
     API_WORKER_SHUTDOWN = False
     worker_threads = []
-    if not bot.memory.get('grok_api_disabled'):
+    # Start workers as long as at least one backend is usable.
+    _any_backend_ready = (
+        not bot.memory.get('grok_api_disabled')
+        or _chat_backend in ('ollama', 'openai')
+    )
+    if _any_backend_ready:
         for _ in range(API_WORKER_COUNT):
             t = threading.Thread(target=_api_worker_loop, daemon=True)
             t.start()
@@ -637,6 +702,13 @@ def shutdown(bot):
 def send(bot, channel, text):
     max_len = MAX_SEND_LEN
     delay = SEND_DELAY
+
+    # If the AI prefixed its reply with "ACTION " treat it as a /me emote.
+    is_action = text.lstrip().startswith('ACTION ')
+    if is_action:
+        # Strip the leading "ACTION " token (case-sensitive, as Grok emits it)
+        text = text.lstrip()[len('ACTION '):]
+
     words = []
     for w in text.split():
         # Hard-split anything longer than one IRC line (e.g. a huge URL) so it
@@ -658,7 +730,10 @@ def send(bot, channel, text):
     parts.append(part)
     for i, p in enumerate(parts):
         try:
-            bot.say(p, channel)
+            if is_action:
+                bot.action(p, channel)
+            else:
+                bot.say(p, channel)
         except Exception:
             _log(bot).exception('Failed sending part to %s', channel)
         if i != len(parts) - 1:
@@ -1055,6 +1130,49 @@ def sanitize_reply(bot, trigger, reply):
     return reply
 
 
+def _call_chat_completions_api(bot, messages, model, temp, max_toks, base_url, api_key=None):
+    """Call any OpenAI-compatible /v1/chat/completions endpoint.
+
+    Works with Ollama (http://localhost:11434), OpenAI (https://api.openai.com/v1),
+    LM Studio, llama.cpp server, vLLM, etc.  No citations are returned since
+    these models have no built-in web-search tool.
+    """
+    if not messages or not isinstance(messages, list):
+        raise ValueError('messages must be a non-empty list')
+    if not isinstance(model, str) or not model.strip():
+        raise ValueError('model must be a non-empty string')
+
+    session = bot.memory.get('grok_chat_session') or requests.Session()
+    headers = {}
+    if api_key:
+        headers['Authorization'] = f'Bearer {api_key}'
+
+    payload = {
+        'model':       model,
+        'messages':    messages,
+        'temperature': temp,
+        'max_tokens':  max_toks,
+    }
+
+    url = base_url.rstrip('/') + '/chat/completions'
+    r = session.post(url, headers=headers, json=payload, timeout=(10, 120))
+    r.raise_for_status()
+    data = r.json()
+
+    if not isinstance(data, dict):
+        raise ValueError('chat completions response is not a dict')
+
+    choices = data.get('choices')
+    if not choices or not isinstance(choices, list):
+        raise ValueError('chat completions response has no choices')
+
+    reply = ''
+    msg = choices[0].get('message', {})
+    reply = msg.get('content') or ''
+
+    return reply.strip(), []   # no citations from local/openai models
+
+
 def _call_responses_api(bot, messages, model, temp, max_toks, search_mode=False, conv_id=None):
     """Call Responses API with request validation and response schema validation."""
     if not messages or not isinstance(messages, list):
@@ -1233,7 +1351,25 @@ def _api_worker(*, bot, trigger, messages, review_mode, is_pm, bot_nick, chan_lo
         citations = None
         temp = 0.95 if not review_mode else 0.90
         max_toks = 900 if not review_mode else 800
-        model = bot.config.grok.model
+
+        # ── Backend routing ────────────────────────────────────────────────────────────
+        _cfg = bot.config.ai_multi
+        _chat_backend   = str(getattr(_cfg, 'chat_backend',   'grok'))
+        _search_backend = str(getattr(_cfg, 'search_backend', 'grok'))
+
+        # Decide which API to call for this specific request:
+        #   - If it's a search query AND search_backend=grok: use Responses API with web_search
+        #   - Otherwise use the configured chat_backend
+        _use_grok_responses = search_mode and (_search_backend == 'grok')
+
+        if _use_grok_responses or _chat_backend == 'grok':
+            _api_model = str(getattr(_cfg, 'model', 'grok-4.3'))
+        elif _chat_backend == 'ollama':
+            _api_model = str(getattr(_cfg, 'ollama_model', 'llama3.2'))
+        elif _chat_backend == 'openai':
+            _api_model = str(getattr(_cfg, 'openai_model', 'gpt-4o'))
+        else:
+            _api_model = str(getattr(_cfg, 'model', 'grok-4.3'))
 
         conv_id = None
         if is_pm:
@@ -1243,10 +1379,26 @@ def _api_worker(*, bot, trigger, messages, review_mode, is_pm, bot_nick, chan_lo
 
         for attempt in range(1, attempts + 1):
             try:
-                reply, citations = _call_responses_api(
-                    bot, messages, model, temp, max_toks,
-                    search_mode=search_mode, conv_id=conv_id,
-                )
+                if _use_grok_responses or _chat_backend == 'grok':
+                    # xAI Responses API (supports web_search tool)
+                    reply, citations = _call_responses_api(
+                        bot, messages, _api_model, temp, max_toks,
+                        search_mode=(_use_grok_responses),
+                        conv_id=conv_id,
+                    )
+                elif _chat_backend == 'ollama':
+                    _ollama_url = str(getattr(_cfg, 'ollama_url', 'http://localhost:11434'))
+                    reply, citations = _call_chat_completions_api(
+                        bot, messages, _api_model, temp, max_toks,
+                        base_url=_ollama_url,
+                    )
+                elif _chat_backend == 'openai':
+                    _oai_url = str(getattr(_cfg, 'openai_base_url', 'https://api.openai.com/v1'))
+                    _oai_key = str(getattr(_cfg, 'openai_api_key', ''))
+                    reply, citations = _call_chat_completions_api(
+                        bot, messages, _api_model, temp, max_toks,
+                        base_url=_oai_url, api_key=_oai_key or None,
+                    )
                 # Reset failure state on success
                 api_failures.pop(channel, None)
                 break
@@ -1255,11 +1407,11 @@ def _api_worker(*, bot, trigger, messages, review_mode, is_pm, bot_nick, chan_lo
                     time.sleep(backoff + random.random() * 0.5)
                     backoff *= 2
                 else:
-                    _log(bot).exception('Grok API final attempt timed out')
+                    _log(bot).exception('AI API final attempt timed out (backend=%s)', _chat_backend)
                     _record_api_failure(bot, channel)
                     if not is_chimein:
                         try:
-                            bot.say("Grok is timing out right now; please try again later.", trigger.sender)
+                            bot.say("AI is timing out right now; please try again later.", trigger.sender)
                         except Exception:
                             pass
                     return
@@ -1271,7 +1423,7 @@ def _api_worker(*, bot, trigger, messages, review_mode, is_pm, bot_nick, chan_lo
                     time.sleep(backoff + random.random() * 0.5)
                     backoff *= 2
                 else:
-                    _log(bot).exception('Grok API request failed (HTTP %s)', _status)
+                    _log(bot).exception('AI API request failed (HTTP %s, backend=%s)', _status, _chat_backend)
                     try:
                         _log(bot).error('API error response body: %s', e.response.text[:500] if e.response is not None else 'no body')
                     except Exception:
@@ -1279,7 +1431,7 @@ def _api_worker(*, bot, trigger, messages, review_mode, is_pm, bot_nick, chan_lo
                     _record_api_failure(bot, channel)
                     if not is_chimein:
                         try:
-                            bot.say("Grok is having trouble right now; please try again later.", trigger.sender)
+                            bot.say("AI is having trouble right now; please try again later.", trigger.sender)
                         except Exception:
                             pass
                     return
@@ -1288,16 +1440,16 @@ def _api_worker(*, bot, trigger, messages, review_mode, is_pm, bot_nick, chan_lo
                     time.sleep(backoff + random.random() * 0.5)
                     backoff *= 2
                 else:
-                    _log(bot).exception('Grok API final attempt failed')
+                    _log(bot).exception('AI API final attempt failed (backend=%s)', _chat_backend)
                     if not is_chimein:
                         try:
-                            bot.say("Grok is timing out right now; please try again later.", trigger.sender)
+                            bot.say("AI is timing out right now; please try again later.", trigger.sender)
                         except Exception:
                             pass
                     return
 
         if not reply:
-            _log(bot).warning('Grok API returned empty reply')
+            _log(bot).warning('AI API returned empty reply (backend=%s)', _chat_backend)
             return
 
         reply = sanitize_reply(bot, trigger, reply)
@@ -1804,7 +1956,7 @@ Rules:
             _log(bot).warning('No Grok session available for fact extraction')
             return []
         
-        model = bot.config.grok.model
+        model = bot.config.ai_multi.model
         _log(bot).info('Extracting facts for %s from %d messages using model %s', user_nick, len(channel_log), model)
             
         response = session.post(
@@ -2092,7 +2244,7 @@ def handle(bot, trigger):
     # Banned nicks are blocked everywhere; only announce it in PM to avoid
     # channel noise.
     try:
-        cfg_banned = {n.lower() for n in getattr(bot.config.grok, 'banned_nicks', [])}
+        cfg_banned = {n.lower() for n in getattr(bot.config.ai_multi, 'banned_nicks', [])}
     except Exception:
         cfg_banned = set()
     try:
@@ -2108,7 +2260,7 @@ def handle(bot, trigger):
         return
 
     try:
-        cfg_ignored = {n.lower() for n in getattr(bot.config.grok, 'ignored_nicks', [])}
+        cfg_ignored = {n.lower() for n in getattr(bot.config.ai_multi, 'ignored_nicks', [])}
     except Exception:
         cfg_ignored = set()
     if trigger.nick.lower() in cfg_ignored:
@@ -2136,7 +2288,7 @@ def handle(bot, trigger):
     if trigger.nick.lower() in own_nicks:
         return
 
-    blocked = {c.lower() for c in bot.config.grok.blocked_channels}
+    blocked = {c.lower() for c in bot.config.ai_multi.blocked_channels}
     if (not is_pm) and (trigger.sender.lower() in blocked):
         return
 
@@ -2271,7 +2423,7 @@ def handle(bot, trigger):
     # intent_check: heuristic (default) | off | model
     # model is not implemented — fall back to heuristic once and log.
     if (not is_pm) and mentioned and not action_bot_mentioned:
-        _intent_mode = str(getattr(bot.config.grok, 'intent_check', 'heuristic') or 'heuristic').lower()
+        _intent_mode = str(getattr(bot.config.ai_multi, 'intent_check', 'heuristic') or 'heuristic').lower()
         if _intent_mode == 'off':
             pass  # treat every nick mention as intentional
         else:
@@ -2830,7 +2982,7 @@ def handle(bot, trigger):
         return
     
     # Use per-channel system prompt if defined, otherwise fall back to the global one.
-    _active_system_prompt = bot.config.grok.system_prompt
+    _active_system_prompt = bot.config.ai_multi.system_prompt
     _channel_always_search = False
     if not is_pm:
         _ch_prompts = _load_channel_prompts()
@@ -3592,7 +3744,7 @@ def test_api(bot, trigger):
             bot.say("No Grok session configured")
             return
         
-        model = bot.config.grok.model
+        model = bot.config.ai_multi.model
         bot.say(f"Testing API with simple request using model {model}...")
         response = session.post(
             'https://api.x.ai/v1/chat/completions',
@@ -3648,7 +3800,7 @@ def _scheck_worker(bot, requester, channel, target_nick, messages_text):
             pass
         return
     try:
-        model = bot.config.grok.model
+        model = bot.config.ai_multi.model
         session = bot.memory.get('grok_session')
         if not session:
             bot.say("No Grok session configured.", requester)

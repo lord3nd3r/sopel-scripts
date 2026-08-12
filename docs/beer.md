@@ -41,6 +41,7 @@ All prices are in **coins** (🪙).
 | `$drink [nick]` | — | 10 🪙 | Mixed drink 🍹 |
 | `$mocktail [nick]` | `$virgin` | 4 🪙 | Mocktail (non-alcoholic) 🍹 |
 | `$coffee [nick]` | `$caffeine` | 3 🪙 | Coffee ☕ |
+| `$decaf [nick]` | `$decaffeinated` | 3 🪙 | Decaf coffee ☕😴 |
 | `$tea [nick]` | `$cuppa` | 3 🪙 | Tea 🍵 |
 | `$water [nick]` | `$hydrate` | Free | Water (Responsible hydration!) 💧 |
 | `$pizza [nick]` | — | 15 🪙 | Pizza 🍕 |
