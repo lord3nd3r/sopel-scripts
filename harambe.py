@@ -19,8 +19,9 @@
 #   access_list   = Nick1, Nick2       ; additional nicks (always allowed)
 #   max_results   = 10                 ; max rows per search (default 10)
 #   flood_window    = 60               ; mass-join detection window, seconds (default 60)
-#   flood_threshold = 5                ; joins per host in window before alert (default 5)
-#   flood_cooldown  = 300              ; min seconds between alerts for same host (default 300)
+#   flood_threshold = 5                ; distinct nicks from one host joining the SAME
+#                                      ; channel within the window before alert (default 5)
+#   flood_cooldown  = 300              ; min seconds between alerts for same host+channel (default 300)
 #   collect_channels = all             ; 'all' to WHOIS joiners in every channel, or channel name
 
 from __future__ import annotations
@@ -61,8 +62,8 @@ def configure(config):
     config.harambe.configure_setting('access_list',    'Comma-separated nicks always allowed')
     config.harambe.configure_setting('max_results',    'Max results per search (default 10)')
     config.harambe.configure_setting('flood_window',    'Mass-join detection window in seconds (default 60)')
-    config.harambe.configure_setting('flood_threshold', 'Joins per host in window before alert (default 5)')
-    config.harambe.configure_setting('flood_cooldown',  'Min seconds between flood alerts per host (default 300)')
+    config.harambe.configure_setting('flood_threshold', 'Distinct nicks from one host joining the same channel before alert (default 5)')
+    config.harambe.configure_setting('flood_cooldown',  'Min seconds between flood alerts per host+channel (default 300)')
     config.harambe.configure_setting('collect_channels', "'all' to track joins in every channel, or a channel name")
 
 
@@ -108,7 +109,7 @@ _whois_queue_lock = threading.Lock()
 # Mass-join flood detection state
 _join_events: list = []            # list of (timestamp, host, nick, channel)
 _join_events_lock = threading.Lock()
-_flood_alert_cooldown: dict = {}   # host_lower → last alert timestamp
+_flood_alert_cooldown: dict = {}   # (host_lower, channel_lower) → last alert timestamp
 
 
 # NickServ INFO query state
@@ -458,7 +459,12 @@ def _sweep_channels(bot):
 
 
 def _record_join(bot, nick: str, host: str, channel: str):
-    """Track a join for mass-join flood detection; alert on threshold."""
+    """Track joins for mass-join flood detection; alert on threshold.
+
+    Alerts only when DISTINCT nicks from the same host join the SAME channel
+    within the window — the botnet/clonetroller signature. A single user
+    rejoining many channels after a reconnect does not trip this.
+    """
     if not host:
         return
     now = time.time()
@@ -466,6 +472,7 @@ def _record_join(bot, nick: str, host: str, channel: str):
     threshold = _cfg_int(bot, 'flood_threshold', 5)
     cooldown  = _cfg_int(bot, 'flood_cooldown', 300)
     host_l    = host.lower()
+    chan_l    = channel.lower()
 
     with _join_events_lock:
         _join_events.append((now, host_l, nick, channel))
@@ -473,24 +480,25 @@ def _record_join(bot, nick: str, host: str, channel: str):
         cutoff = now - window
         while _join_events and _join_events[0][0] < cutoff:
             _join_events.pop(0)
-        recent = [e for e in _join_events if e[1] == host_l]
+        # Distinct nicks from this host in THIS channel within the window
+        nicks = {e[2] for e in _join_events
+                 if e[1] == host_l and e[3].lower() == chan_l}
 
-        if len(recent) < threshold:
+        if len(nicks) < threshold:
             return
 
-        last_alert = _flood_alert_cooldown.get(host_l, 0)
+        cd_key = (host_l, chan_l)
+        last_alert = _flood_alert_cooldown.get(cd_key, 0)
         if now - last_alert < cooldown:
             return
-        _flood_alert_cooldown[host_l] = now
-        nicks = sorted({e[2] for e in recent})
-        chans = sorted({e[3] for e in recent})
+        _flood_alert_cooldown[cd_key] = now
 
     access_channel = (bot.config.harambe.access_channel or '').strip()
     if not access_channel:
         return
     bot.say(
-        f'\x02MASS-JOIN ALERT\x02: {len(recent)} joins from host {host} '
-        f'in {window}s — nicks: {", ".join(nicks)} in {", ".join(chans)}',
+        f'\x02MASS-JOIN ALERT\x02: {len(nicks)} nicks from host {host} '
+        f'joined {channel} in {window}s — nicks: {", ".join(sorted(nicks))}',
         access_channel,
     )
 
