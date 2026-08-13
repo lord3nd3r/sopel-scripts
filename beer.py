@@ -218,6 +218,18 @@ def deduct_price(bot, user, item_type):
 
 # Item lookup: maps item type to (item_list, message_template_list, placeholder_key)
 DRINK_REGISTRY = {}
+_last_served_items = {}
+_last_served_lock = threading.Lock()
+
+
+def _choose_item(item_type, item_list):
+    """Choose an item without repeating the previous item of this type."""
+    with _last_served_lock:
+        previous_item = _last_served_items.get(item_type)
+        choices = [item for item in item_list if item != previous_item]
+        chosen_item = random.choice(choices or item_list)
+        _last_served_items[item_type] = chosen_item
+        return chosen_item
 
 
 def _serve_item(bot, trigger, item_type, item_list, message_list, placeholder_key='drink'):
@@ -248,7 +260,7 @@ def _serve_item(bot, trigger, item_type, item_list, message_list, placeholder_ke
             return
         
         # Select random item and message
-        chosen_item = random.choice(item_list)
+        chosen_item = _choose_item(item_type, item_list)
         giving_message = random.choice(message_list)
         
         # Format and send message
