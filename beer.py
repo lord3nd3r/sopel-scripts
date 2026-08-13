@@ -8,6 +8,7 @@ import random
 import time
 import logging
 import atexit
+import threading
 import unicodedata
 from sopel import module
 import re
