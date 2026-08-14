@@ -15,7 +15,7 @@
 #   [harambe]
 #   oper_name     = myoperaccount
 #   oper_password = secret
-#   access_channel = #3nd3r            ; channel where commands are accepted + flood alerts posted
+#   access_channel = #harambe            ; channel where commands are accepted + flood alerts posted
 #   access_list   = Nick1, Nick2       ; additional nicks (always allowed)
 #   db_path       = ~/.sopel/harambe.db ; SQLite database path for this instance
 #   max_results   = 10                 ; max rows per search (default 10)
