@@ -17,13 +17,22 @@ class _module:
     def example(*args, **kwargs):
         return lambda f: f
 
+    @staticmethod
+    def rule(*args, **kwargs):
+        return lambda f: f
+
+
+class _ColorsMeta(type):
+    def __getattr__(cls, name):
+        return name
+
+
+class _Colors(metaclass=_ColorsMeta):
+    pass
+
 
 class _formatting:
-    class colors:
-        GREEN = 'GREEN'
-        YELLOW = 'YELLOW'
-        RED = 'RED'
-        LIGHT_GREEN = 'LIGHT_GREEN'
+    colors = _Colors
 
     @staticmethod
     def color(text, color):
@@ -55,3 +64,27 @@ def test_random_gift_in_list():
     random.seed(1)
     gift = random.choice(weed.WEED_GIFTS)
     assert gift in weed.WEED_GIFTS
+
+
+def test_jay_mapping():
+    assert 'jay' in weed.DATA
+    assert 'joint' in weed.DATA
+    jay_gifts, _, jay_final, _ = weed.DATA['jay']
+    # Check that jay content contains 'jay' and none of the jay gifts say 'joint'
+    assert any('jay' in g for g in jay_gifts)
+    assert not any('joint' in g for g in jay_gifts)
+    assert not any('joint' in m for m in jay_final)
+    assert any('jay' in m for m in jay_final)
+
+
+def test_doobie_mapping():
+    assert 'doobie' in weed.DATA
+    doobie_gifts, _, doobie_final, _ = weed.DATA['doobie']
+    # Check that doobie content contains 'doobie' and none of the gifts/messages say 'joint'
+    assert any('doobie' in g for g in doobie_gifts)
+    assert not any('joint' in g for g in doobie_gifts)
+    assert not any('joint' in m for m in doobie_final)
+    assert any('doobie' in m for m in doobie_final)
+
+
+

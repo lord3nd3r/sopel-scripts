@@ -8,7 +8,7 @@ from sopel import module, formatting
 """weed.py — Sopel command to share lighthearted "weed" messages.
 
 Features:
-- Commands: weed, bong, joint, keef, kief, trip, shrooms, acid, peyote, toke
+- Commands: weed, bong, joint, jay, doobie, keef, kief, trip, shrooms, acid, peyote, toke
 - Channel-level and per-user-per-channel cooldowns (thread-safe)
 - Non-blocking countdown via background thread with graceful shutdown
 - Module-level constants for easy editing
@@ -161,6 +161,72 @@ JOINT_FINAL_MESSAGES = [
 ]
 
 JOINT_COUNTDOWN = [
+    formatting.color("📜 3... Grinding...", formatting.colors.GREEN),
+    formatting.color("👅 2... Rolling...", formatting.colors.YELLOW),
+    formatting.color("🔥 1... Sparking...", formatting.colors.RED),
+]
+
+
+# =======================
+# JAY Content
+# =======================
+JAY_GIFTS = [
+    "a hand-rolled jay 🌿", "a cross jay ✖️", "a spliff 🚬", 
+    "a fat cone 🍦", "a pinner jay 📍", "a kief-dusted jay ✨", 
+    "a double-barrel jay ✌️", "a tulip jay 🌷", "a classic paper jay 📜", 
+    "an infused jay 🍯", "a backwards-rolled jay 🔄"
+]
+
+JAY_ACTION_MESSAGES = [
+    "passes {gift} to {target} 🚬",
+    "lights {gift} and hands it to {target} 🔥",
+    "sparks up {gift} for {target} ✨",
+    "rolls {gift} for {target} 📜",
+    "tosses {gift} (lit) to {target} 🌿"
+]
+
+JAY_FINAL_MESSAGES = [
+    formatting.bold(formatting.color("Puff puff pass! 🌿🔥", formatting.colors.LIGHT_GREEN)),
+    formatting.color("Don't bogart the jay! 🏃💨", formatting.colors.LIGHT_GREEN),
+    formatting.color("Hotboxing with this jay 🚗💨", formatting.colors.LIGHT_GREEN),
+    formatting.color("Spark it up and pass it around! 🔥🍁", formatting.colors.LIGHT_GREEN),
+    formatting.color("A perfectly rolled jay. Enjoy! 📜🤌", formatting.colors.LIGHT_GREEN),
+]
+
+JAY_COUNTDOWN = [
+    formatting.color("📜 3... Grinding...", formatting.colors.GREEN),
+    formatting.color("👅 2... Rolling...", formatting.colors.YELLOW),
+    formatting.color("🔥 1... Sparking...", formatting.colors.RED),
+]
+
+
+# =======================
+# DOOBIE Content
+# =======================
+DOOBIE_GIFTS = [
+    "a hand-rolled doobie 🌿", "a cross doobie ✖️", "a spliff 🚬", 
+    "a fat cone 🍦", "a pinner doobie 📍", "a kief-dusted doobie ✨", 
+    "a double-barrel doobie ✌️", "a tulip doobie 🌷", "a classic paper doobie 📜", 
+    "an infused doobie 🍯", "a backwards-rolled doobie 🔄"
+]
+
+DOOBIE_ACTION_MESSAGES = [
+    "passes {gift} to {target} 🚬",
+    "lights {gift} and hands it to {target} 🔥",
+    "sparks up {gift} for {target} ✨",
+    "rolls {gift} for {target} 📜",
+    "tosses {gift} (lit) to {target} 🌿"
+]
+
+DOOBIE_FINAL_MESSAGES = [
+    formatting.bold(formatting.color("Puff puff pass! 🌿🔥", formatting.colors.LIGHT_GREEN)),
+    formatting.color("Don't bogart the doobie! 🏃💨", formatting.colors.LIGHT_GREEN),
+    formatting.color("Hotboxing with this doobie 🚗💨", formatting.colors.LIGHT_GREEN),
+    formatting.color("Spark it up and pass it around! 🔥🍁", formatting.colors.LIGHT_GREEN),
+    formatting.color("A perfectly rolled doobie. Enjoy! 📜🤌", formatting.colors.LIGHT_GREEN),
+]
+
+DOOBIE_COUNTDOWN = [
     formatting.color("📜 3... Grinding...", formatting.colors.GREEN),
     formatting.color("👅 2... Rolling...", formatting.colors.YELLOW),
     formatting.color("🔥 1... Sparking...", formatting.colors.RED),
@@ -600,6 +666,8 @@ DATA = {
     'weed': (WEED_GIFTS, WEED_ACTION_MESSAGES, WEED_FINAL_MESSAGES, WEED_COUNTDOWN),
     'bong': (BONG_GIFTS, BONG_ACTION_MESSAGES, BONG_FINAL_MESSAGES, BONG_COUNTDOWN),
     'joint': (JOINT_GIFTS, JOINT_ACTION_MESSAGES, JOINT_FINAL_MESSAGES, JOINT_COUNTDOWN),
+    'jay': (JAY_GIFTS, JAY_ACTION_MESSAGES, JAY_FINAL_MESSAGES, JAY_COUNTDOWN),
+    'doobie': (DOOBIE_GIFTS, DOOBIE_ACTION_MESSAGES, DOOBIE_FINAL_MESSAGES, DOOBIE_COUNTDOWN),
     'keef': (KEEF_GIFTS, KEEF_ACTION_MESSAGES, KEEF_FINAL_MESSAGES, KEEF_COUNTDOWN),
     'kief': (KEEF_GIFTS, KEEF_ACTION_MESSAGES, KEEF_FINAL_MESSAGES, KEEF_COUNTDOWN),
     'trip': (DMT_GIFTS, DMT_ACTION_MESSAGES, DMT_FINAL_MESSAGES, DMT_COUNTDOWN),
@@ -735,7 +803,7 @@ def _cleanup_threads():
         LOG.debug("All countdown threads completed gracefully")
 
 
-@module.commands('weed', 'bong', 'joint', 'keef', 'kief', 'trip', 'shrooms', 'mushrooms',
+@module.commands('weed', 'bong', 'joint', 'jay', 'doobie', 'keef', 'kief', 'trip', 'shrooms', 'mushrooms',
                  'acid', 'lsd', 'peyote', 'mescaline', 'toke', 'edibles', 'edible',
                  'dab', 'dabs', 'blunt', 'vape', 'hash', 'munchies')
 @module.example('$weed username', 'Give a user a random weed item/message')
@@ -889,6 +957,8 @@ def weedhelp_command(bot, trigger):
         "  $weed <nick>        — Give someone a random weed item",
         "  $bong <nick>        — Give someone a bong rip",
         "  $joint <nick>       — Give someone a joint",
+        "  $jay <nick>         — Give someone a jay",
+        "  $doobie <nick>      — Give someone a doobie",
         "  $blunt <nick>       — Give someone a blunt",
         "  $toke <nick>        — Give someone a bowl/pipe toke",
         "  $vape <nick>        — Give someone a vape hit",
