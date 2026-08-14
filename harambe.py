@@ -1022,10 +1022,9 @@ def harambe_dispatch(bot, trigger):
     if cmd == 'scan':
         if not _is_authorized(bot, trigger):
             _reply(bot, dest, 'Access denied. You are not authorized to use Harambe.')
-        elif not _is_oper:
-            _oper_up(bot)
-            _reply(bot, dest, 'Requested oper status; the scan will begin once the server confirms it.')
         else:
+            # Do not gate on _is_oper here: that flag is only set by a fresh 381
+            # and can be stale after reload while the connection remains oper.
             _who_sent.clear()
             _who_fallback.clear()
             _sweep_channels(bot)
