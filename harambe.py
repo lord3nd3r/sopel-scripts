@@ -117,14 +117,18 @@ _global_enrichment: dict = {
     'started': 0.0,
     'destination': None,
     'who_complete': False,
-    'next_report_percent': 5,
+    'next_report_percent': 20,
 }
 _global_enrichment_nicks: set = set()
-# Nicks queued for WHOIS when WHO replies give us hostnames but no IP
+# Nicks queued for WHOIS when WHO replies give us hostnames but no IP.
+# Drained by a small pool of real worker threads (not a rate-limited timer):
+# an oper connection is immune to flood kicks, so the bottleneck is our own
+# throttling, not the server.
 _whois_queue: list = []
 _whois_queue_lock = threading.Lock()
-_whois_drain_timer: threading.Timer | None = None
-_whois_drain_lock = threading.Lock()
+_WHOIS_WORKER_COUNT = 5
+_whois_workers_running = 0
+_whois_workers_lock = threading.Lock()
 
 # Mass-join flood detection state
 _join_events: list = []            # list of (timestamp, host, nick, channel)
@@ -438,8 +442,8 @@ def _finalize_whois(bot, nick_lower: str):
                 percent = completed * 100 // total if total else 100
                 if (_global_enrichment['who_complete']
                         and percent >= _global_enrichment['next_report_percent']):
-                    milestone = min(100, (percent // 5) * 5)
-                    _global_enrichment['next_report_percent'] = milestone + 5
+                    milestone = min(100, (percent // 20) * 20)
+                    _global_enrichment['next_report_percent'] = milestone + 20
                     progress_destination = _global_enrichment['destination']
                     progress_message = (
                         f'WHOIS enrichment: {completed}/{total} ({percent}%).'
@@ -483,43 +487,44 @@ def _cfg_int(bot, name: str, default: int) -> int:
 
 
 def _queue_whois(bot, nick: str):
-    """Queue a nick for a rate-limited WHOIS, then ensure the drain timer is running.
+    """Queue a nick for WHOIS, then ensure worker threads are running to drain it.
 
-    Draining is self-scheduled (threading.Timer) rather than an @plugin.interval
-    job: ibot's rehash reloads this module and resets its globals, but never
-    restarts already-running interval tasks, which would otherwise keep
-    draining an orphaned queue from the pre-rehash module instance forever.
+    Draining uses a small pool of real threads rather than one-at-a-time rate
+    limiting: an oper connection is immune to flood kicks, so we gather info
+    as fast as the queue allows instead of throttling ourselves.
     """
     if not nick:
         return
     with _whois_queue_lock:
         if nick.lower() not in [n.lower() for n in _whois_queue]:
             _whois_queue.append(nick)
-    _schedule_whois_drain(bot)
+    _ensure_whois_workers(bot)
 
 
-def _schedule_whois_drain(bot):
-    global _whois_drain_timer
-    with _whois_drain_lock:
-        if _whois_drain_timer is not None:
-            return
-        timer = threading.Timer(3.0, _drain_whois_once, args=(bot,))
-        timer.daemon = True
-        _whois_drain_timer = timer
-        timer.start()
+def _ensure_whois_workers(bot):
+    global _whois_workers_running
+    with _whois_workers_lock:
+        needed = min(_WHOIS_WORKER_COUNT, len(_whois_queue)) - _whois_workers_running
+        for _ in range(max(0, needed)):
+            _whois_workers_running += 1
+            t = threading.Thread(target=_whois_worker, args=(bot,), daemon=True)
+            t.start()
 
 
-def _drain_whois_once(bot):
-    global _whois_drain_timer
-    with _whois_drain_lock:
-        _whois_drain_timer = None
-    with _whois_queue_lock:
-        nick = _whois_queue.pop(0) if _whois_queue else None
-        pending = bool(_whois_queue)
-    if nick:
-        _start_whois(bot, nick)
-    if pending:
-        _schedule_whois_drain(bot)
+def _whois_worker(bot):
+    """Pop nicks off the queue and WHOIS them back-to-back until it's empty."""
+    global _whois_workers_running
+    try:
+        while True:
+            with _whois_queue_lock:
+                nick = _whois_queue.pop(0) if _whois_queue else None
+            if nick is None:
+                return
+            _start_whois(bot, nick)
+            time.sleep(0.1)  # small spacing so replies don't arrive in one burst
+    finally:
+        with _whois_workers_lock:
+            _whois_workers_running -= 1
 
 
 def _sweep_channels(bot):
@@ -551,7 +556,7 @@ def _start_global_scan(bot, requester: str) -> bool:
             'started': time.time(),
             'destination': requester,
             'who_complete': False,
-            'next_report_percent': 5,
+            'next_report_percent': 20,
         })
         _global_enrichment_nicks.clear()
     LOG.info('harambe: network-wide WHO scan started for %s', requester)
@@ -1113,12 +1118,12 @@ def _reply(bot, dest: str, text: str):
 # ! as the prefix without changing the bot's global prefix.
 
 _CMD_RE = re.compile(
-    r'^!(?P<cmd>help|commands|ping|p|search|s|csearch|cs|ip|clones|info|last|count|ccount|stats|scan|scanall|scanstatus)(?:\s+(?P<rest>.*))?$',
+    r'^\s*!(?P<cmd>help|commands|ping|p|search|s|csearch|cs|ip|clones|info|last|count|ccount|stats|scan|scanall|scanstatus)(?:\s+(?P<rest>.*))?$',
     re.IGNORECASE
 )
 
 
-@plugin.rule(r'^!(?:help|commands|ping|p|search|s|csearch|cs|ip|clones|info|last|count|ccount|stats|scan|scanall|scanstatus)(?:\s|$)')
+@plugin.rule(r'^\s*!(?:help|commands|ping|p|search|s|csearch|cs|ip|clones|info|last|count|ccount|stats|scan|scanall|scanstatus)(?:\s|$)')
 @plugin.priority('low')
 @plugin.thread(True)
 def harambe_dispatch(bot, trigger):
