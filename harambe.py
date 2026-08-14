@@ -17,6 +17,7 @@
 #   oper_password = secret
 #   access_channel = #3nd3r            ; channel where commands are accepted + flood alerts posted
 #   access_list   = Nick1, Nick2       ; additional nicks (always allowed)
+#   db_path       = ~/.sopel/harambe.db ; SQLite database path for this instance
 #   max_results   = 10                 ; max rows per search (default 10)
 #   flood_window    = 60               ; mass-join detection window, seconds (default 60)
 #   flood_threshold = 5                ; distinct nicks from one host joining the SAME
@@ -47,6 +48,7 @@ class HarambeSection(StaticSection):
     oper_password = ValidatedAttribute('oper_password', default='')
     access_channel = ValidatedAttribute('access_channel', default='')
     access_list   = ListAttribute('access_list', default=[])
+    db_path       = ValidatedAttribute('db_path', default='~/.sopel/harambe.db')
     max_results   = ValidatedAttribute('max_results', default='10')
     flood_window    = ValidatedAttribute('flood_window',    default='60')
     flood_threshold = ValidatedAttribute('flood_threshold', default='5')
@@ -60,6 +62,7 @@ def configure(config):
     config.harambe.configure_setting('oper_password',  'IRC oper password')
     config.harambe.configure_setting('access_channel', 'Channel whose members can use search')
     config.harambe.configure_setting('access_list',    'Comma-separated nicks always allowed')
+    config.harambe.configure_setting('db_path',        'SQLite database path for this ibot instance')
     config.harambe.configure_setting('max_results',    'Max results per search (default 10)')
     config.harambe.configure_setting('flood_window',    'Mass-join detection window in seconds (default 60)')
     config.harambe.configure_setting('flood_threshold', 'Distinct nicks from one host joining the same channel before alert (default 5)')
@@ -68,7 +71,9 @@ def configure(config):
 
 
 def setup(bot):
+    global _DB_PATH
     bot.config.define_section('harambe', HarambeSection)
+    _DB_PATH = os.path.abspath(os.path.expanduser(bot.config.harambe.db_path))
     _init_db(bot)
     # Attempt to oper up immediately if credentials are set
     _oper_up(bot)
@@ -178,6 +183,7 @@ def _get_conn():
 
 
 def _init_db(bot):
+    os.makedirs(os.path.dirname(_DB_PATH), exist_ok=True)
     with _db_lock, _get_conn() as conn:
         conn.execute('''
             CREATE TABLE IF NOT EXISTS users (
