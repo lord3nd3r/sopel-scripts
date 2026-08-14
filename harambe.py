@@ -27,7 +27,9 @@
 
 from __future__ import annotations
 
+import contextlib
 import fnmatch
+import ipaddress
 import logging
 import os
 import re
@@ -44,30 +46,32 @@ LOG = logging.getLogger(__name__)
 # ─────────────────────────── config ─────────────────────────────────
 
 class HarambeSection(StaticSection):
-    oper_name     = ValidatedAttribute('oper_name',     default='')
-    oper_password = ValidatedAttribute('oper_password', default='')
-    access_channel = ValidatedAttribute('access_channel', default='')
-    access_list   = ListAttribute('access_list', default=[])
-    db_path       = ValidatedAttribute('db_path', default='~/.sopel/harambe.db')
-    max_results   = ValidatedAttribute('max_results', default='10')
-    flood_window    = ValidatedAttribute('flood_window',    default='60')
-    flood_threshold = ValidatedAttribute('flood_threshold', default='5')
-    flood_cooldown  = ValidatedAttribute('flood_cooldown',  default='300')
-    collect_channels = ValidatedAttribute('collect_channels', default='all')
+    oper_name          = ValidatedAttribute('oper_name',          default='')
+    oper_password      = ValidatedAttribute('oper_password',      default='')
+    access_channel     = ValidatedAttribute('access_channel',     default='')
+    access_list        = ListAttribute('access_list',             default=[])
+    db_path            = ValidatedAttribute('db_path',            default='~/.sopel/harambe.db')
+    max_results        = ValidatedAttribute('max_results',        default='10')
+    flood_window       = ValidatedAttribute('flood_window',        default='60')
+    flood_threshold    = ValidatedAttribute('flood_threshold',     default='5')
+    flood_cooldown     = ValidatedAttribute('flood_cooldown',      default='300')
+    collect_channels   = ValidatedAttribute('collect_channels',    default='all')
+    probe_ctcp_version = ValidatedAttribute('probe_ctcp_version', default='true')
 
 
 def configure(config):
     config.define_section('harambe', HarambeSection)
-    config.harambe.configure_setting('oper_name',      'IRC oper account name')
-    config.harambe.configure_setting('oper_password',  'IRC oper password')
-    config.harambe.configure_setting('access_channel', 'Channel whose members can use search')
-    config.harambe.configure_setting('access_list',    'Comma-separated nicks always allowed')
-    config.harambe.configure_setting('db_path',        'SQLite database path for this ibot instance')
-    config.harambe.configure_setting('max_results',    'Max results per search (default 10)')
-    config.harambe.configure_setting('flood_window',    'Mass-join detection window in seconds (default 60)')
-    config.harambe.configure_setting('flood_threshold', 'Distinct nicks from one host joining the same channel before alert (default 5)')
-    config.harambe.configure_setting('flood_cooldown',  'Min seconds between flood alerts per host+channel (default 300)')
-    config.harambe.configure_setting('collect_channels', "'all' to track joins in every channel, or a channel name")
+    config.harambe.configure_setting('oper_name',          'IRC oper account name')
+    config.harambe.configure_setting('oper_password',      'IRC oper password')
+    config.harambe.configure_setting('access_channel',     'Channel whose members can use search')
+    config.harambe.configure_setting('access_list',        'Comma-separated nicks always allowed')
+    config.harambe.configure_setting('db_path',            'SQLite database path for this ibot instance')
+    config.harambe.configure_setting('max_results',        'Max results per search (default 10)')
+    config.harambe.configure_setting('flood_window',        'Mass-join detection window in seconds (default 60)')
+    config.harambe.configure_setting('flood_threshold',     'Distinct nicks from one host joining the same channel before alert (default 5)')
+    config.harambe.configure_setting('flood_cooldown',      'Min seconds between flood alerts per host+channel (default 300)')
+    config.harambe.configure_setting('collect_channels',     "'all' to track joins in every channel, or a channel name")
+    config.harambe.configure_setting('probe_ctcp_version', 'Send CTCP VERSION requests during WHOIS enrichment (true/false, default true)')
 
 
 def setup(bot):
@@ -158,12 +162,23 @@ _ns_timer: threading.Timer | None = None
 _ns_timer_lock = threading.Lock()
 
 
+def _is_valid_ip(addr: str) -> bool:
+    """Return True if addr is a valid IPv4 or IPv6 address."""
+    if not addr or not isinstance(addr, str):
+        return False
+    try:
+        ipaddress.ip_address(addr.strip())
+        return True
+    except ValueError:
+        return False
+
+
 def _reset_ns_timer(q):
     global _ns_timer
     with _ns_timer_lock:
         if _ns_timer:
             _ns_timer.cancel()
-        _ns_timer = threading.Timer(0.15, q.event.set)
+        _ns_timer = threading.Timer(0.5, q.event.set)
         _ns_timer.start()
 
 
@@ -176,15 +191,16 @@ def _query_nickserv(bot, nick: str, timeout: float = 3.0) -> dict | None:
         if nick_lower in _ns_queries:
             _ns_queries[nick_lower].event.set()
         _ns_queries[nick_lower] = query
+        global _ns_current_nick
+        _ns_current_nick = nick_lower
 
     bot.write(['PRIVMSG', 'NickServ', f'INFO {nick}'])
 
-    # Wait for the event to be set (either by the notice parser or a timeout)
+    # Wait for the event to be set (either by the notice parser, end of info, or a timeout)
     finished = query.event.wait(timeout)
 
     with _ns_queries_lock:
         _ns_queries.pop(nick_lower, None)
-        global _ns_current_nick
         if _ns_current_nick == nick_lower:
             _ns_current_nick = None
 
@@ -193,17 +209,22 @@ def _query_nickserv(bot, nick: str, timeout: float = 3.0) -> dict | None:
     return None
 
 
-def _get_conn():
+@contextlib.contextmanager
+def _get_db():
     conn = sqlite3.connect(_DB_PATH, check_same_thread=False)
     conn.row_factory = sqlite3.Row
     conn.execute('PRAGMA journal_mode=WAL')
     conn.execute('PRAGMA synchronous=NORMAL')
-    return conn
+    try:
+        with conn:
+            yield conn
+    finally:
+        conn.close()
 
 
 def _init_db(bot):
     os.makedirs(os.path.dirname(_DB_PATH), exist_ok=True)
-    with _db_lock, _get_conn() as conn:
+    with _db_lock, _get_db() as conn:
         conn.execute('''
             CREATE TABLE IF NOT EXISTS users (
                 nick_lower  TEXT PRIMARY KEY,
@@ -221,6 +242,10 @@ def _init_db(bot):
                 last_seen   INTEGER
             )
         ''')
+        # Ensure indexes exist for fast lookups and clone searching
+        conn.execute('CREATE INDEX IF NOT EXISTS idx_users_ip ON users(ip)')
+        conn.execute('CREATE INDEX IF NOT EXISTS idx_users_host ON users(host)')
+
         # Check if NickServ columns exist, if not add them
         cursor = conn.execute('PRAGMA table_info(users)')
         columns = [row['name'] for row in cursor.fetchall()]
@@ -251,7 +276,7 @@ def _upsert_user(data: dict):
                     nick_lower, sorted(k for k, v in data.items() if v))
         return
 
-    with _db_lock, _get_conn() as conn:
+    with _db_lock, _get_db() as conn:
         # Fetch existing row
         existing = conn.execute(
             'SELECT * FROM users WHERE nick_lower = ?', (nick_lower,)
@@ -391,26 +416,29 @@ def _row_to_str(row, exclude_fields: set | None = None) -> str:
 
 
 def _search(field: str, pattern: str, case_sensitive: bool, max_results: int):
-    """Run a wildcard search against the DB. Returns list of Row objects."""
+    """Run a wildcard search against the DB. Returns list of Row objects, or empty list on SQL/glob error, or None if invalid field."""
     if field not in SEARCHABLE_FIELDS:
         return None  # invalid field
 
     like, esc = _wildcard_to_sql(pattern)
     col = field  # field name is validated — safe to interpolate
 
-    if case_sensitive:
-        # SQLite LIKE is case-insensitive by default; use GLOB for case sensitivity
-        # but GLOB uses * and ? natively so we convert back
-        glob_pat = pattern  # keep original wildcards; GLOB uses * and ?
-        sql  = f'SELECT * FROM users WHERE {col} GLOB ? LIMIT ?'
-        with _db_lock, _get_conn() as conn:
-            rows = conn.execute(sql, (glob_pat, max_results + 1)).fetchall()
-    else:
-        sql  = f'SELECT * FROM users WHERE {col} LIKE ? ESCAPE ? LIMIT ?'
-        with _db_lock, _get_conn() as conn:
-            rows = conn.execute(sql, (like, esc, max_results + 1)).fetchall()
-
-    return rows
+    try:
+        if case_sensitive:
+            # SQLite LIKE is case-insensitive by default; use GLOB for case sensitivity
+            # but GLOB uses * and ? natively so we convert back
+            glob_pat = pattern  # keep original wildcards; GLOB uses * and ?
+            sql  = f'SELECT * FROM users WHERE {col} GLOB ? LIMIT ?'
+            with _db_lock, _get_db() as conn:
+                rows = conn.execute(sql, (glob_pat, max_results + 1)).fetchall()
+        else:
+            sql  = f'SELECT * FROM users WHERE {col} LIKE ? ESCAPE ? LIMIT ?'
+            with _db_lock, _get_db() as conn:
+                rows = conn.execute(sql, (like, esc, max_results + 1)).fetchall()
+        return rows
+    except sqlite3.OperationalError as e:
+        LOG.warning('harambe: search query error for field %s, pattern %r: %s', field, pattern, e)
+        return []
 
 
 # ─────────────────────────── WHOIS collection ────────────────────────
@@ -433,8 +461,10 @@ def _finalize_whois(bot, nick_lower: str):
         _upsert_user(data)
         progress_message = None
         progress_destination = None
+        is_global_scan_nick = False
         with _global_scan_lock:
             if nick_lower in _global_enrichment_nicks:
+                is_global_scan_nick = True
                 _global_enrichment_nicks.remove(nick_lower)
                 _global_enrichment['completed'] += 1
                 total = _global_enrichment['total']
@@ -450,9 +480,10 @@ def _finalize_whois(bot, nick_lower: str):
                     )
         if progress_destination and progress_message:
             bot.say(progress_message, progress_destination)
-        # Only probe for CTCP VERSION if we have confirmed oper AND credentials are configured
+        # Probe for CTCP VERSION if oper configured, allowed, and not part of a mass global scan
         oper_configured = bool((bot.config.harambe.oper_name or '').strip())
-        if _is_oper and oper_configured:
+        probe_enabled = str(getattr(bot.config.harambe, 'probe_ctcp_version', 'true')).strip().lower() in ('true', '1', 'yes')
+        if _is_oper and oper_configured and probe_enabled and not is_global_scan_nick:
             nick = data.get('nick', nick_lower)
             _request_version(bot, nick)
 
@@ -519,12 +550,19 @@ def _whois_worker(bot):
             with _whois_queue_lock:
                 nick = _whois_queue.pop(0) if _whois_queue else None
             if nick is None:
-                return
+                with _whois_workers_lock:
+                    # Double-check queue under lock before decrementing and exiting
+                    with _whois_queue_lock:
+                        if _whois_queue:
+                            continue
+                    _whois_workers_running -= 1
+                    return
             _start_whois(bot, nick)
             time.sleep(0.1)  # small spacing so replies don't arrive in one burst
-    finally:
+    except Exception:
         with _whois_workers_lock:
             _whois_workers_running -= 1
+        raise
 
 
 def _sweep_channels(bot):
@@ -758,6 +796,12 @@ def who_reply(bot, trigger):
 @plugin.thread(True)
 def who_end(bot, trigger):
     """Report completion for the network-wide WHO scan."""
+    args = trigger.args
+    # On IRC, 315 wire format is: <me> <mask> :End of /WHO list.
+    # Only complete global scan if this 315 corresponds to the global scan mask ('*')
+    if len(args) > 1 and args[1] != '*':
+        return
+
     with _global_scan_lock:
         if not _global_scan.get('active'):
             return
@@ -843,7 +887,11 @@ def whois_channels(bot, trigger):
     raw_chans  = (trigger.text or args[-1]).strip()
     with _whois_lock:
         if nick_lower in _whois_pending:
-            _whois_pending[nick_lower]['channels'] = raw_chans
+            existing = _whois_pending[nick_lower].get('channels')
+            if existing:
+                _whois_pending[nick_lower]['channels'] = f'{existing} {raw_chans}'
+            else:
+                _whois_pending[nick_lower]['channels'] = raw_chans
 
 
 @plugin.event('330')  # RPL_WHOISACCOUNT  :nick account :is logged in as
@@ -876,11 +924,13 @@ def whois_actually(bot, trigger):
     uh = args[2]
     if '@' in uh:
         real_host = uh.split('@', 1)[1]
+    elif _is_valid_ip(uh):
+        real_ip = uh
     if len(args) > 3:
         candidate = args[3]
         if '@' in candidate:
             real_host = candidate.split('@', 1)[1]
-        elif re.match(r'^[\d.]+$|^[0-9a-fA-F:]+$', candidate):
+        elif _is_valid_ip(candidate) or re.match(r'^[\d.]+$|^[0-9a-fA-F:]+$', candidate):
             real_ip = candidate
 
     with _whois_lock:
@@ -987,13 +1037,8 @@ def ctcp_version_reply(bot, trigger):
 @plugin.priority('low')
 @plugin.thread(True)
 def on_vhost_set(bot, trigger):
-    """396 is only ever sent about the bot's OWN vhost — skip self-records."""
-    args = trigger.args
-    if len(args) < 2:
-        return
-    # args[0] is the target (us); don't pollute the users table with ourself
-    if args[0].lower() == bot.nick.lower():
-        return
+    """396 is sent when a user mode / vhost is applied."""
+    pass
 
 
 # ── NICK changes — update DB ──────────────────────────────────────────
@@ -1009,7 +1054,7 @@ def on_nick_change(bot, trigger):
         return
 
     # Copy old record to new nick then re-WHOIS
-    with _db_lock, _get_conn() as conn:
+    with _db_lock, _get_db() as conn:
         row = conn.execute(
             'SELECT * FROM users WHERE nick_lower = ?', (old_nick.lower(),)
         ).fetchone()
@@ -1020,7 +1065,8 @@ def on_nick_change(bot, trigger):
         data['nick_lower'] = new_nick.lower()
         _upsert_user(data)
 
-    _start_whois(bot, new_nick)
+    if _is_oper:
+        _start_whois(bot, new_nick)
 
 
 # ── NickServ notice parser ────────────────────────────────────────────
@@ -1029,7 +1075,7 @@ def on_nick_change(bot, trigger):
 @plugin.priority('low')
 @plugin.thread(True)
 def on_nickserv_notice(bot, trigger):
-    """Parse incoming NickServ INFO notices."""
+    """Parse incoming NickServ INFO notices across multiple IRC services (Anope, Atheme, etc.)."""
     # Only interested in NickServ
     if str(trigger.nick).lower() != 'nickserv':
         return
@@ -1043,64 +1089,96 @@ def on_nickserv_notice(bot, trigger):
     # Clean formatting/colors
     text_clean = re.sub(r'\x03\d{0,2}|\x02|\x0f|\x16|\x1f', '', text)
 
-    # Check for "isn't registered" or "is not registered"
-    # e.g., "Nick LordComac isn't registered." or "Nick LordComac is not registered."
-    m_not_reg = re.match(r'^Nick\s+(\S+)\s+(?:isn\'t|is\s+not)\s+registered', text_clean, re.IGNORECASE)
+    # Check for "isn't registered" or "is not registered" or "No such registration"
+    m_not_reg = re.match(
+        r'^(?:Nick\s+)?[\"\']?(\S+?)[\"\']?\s+(?:is\s+not|isn\'t|is\s+not\s+a)\s+registered'
+        r'|^(?:No\s+(?:such\s+registration|info)\s+for\s+(?:nickname\s+)?[\"\']?(\S+?)[\"\']?(?:\.|$))',
+        text_clean,
+        re.IGNORECASE
+    )
     if m_not_reg:
-        target_nick = m_not_reg.group(1).lower()
+        target_nick = (m_not_reg.group(1) or m_not_reg.group(2)).lower().rstrip(':').strip('()\'"')
         with _ns_queries_lock:
             if target_nick in _ns_queries:
                 q = _ns_queries[target_nick]
                 q.data['is_registered'] = False
                 q.event.set()
+            elif _ns_current_nick and _ns_current_nick in _ns_queries:
+                q = _ns_queries[_ns_current_nick]
+                q.data['is_registered'] = False
+                q.event.set()
+            if _ns_current_nick == target_nick:
+                _ns_current_nick = None
         return
 
-    # Check for "<nick> is <something>"
-    m_start = re.match(r'^(\S+)\s+is\s+', text_clean)
+    # Check for End of Info marker (e.g., "*** End of Info ***", "End of INFO")
+    if re.match(r'^\*{0,3}\s*End of (?:Info|INFO)\s*\*{0,3}', text_clean, re.IGNORECASE):
+        with _ns_queries_lock:
+            target_key = _ns_current_nick or (next(iter(_ns_queries.keys())) if len(_ns_queries) == 1 else None)
+            if target_key and target_key in _ns_queries:
+                q = _ns_queries[target_key]
+                if q.data['is_registered'] is None:
+                    q.data['is_registered'] = True
+                q.event.set()
+        return
+
+    # Check for "<nick> is <something>" or "Information on/for <nick>" or "Account: <nick>"
+    m_start = re.match(
+        r'^(?:Information\s+(?:on|for)|Nick|Account)\s*[:]?\s*[\"\']?(\S+?)[\"\']?(?:\s*\(|\s*:|\s+is|\s*$)'
+        r'|^[\"\']?(\S+?)[\"\']?\s+is\s+(?!not\s+|isn\'t)',
+        text_clean,
+        re.IGNORECASE
+    )
     if m_start:
-        target_nick = m_start.group(1).lower()
+        target_nick = (m_start.group(1) or m_start.group(2)).lower().rstrip(':').strip('()\'"')
         with _ns_queries_lock:
             if target_nick in _ns_queries:
                 _ns_current_nick = target_nick
                 _ns_queries[target_nick].data['is_registered'] = True
                 _reset_ns_timer(_ns_queries[target_nick])
-                return
+            elif _ns_current_nick and _ns_current_nick in _ns_queries:
+                _ns_queries[_ns_current_nick].data['is_registered'] = True
+                _reset_ns_timer(_ns_queries[_ns_current_nick])
 
-    # If parsing a current active nick
-    if _ns_current_nick:
-        with _ns_queries_lock:
-            if _ns_current_nick not in _ns_queries:
-                _ns_current_nick = None
-                return
-            q = _ns_queries[_ns_current_nick]
-
-        # Parse fields
-        m_reg = re.search(r'Time registered:\s*(.+)', text_clean, re.IGNORECASE)
-        if m_reg:
-            q.data['ns_registered'] = m_reg.group(1).strip()
-            _reset_ns_timer(q)
+    # Find the active query object
+    with _ns_queries_lock:
+        active_key = _ns_current_nick or (next(iter(_ns_queries.keys())) if len(_ns_queries) == 1 else None)
+        if not active_key or active_key not in _ns_queries:
             return
+        q = _ns_queries[active_key]
 
-        m_seen = re.search(r'Last seen time:\s*(.+)', text_clean, re.IGNORECASE)
-        if m_seen:
-            q.data['ns_last_seen'] = m_seen.group(1).strip()
-            _reset_ns_timer(q)
-            return
-
-        m_email = re.search(r'E-mail address:\s*(.+)', text_clean, re.IGNORECASE)
-        if m_email:
-            q.data['ns_email'] = m_email.group(1).strip()
-            _reset_ns_timer(q)
-            return
-
-        m_opts = re.search(r'Options:\s*(.+)', text_clean, re.IGNORECASE)
-        if m_opts:
-            q.data['ns_options'] = m_opts.group(1).strip()
-            _reset_ns_timer(q)
-            return
-
-        # Any other line for this nick resets the silence timer to ensure we capture all lines
+    # Parse fields
+    m_reg = re.search(r'^(?:Time\s+registered|User\s+reg\.|Registered(?:\s+on)?|Account\s+created)\s*:\s*(.+)', text_clean, re.IGNORECASE)
+    if m_reg:
+        q.data['ns_registered'] = m_reg.group(1).strip()
+        q.data['is_registered'] = True
         _reset_ns_timer(q)
+        return
+
+    m_seen = re.search(r'^(?:Last\s+seen(?:\s+time)?|Last\s+quit)\s*:\s*(.+)', text_clean, re.IGNORECASE)
+    if m_seen:
+        q.data['ns_last_seen'] = m_seen.group(1).strip()
+        q.data['is_registered'] = True
+        _reset_ns_timer(q)
+        return
+
+    m_email = re.search(r'^(?:E-?mail(?:\s+address)?)\s*:\s*(.+)', text_clean, re.IGNORECASE)
+    if m_email:
+        q.data['ns_email'] = m_email.group(1).strip()
+        q.data['is_registered'] = True
+        _reset_ns_timer(q)
+        return
+
+    m_opts = re.search(r'^(?:Options|Flags|Metadata)\s*:\s*(.+)', text_clean, re.IGNORECASE)
+    if m_opts:
+        q.data['ns_options'] = m_opts.group(1).strip()
+        q.data['is_registered'] = True
+        _reset_ns_timer(q)
+        return
+
+    # Any other notice line from NickServ during an active query confirms registration and resets timer
+    q.data['is_registered'] = True
+    _reset_ns_timer(q)
 
 
 
@@ -1307,25 +1385,29 @@ def _cmd_ip(bot, dest: str, rest: str):
         _reply(bot, dest, 'Usage: !ip <address|nick>')
         return
 
-    # Check if it looks like a nick (no dots, colons, or slashes) and look up in DB
-    if not re.search(r'[.:/*?]', target):
-        # Treat as a nick — look up their IP
-        with _db_lock, _get_conn() as conn:
+    # Check if target is an IP address vs a nickname
+    if _is_valid_ip(target) or re.search(r'[.:]', target):
+        ip_target = target
+    else:
+        # Treat as a nick — look up their IP in the DB
+        with _db_lock, _get_db() as conn:
             row = conn.execute(
                 'SELECT ip, nick FROM users WHERE nick_lower = ?',
                 (target.lower(),)
             ).fetchone()
         if row and row['ip']:
             ip_target = row['ip']
-            _reply(bot, dest, f'ip: {ip_target}')
         elif row:
             _reply(bot, dest, f'{target} is known but IP is not available.')
             return
         else:
             _reply(bot, dest, f'No record found for nick: {target}')
             return
-    else:
-        ip_target = target
+
+    # Validate ip_target contains only valid IP/hostname characters before requesting API
+    if not re.match(r'^[a-zA-Z0-9.:_-]+$', ip_target):
+        _reply(bot, dest, f'Invalid IP address or target: {ip_target}')
+        return
 
     # Geo lookup via ipinfo.io (matches original Harambe output)
     try:
@@ -1335,6 +1417,7 @@ def _cmd_ip(bot, dest: str, rest: str):
         )
         data = resp.json()
     except Exception as e:
+        LOG.warning('harambe: ipinfo request failed for %s: %s', ip_target, e)
         _reply(bot, dest, f'IP lookup failed: {e}')
         return
 
@@ -1359,46 +1442,47 @@ def _cmd_ip(bot, dest: str, rest: str):
 
 
 def _cmd_clones(bot, dest: str, rest: str):
-    """Handle !clones — find all nicks sharing the same IP or host."""
+    """Handle !clones — find all nicks sharing the same IP, host, or vhost."""
     target = rest.strip()
     if not target:
-        _reply(bot, dest, 'Usage: !clones <nick|ip>')
+        _reply(bot, dest, 'Usage: !clones <nick|ip|host>')
         return
-
-    # Check if target is an IP (contains dots or colons)
-    is_ip = bool(re.search(r'[.:]', target))
 
     ip_to_search = None
     host_to_search = None
     nick_searched = None
 
-    if is_ip:
+    if _is_valid_ip(target):
         ip_to_search = target
     else:
-        # Treat as nick, look up in DB
-        with _db_lock, _get_conn() as conn:
+        # Check if target is a known nick in DB
+        with _db_lock, _get_db() as conn:
             row = conn.execute(
                 'SELECT ip, host, vhost FROM users WHERE nick_lower = ?',
                 (target.lower(),)
             ).fetchone()
         if row:
             nick_searched = target
-            ip_to_search = row['ip']
-            host_to_search = row['host']  # Use real host, not vhost
+            ip_to_search = row['ip'] if row['ip'] and row['ip'] not in ('*', '') else None
+            host_to_search = row['host'] if row['host'] and row['host'] not in ('*', '') else None
         else:
-            _reply(bot, dest, f'No record found for nick: {target}')
-            return
+            # Treat as a hostname / vhost
+            if target not in ('*', ''):
+                host_to_search = target
+            else:
+                _reply(bot, dest, f'Invalid target: {target}')
+                return
 
     if not ip_to_search and not host_to_search:
         _reply(bot, dest, f'No IP/host available for {target} to find clones.')
         return
 
-    # Now search for other users with same IP or same real host (not vhost)
-    with _db_lock, _get_conn() as conn:
+    # Search for other users with matching IP or real host / vhost
+    with _db_lock, _get_db() as conn:
         if ip_to_search and host_to_search:
             rows = conn.execute(
-                'SELECT * FROM users WHERE (ip = ? OR host = ?) AND nick_lower != ?',
-                (ip_to_search, host_to_search, (nick_searched or '').lower())
+                'SELECT * FROM users WHERE (ip = ? OR host = ? OR vhost = ?) AND nick_lower != ?',
+                (ip_to_search, host_to_search, host_to_search, (nick_searched or '').lower())
             ).fetchall()
         elif ip_to_search:
             rows = conn.execute(
@@ -1407,8 +1491,8 @@ def _cmd_clones(bot, dest: str, rest: str):
             ).fetchall()
         else:
             rows = conn.execute(
-                'SELECT * FROM users WHERE host = ? AND nick_lower != ?',
-                (host_to_search, (nick_searched or '').lower())
+                'SELECT * FROM users WHERE (host = ? OR vhost = ?) AND nick_lower != ?',
+                (host_to_search, host_to_search, (nick_searched or '').lower())
             ).fetchall()
 
     if not rows:
@@ -1445,7 +1529,7 @@ def _cmd_info(bot, dest: str, rest: str):
     if ns_data:
         _upsert_user(ns_data)
 
-    with _db_lock, _get_conn() as conn:
+    with _db_lock, _get_db() as conn:
         row = conn.execute(
             'SELECT * FROM users WHERE nick_lower = ?',
             (target.lower(),)
@@ -1487,8 +1571,12 @@ def _cmd_info(bot, dest: str, rest: str):
         if row['ns_options']:
             _reply(bot, dest, f'NS Options:    {row["ns_options"]}')
     else:
-        if ns_data and not ns_data['is_registered']:
+        if ns_data and not ns_data.get('is_registered'):
             _reply(bot, dest, 'NickServ:      Nick is not registered.')
+        elif row['account']:
+            _reply(bot, dest, f'NickServ:      Identified as account {row["account"]}.')
+        elif ns_data and ns_data.get('is_registered'):
+            _reply(bot, dest, 'NickServ:      Nick is registered (details hidden).')
         else:
             _reply(bot, dest, 'NickServ:      No registration info.')
 
@@ -1500,7 +1588,7 @@ def _cmd_last(bot, dest: str, rest: str):
         _reply(bot, dest, 'Usage: !last <nick>')
         return
 
-    with _db_lock, _get_conn() as conn:
+    with _db_lock, _get_db() as conn:
         row = conn.execute(
             'SELECT nick, last_seen FROM users WHERE nick_lower = ?',
             (target.lower(),)
@@ -1519,7 +1607,7 @@ def _cmd_last(bot, dest: str, rest: str):
             ago = f'{diff // 3600}h ago'
         else:
             ago = f'{diff // 86400}d ago'
-        _reply(bot, dest, f'{row["nick"]} was last seen on {seen_time} ({ago}).')
+        _reply(bot, dest, f'{row["nick"] or target} was last seen on {seen_time} ({ago}).')
 
 
 def _cmd_count(bot, dest: str, rest: str, case_sensitive: bool):
@@ -1539,25 +1627,28 @@ def _cmd_count(bot, dest: str, rest: str, case_sensitive: bool):
     like, esc = _wildcard_to_sql(pattern)
     col = field
 
-    with _db_lock, _get_conn() as conn:
-        if case_sensitive:
-            row = conn.execute(
-                f'SELECT COUNT(*) as cnt FROM users WHERE {col} GLOB ?',
-                (pattern,)
-            ).fetchone()
-        else:
-            row = conn.execute(
-                f'SELECT COUNT(*) as cnt FROM users WHERE {col} LIKE ? ESCAPE ?',
-                (like, esc)
-            ).fetchone()
-
-    count = row['cnt'] if row else 0
-    _reply(bot, dest, f'Found {count} matching records for {field} = {pattern}')
+    try:
+        with _db_lock, _get_db() as conn:
+            if case_sensitive:
+                row = conn.execute(
+                    f'SELECT COUNT(*) as cnt FROM users WHERE {col} GLOB ?',
+                    (pattern,)
+                ).fetchone()
+            else:
+                row = conn.execute(
+                    f'SELECT COUNT(*) as cnt FROM users WHERE {col} LIKE ? ESCAPE ?',
+                    (like, esc)
+                ).fetchone()
+        count = row['cnt'] if row else 0
+        _reply(bot, dest, f'Found {count} matching records for {field} = {pattern}')
+    except sqlite3.OperationalError as e:
+        LOG.warning('harambe: count error for field %s, pattern %r: %s', field, pattern, e)
+        _reply(bot, dest, f'Search error: invalid pattern \'{pattern}\'.')
 
 
 def _cmd_stats(bot, dest: str):
     """Handle !stats — display database summary statistics."""
-    with _db_lock, _get_conn() as conn:
+    with _db_lock, _get_db() as conn:
         total = conn.execute('SELECT COUNT(*) FROM users').fetchone()[0]
         if not total:
             _reply(bot, dest, 'Database is empty.')
@@ -1573,4 +1664,5 @@ def _cmd_stats(bot, dest: str):
     _reply(bot, dest, f'With registered NS:  {has_ns} ({has_ns * 100 // total}%)')
     _reply(bot, dest, f'With logged account: {has_acct} ({has_acct * 100 // total}%)')
     _reply(bot, dest, f'With client version: {has_ver} ({has_ver * 100 // total}%)')
+
 
