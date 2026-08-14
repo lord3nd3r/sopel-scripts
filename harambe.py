@@ -107,9 +107,24 @@ _is_oper = False
 _who_sent: set = set()
 # Channels that refused WHOX (fell back to plain WHO)
 _who_fallback: set = set()
+# Global WHO scan state
+_global_scan: dict = {}
+_global_scan_lock = threading.Lock()
+# Global-scan WHOIS enrichment progress
+_global_enrichment: dict = {
+    'total': 0,
+    'completed': 0,
+    'started': 0.0,
+    'destination': None,
+    'who_complete': False,
+    'next_report_percent': 5,
+}
+_global_enrichment_nicks: set = set()
 # Nicks queued for WHOIS when WHO replies give us hostnames but no IP
 _whois_queue: list = []
 _whois_queue_lock = threading.Lock()
+_whois_drain_timer: threading.Timer | None = None
+_whois_drain_lock = threading.Lock()
 
 # Mass-join flood detection state
 _join_events: list = []            # list of (timestamp, host, nick, channel)
@@ -353,8 +368,13 @@ def _row_to_str(row, exclude_fields: set | None = None) -> str:
     nick    = row['nick']    or row['nick_lower']
     ident   = row['ident']   or '~unknown'
     host    = row['host']    or '*'
-    parts   = [f'{nick}!{ident}@{host}']
     skip    = exclude_fields or set()
+    real_ip = row['ip'] if 'ip' not in skip else None
+    parts   = [f'{nick}!{ident}@{real_ip or host}']
+
+    if real_ip and host != real_ip:
+        parts.append(f'[cloak={host}]')
+        skip = skip | {'ip'}
 
     for field in ('vhost', 'name', 'ip', 'server', 'account', 'version', 'email', 'channels'):
         if field in skip:
@@ -407,6 +427,25 @@ def _finalize_whois(bot, nick_lower: str):
         data = _whois_pending.pop(nick_lower, None)
     if data:
         _upsert_user(data)
+        progress_message = None
+        progress_destination = None
+        with _global_scan_lock:
+            if nick_lower in _global_enrichment_nicks:
+                _global_enrichment_nicks.remove(nick_lower)
+                _global_enrichment['completed'] += 1
+                total = _global_enrichment['total']
+                completed = _global_enrichment['completed']
+                percent = completed * 100 // total if total else 100
+                if (_global_enrichment['who_complete']
+                        and percent >= _global_enrichment['next_report_percent']):
+                    milestone = min(100, (percent // 5) * 5)
+                    _global_enrichment['next_report_percent'] = milestone + 5
+                    progress_destination = _global_enrichment['destination']
+                    progress_message = (
+                        f'WHOIS enrichment: {completed}/{total} ({percent}%).'
+                    )
+        if progress_destination and progress_message:
+            bot.say(progress_message, progress_destination)
         # Only probe for CTCP VERSION if we have confirmed oper AND credentials are configured
         oper_configured = bool((bot.config.harambe.oper_name or '').strip())
         if _is_oper and oper_configured:
@@ -443,13 +482,44 @@ def _cfg_int(bot, name: str, default: int) -> int:
         return default
 
 
-def _queue_whois(nick: str):
-    """Queue a nick for a rate-limited WHOIS (drained by interval job)."""
+def _queue_whois(bot, nick: str):
+    """Queue a nick for a rate-limited WHOIS, then ensure the drain timer is running.
+
+    Draining is self-scheduled (threading.Timer) rather than an @plugin.interval
+    job: ibot's rehash reloads this module and resets its globals, but never
+    restarts already-running interval tasks, which would otherwise keep
+    draining an orphaned queue from the pre-rehash module instance forever.
+    """
     if not nick:
         return
     with _whois_queue_lock:
         if nick.lower() not in [n.lower() for n in _whois_queue]:
             _whois_queue.append(nick)
+    _schedule_whois_drain(bot)
+
+
+def _schedule_whois_drain(bot):
+    global _whois_drain_timer
+    with _whois_drain_lock:
+        if _whois_drain_timer is not None:
+            return
+        timer = threading.Timer(3.0, _drain_whois_once, args=(bot,))
+        timer.daemon = True
+        _whois_drain_timer = timer
+        timer.start()
+
+
+def _drain_whois_once(bot):
+    global _whois_drain_timer
+    with _whois_drain_lock:
+        _whois_drain_timer = None
+    with _whois_queue_lock:
+        nick = _whois_queue.pop(0) if _whois_queue else None
+        pending = bool(_whois_queue)
+    if nick:
+        _start_whois(bot, nick)
+    if pending:
+        _schedule_whois_drain(bot)
 
 
 def _sweep_channels(bot):
@@ -462,6 +532,31 @@ def _sweep_channels(bot):
         # WHOX: %c=chan %u=ident %h=host %s=server %n=nick %a=account %r=realname
         bot.write(['WHO', str(chan), '%cuhsnfar,995'])
         LOG.info('harambe: WHO sweep sent for %s', chan)
+
+
+def _start_global_scan(bot, requester: str) -> bool:
+    """Start a network-wide WHO scan. Returns False if one is already running."""
+    with _global_scan_lock:
+        if _global_scan.get('active'):
+            return False
+        _global_scan.update({
+            'active': True,
+            'requester': requester,
+            'started': time.time(),
+            'count': 0,
+        })
+        _global_enrichment.update({
+            'total': 0,
+            'completed': 0,
+            'started': time.time(),
+            'destination': requester,
+            'who_complete': False,
+            'next_report_percent': 5,
+        })
+        _global_enrichment_nicks.clear()
+    LOG.info('harambe: network-wide WHO scan started for %s', requester)
+    bot.write(['WHO', '*'])
+    return True
 
 
 def _record_join(bot, nick: str, host: str, channel: str):
@@ -507,18 +602,6 @@ def _record_join(bot, nick: str, host: str, channel: str):
         f'joined {channel} in {window}s — nicks: {", ".join(sorted(nicks))}',
         access_channel,
     )
-
-
-@plugin.interval(3)
-def drain_whois_queue(bot):
-    """Rate-limit WHOIS requests triggered by plain WHO fallback replies."""
-    if not _is_oper:
-        return
-    with _whois_queue_lock:
-        if not _whois_queue:
-            return
-        nick = _whois_queue.pop(0)
-    _start_whois(bot, nick)
 
 
 @plugin.interval(30)
@@ -622,7 +705,7 @@ def whox_reply(bot, trigger):
 @plugin.priority('low')
 @plugin.thread(True)
 def who_reply(bot, trigger):
-    """Parse plain WHO 352 replies (fallback when WHOX is refused).
+    """Parse plain WHO 352 replies (fallback or network-wide scan).
     Wire: <me> <chan> <ident> <host> <server> <nick> <flags> :<hop> <realname>
     ibot keeps the botnick as args[0], so:
     args = [me, chan, ident, host, server, nick, flags]
@@ -632,18 +715,62 @@ def who_reply(bot, trigger):
     if len(args) < 7:
         return
     chan = args[1]
-    if chan.lower() not in _who_fallback:
-        return  # not from our sweep (some other plugin asked for WHO)
     nick = args[5]
-    _upsert_user({
+    record = {
         'nick':  nick,
         'ident': args[2],
         'host':  args[3],
         'server': args[4],
         'name':  re.sub(r'^\d+\s+', '', trigger.text or ''),
-    })
+    }
+
+    with _global_scan_lock:
+        if _global_scan.get('active'):
+            _global_scan['count'] += 1
+            if nick.lower() not in _global_enrichment_nicks:
+                _global_enrichment_nicks.add(nick.lower())
+                _global_enrichment['total'] += 1
+            global_scan_active = True
+        else:
+            global_scan_active = False
+
+    if global_scan_active:
+        _upsert_user(record)
+        # The connection can remain oper after a rehash even when _is_oper is
+        # stale, so always queue enrichment for an explicit global scan.
+        _queue_whois(bot, nick)
+        return
+
+    if chan.lower() not in _who_fallback:
+        return  # not from our sweep (some other plugin asked for WHO)
+    _upsert_user(record)
     if _is_oper:
-        _queue_whois(nick)
+        _queue_whois(bot, nick)
+
+
+@plugin.event('315')  # RPL_ENDOFWHO — global scan or channel fallback completed
+@plugin.priority('low')
+@plugin.thread(True)
+def who_end(bot, trigger):
+    """Report completion for the network-wide WHO scan."""
+    with _global_scan_lock:
+        if not _global_scan.get('active'):
+            return
+        requester = _global_scan.get('requester')
+        count = int(_global_scan.get('count', 0))
+        elapsed = max(1, int(time.time() - _global_scan.get('started', time.time())))
+        _global_scan.clear()
+        _global_enrichment['who_complete'] = True
+        total = int(_global_enrichment['total'])
+        completed = int(_global_enrichment['completed'])
+        percent = completed * 100 // total if total else 0
+    if requester:
+        bot.say(
+            f'Network scan complete: collected {count} user records in {elapsed}s; '
+            f'WHOIS enrichment: {completed}/{total} ({percent}%).',
+            requester,
+        )
+    LOG.info('harambe: network-wide WHO scan complete: %d records in %ds', count, elapsed)
 
 
 @plugin.event('403')  # ERR_NOSUCHCHANNEL — WHOX refused, fall back to plain WHO
@@ -986,12 +1113,12 @@ def _reply(bot, dest: str, text: str):
 # ! as the prefix without changing the bot's global prefix.
 
 _CMD_RE = re.compile(
-    r'^!(?P<cmd>help|commands|ping|p|search|s|csearch|cs|ip|clones|info|last|count|ccount|stats|scan)(?:\s+(?P<rest>.*))?$',
+    r'^!(?P<cmd>help|commands|ping|p|search|s|csearch|cs|ip|clones|info|last|count|ccount|stats|scan|scanall|scanstatus)(?:\s+(?P<rest>.*))?$',
     re.IGNORECASE
 )
 
 
-@plugin.rule(r'^!(?:help|commands|ping|p|search|s|csearch|cs|ip|clones|info|last|count|ccount|stats|scan)(?:\s|$)')
+@plugin.rule(r'^!(?:help|commands|ping|p|search|s|csearch|cs|ip|clones|info|last|count|ccount|stats|scan|scanall|scanstatus)(?:\s|$)')
 @plugin.priority('low')
 @plugin.thread(True)
 def harambe_dispatch(bot, trigger):
@@ -1031,6 +1158,22 @@ def harambe_dispatch(bot, trigger):
             _reply(bot, dest, 'Started a WHO scan of all joined channels.')
         return
 
+    if cmd == 'scanall':
+        if not _is_authorized(bot, trigger):
+            _reply(bot, dest, 'Access denied. You are not authorized to use Harambe.')
+        elif _start_global_scan(bot, dest):
+            _reply(bot, dest, 'Started a network-wide WHO scan. This may take a moment.')
+        else:
+            _reply(bot, dest, 'A network-wide scan is already running.')
+        return
+
+    if cmd == 'scanstatus':
+        if not _is_authorized(bot, trigger):
+            _reply(bot, dest, 'Access denied. You are not authorized to use Harambe.')
+        else:
+            _cmd_scanstatus(bot, dest)
+        return
+
     # All search commands require authorization
     if not _is_authorized(bot, trigger):
         _reply(bot, dest, 'Access denied. You are not authorized to use Harambe.')
@@ -1066,11 +1209,39 @@ def _cmd_help(bot, dest: str):
         '!last <nick>                     — check when the user was last seen',
         '!count/!ccount <field> <pattern> — count matching records (case-insensitive/sensitive)',
         '!stats                           — show database metrics',
+        '!scan                            — scan users in joined channels',
+        '!scanall                         — network-wide WHO scan (oper)',
+        '!scanstatus                      — show global WHOIS enrichment progress',
         '!ping (!p)                       — liveness check',
         '!help (!commands)                — this message',
     ]
     for line in lines:
         _reply(bot, dest, line)
+
+
+def _cmd_scanstatus(bot, dest: str):
+    """Report progress for the most recent global scan's WHOIS enrichment."""
+    with _global_scan_lock:
+        total = int(_global_enrichment['total'])
+        completed = int(_global_enrichment['completed'])
+        active = bool(_global_scan.get('active'))
+    with _whois_queue_lock:
+        queued = len(_whois_queue)
+    with _whois_lock:
+        in_flight = len(_whois_pending)
+
+    if not total:
+        _reply(bot, dest, 'No global scan enrichment is in progress.')
+        return
+
+    percent = completed * 100 // total
+    state = 'WHO pass running' if active else 'WHO pass complete'
+    _reply(
+        bot,
+        dest,
+        f'Global scan: {completed}/{total} enriched ({percent}%); '
+        f'{queued} queued, {in_flight} in flight ({state}).',
+    )
 
 
 def _cmd_search(bot, dest: str, rest: str, case_sensitive: bool):
