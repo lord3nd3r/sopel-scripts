@@ -986,12 +986,12 @@ def _reply(bot, dest: str, text: str):
 # ! as the prefix without changing the bot's global prefix.
 
 _CMD_RE = re.compile(
-    r'^!(?P<cmd>help|commands|ping|p|search|s|csearch|cs|ip|clones|info|last|count|ccount|stats)(?:\s+(?P<rest>.*))?$',
+    r'^!(?P<cmd>help|commands|ping|p|search|s|csearch|cs|ip|clones|info|last|count|ccount|stats|scan)(?:\s+(?P<rest>.*))?$',
     re.IGNORECASE
 )
 
 
-@plugin.rule(r'^!(?:help|commands|ping|p|search|s|csearch|cs|ip|clones|info|last|count|ccount|stats)(?:\s|$)')
+@plugin.rule(r'^!(?:help|commands|ping|p|search|s|csearch|cs|ip|clones|info|last|count|ccount|stats|scan)(?:\s|$)')
 @plugin.priority('low')
 @plugin.thread(True)
 def harambe_dispatch(bot, trigger):
@@ -1017,6 +1017,19 @@ def harambe_dispatch(bot, trigger):
 
     if cmd in ('ping', 'p'):
         _reply(bot, dest, 'PONG! I am alive and watching.')
+        return
+
+    if cmd == 'scan':
+        if not _is_authorized(bot, trigger):
+            _reply(bot, dest, 'Access denied. You are not authorized to use Harambe.')
+        elif not _is_oper:
+            _oper_up(bot)
+            _reply(bot, dest, 'Requested oper status; the scan will begin once the server confirms it.')
+        else:
+            _who_sent.clear()
+            _who_fallback.clear()
+            _sweep_channels(bot)
+            _reply(bot, dest, 'Started a WHO scan of all joined channels.')
         return
 
     # All search commands require authorization
