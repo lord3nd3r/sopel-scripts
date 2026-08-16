@@ -844,6 +844,43 @@ def _is_channel_op(bot, trigger, channel=None):
         return False
     return False
 
+
+def _get_channel_obj(bot, channel_name):
+    """Safely fetch channel object from bot.channels case-insensitively."""
+    try:
+        chans = getattr(bot, 'channels', {})
+        if not chans:
+            return None
+        if channel_name in chans:
+            return chans[channel_name]
+        low = channel_name.lower()
+        for k, v in chans.items():
+            if str(k).lower() == low:
+                return v
+    except Exception:
+        pass
+    return None
+
+
+def _is_user_in_channel(bot, nick, channel_name):
+    """Check if nick is joined to target channel alongside the bot."""
+    try:
+        chan_obj = _get_channel_obj(bot, channel_name)
+        if not chan_obj:
+            return False
+        users = getattr(chan_obj, 'users', None)
+        if users is not None:
+            nick_low = nick.lower()
+            return any(str(u).lower() == nick_low for u in users)
+        privs = getattr(chan_obj, 'privileges', None) or getattr(chan_obj, 'privs', None)
+        if isinstance(privs, dict):
+            nick_low = nick.lower()
+            return any(str(u).lower() == nick_low for u in privs.keys())
+    except Exception:
+        pass
+    return False
+
+
 def _init_db(bot):
     path = bot.memory.get('grok_db_path')
     if not path:
@@ -1564,8 +1601,12 @@ def _api_worker(*, bot, trigger, messages, review_mode, is_pm, bot_nick, chan_lo
         except Exception:
             pass
 
-        if is_action:
-            final_reply = reply
+        is_reply_action = reply.lstrip().startswith('ACTION ')
+        if is_action or is_reply_action:
+            if is_action and not is_reply_action:
+                final_reply = f"ACTION {reply}"
+            else:
+                final_reply = reply
         elif not is_chimein and trigger.nick.lower() not in reply.lower() and not _is_owner(bot, trigger):
             # Check if the reply already addresses someone in the channel
             # (e.g. relay/tell: "Glitchy tell Milamber ..." → AI replies "milamber ...")
@@ -1588,10 +1629,7 @@ def _api_worker(*, bot, trigger, messages, review_mode, is_pm, bot_nick, chan_lo
         _typing_delay = random.uniform(TYPING_DELAY_MIN, TYPING_DELAY_MAX)
         time.sleep(_typing_delay)
 
-        if is_action:
-            bot.action(final_reply, trigger.sender)
-        else:
-            send(bot, trigger.sender, final_reply)
+        send(bot, trigger.sender, final_reply)
 
         # Chime-ins are not part of any user's conversation — logging them into
         # the triggering user's history would make the bot "remember" a chat
@@ -3105,15 +3143,40 @@ def handle(bot, trigger):
     else:
         channel_entries = []
         if is_pm:
-            with chan_lock:
-                dq = bot.memory.get('grok_history', {}).get(per_conv_key, None)
-                if dq:
-                    for item in list(dq):
+            pm_chans = re.findall(r'#[a-zA-Z][a-zA-Z0-9_\|-]*', user_message)
+            pm_chan_loaded = False
+            if pm_chans:
+                for chan in pm_chans:
+                    chan_low = chan.lower()
+                    chan_obj = _get_channel_obj(bot, chan)
+                    has_log = chan_low in bot.memory.get('grok_channel_log', {})
+                    if not chan_obj and not has_log:
                         try:
-                            nick, text = item.split(": ", 1)
+                            bot.say(f"I'm not in {chan}.", trigger.sender)
                         except Exception:
-                            continue
-                        channel_entries.append((nick, text))
+                            pass
+                        return
+                    if not (_is_admin(bot, trigger) or _is_user_in_channel(bot, trigger.nick, chan)):
+                        try:
+                            bot.say(f"You must be in {chan} to ask about it.", trigger.sender)
+                        except Exception:
+                            pass
+                        return
+                    with _get_channel_lock(bot, chan_low):
+                        chan_log_dq = bot.memory.get('grok_channel_log', {}).get(chan_low)
+                        if chan_log_dq:
+                            channel_entries.extend([(n, t) for n, t, _ in chan_log_dq])
+                    pm_chan_loaded = True
+            if not pm_chan_loaded:
+                with chan_lock:
+                    dq = bot.memory.get('grok_history', {}).get(per_conv_key, None)
+                    if dq:
+                        for item in list(dq):
+                            try:
+                                nick, text = item.split(": ", 1)
+                            except Exception:
+                                continue
+                            channel_entries.append((nick, text))
         else:
             with chan_lock:
                 chan_log_dq = bot.memory.get('grok_channel_log', {}).get(
@@ -3190,6 +3253,59 @@ def handle(bot, trigger):
                     })
             except Exception:
                 pass
+        else:
+            pm_chans = re.findall(r'#[a-zA-Z][a-zA-Z0-9_\|-]*', user_message)
+            if pm_chans:
+                for chan in pm_chans:
+                    chan_low = chan.lower()
+                    chan_obj = _get_channel_obj(bot, chan)
+                    has_log = chan_low in bot.memory.get('grok_channel_log', {})
+                    if not chan_obj and not has_log:
+                        try:
+                            bot.say(f"I'm not in {chan}.", trigger.sender)
+                        except Exception:
+                            pass
+                        return
+                    if not (_is_admin(bot, trigger) or _is_user_in_channel(bot, trigger.nick, chan)):
+                        try:
+                            bot.say(f"You must be in {chan} to ask about it.", trigger.sender)
+                        except Exception:
+                            pass
+                        return
+                    try:
+                        channel_bg = []
+                        target_lock = _get_channel_lock(bot, chan_low)
+                        with target_lock:
+                            chan_log_dq = bot.memory.get('grok_channel_log', {}).get(chan_low)
+                            if chan_log_dq:
+                                channel_bg = [(n, t) for n, t, _ in chan_log_dq]
+                        BG_MAX_LINES = 150
+                        bg_collected = []
+                        bg_chars = 0
+                        for n, t in reversed(channel_bg):
+                            l = len(n) + len(t) + 3
+                            if bg_chars + l > BG_CHAR_BUDGET and bg_collected:
+                                break
+                            if len(bg_collected) >= BG_MAX_LINES:
+                                break
+                            bg_collected.append((n, t))
+                            bg_chars += l
+                        bg_collected.reverse()
+                        bg_lines = [f"{n}: {t}" for n, t in bg_collected]
+                        bg_text = "\n".join(bg_lines)
+                        if len(bg_text) > BG_CHAR_BUDGET:
+                            bg_text = "... (older messages truncated)\n" + bg_text[-BG_CHAR_BUDGET + 30:]
+                        if bg_text:
+                            messages.append({
+                                "role": "system",
+                                "content": (
+                                    f"Recent conversation log from {chan} (the user is asking about {chan} via PM). "
+                                    "Answer their question accurately based on this channel log:\n\n"
+                                    + bg_text
+                                ),
+                            })
+                    except Exception:
+                        pass
         for nick, text in relevant_turns[-MAX_HISTORY_PER_USER:]:
             role = "assistant" if nick == bot_nick else "user"
             messages.append({"role": role, "content": text})
