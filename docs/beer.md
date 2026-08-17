@@ -36,6 +36,7 @@ All prices are in **coins** (🪙).
 | `$sake [nick]` | — | 9 🪙 | Sake 🍶 |
 | `$liqueur [nick]` | `$cordial` | 8 🪙 | Liqueur 🍯🥃 |
 | `$wine [nick]` | — | 8 🪙 | Glass of wine 🍷 |
+| `$cava [nick]` | `$prosecco` | 8 🪙 | Sparkling Cava 🍾🥂 |
 | `$mead [nick]` | — | 7 🪙 | Horn of mead ⚔️🍯 |
 | `$magners [nick]` | — | 6 🪙 | Magners cider 🍎🍺 |
 | `$drink [nick]` | — | 10 🪙 | Mixed drink 🍹 |

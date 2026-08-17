@@ -325,6 +325,7 @@ A virtual bartender with a tipping economy integrated with the **mug** game's co
 | `$sake [nick]` | Serve sake (9 🪙) | `$sake` |
 | `$liqueur [nick]` / `$cordial` | Serve a liqueur (8 🪙) | `$liqueur` |
 | `$wine [nick]` | Serve a glass of wine (8 🪙) | `$wine` |
+| `$cava [nick]` / `$prosecco` | Serve a sparkling Cava (8 🪙) | `$cava` |
 | `$mead [nick]` | Serve a horn of mead (7 🪙) | `$mead` |
 | `$magners [nick]` | Serve a Magners cider (6 🪙) | `$magners` |
 | `$drink [nick]` | Serve a mixed drink (10 🪙) | `$drink` |

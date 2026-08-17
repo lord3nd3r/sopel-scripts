@@ -186,6 +186,7 @@ PRICES = {
     'liqueur': 8,
     'mead': 7,
     'wine': 8,
+    'cava': 8,
     'magners': 6,
     'mocktail': 4,
     'coffee': 3,
@@ -656,9 +657,28 @@ WINES = [
     "a sweet Dessert Wine 🍷🍯",
     "a fortified Port 🍷🇵🇹",
     "a nutty Sherry 🍷🥜",
-    "a complex Chianti 🍷🇮🇹",
-    "a smooth Rioja 🍷🇪🇸",
-    "a premium Barolo 🍷👑",
+    'a complex Chianti 🍷🇮🇹',
+    'a smooth Rioja 🍷🇪🇸',
+    'a premium Barolo 🍷👑',
+]
+
+# List of Spanish Cavas & sparkling wines to give out
+CAVAS = [
+    "a bottle of Freixenet Cordón Negro Brut 🍾🇪🇸",
+    "a glass of Segura Viudas Brut Reserva 🥂🇪🇸",
+    "a bottle of Codorníu Clásico Brut 🍾✨",
+    "a crisp Gramona Imperial Corpinnat 🥂🇪🇸✨",
+    "a chilled Juvé & Camps Reserva de la Familia 🍾🧊🇪🇸",
+    "a glass of Llopart Brut Nature 🥂🍾🇪🇸",
+    "a bottle of Recaredo Terrers Brut Nature 🍾🇪🇸",
+    "a refreshing Cava Rosé 🥂🌹🇪🇸",
+    "a glass of Bohigas Brut Reserva 🥂🇪🇸",
+    "a bottle of Raventós i Blanc de Nit 🍾🌸🇪🇸",
+    "a frosty glass of vintage Cava 🥂✨🇪🇸",
+    "a sparkling Cava Brut Nature 🍾🥂🇪🇸",
+    "a glass of Roger Goulart Gran Reserva 🥂👑🇪🇸",
+    "a festive bottle of Spanish Cava 🍾🎉🇪🇸",
+    "a chilled Cava semi-seco 🥂🍊🇪🇸",
 ]
 
 # List of mocktails (non-alcoholic)
@@ -1143,6 +1163,20 @@ WINE_MESSAGES = [
     "swirls and serves {drink} to {user} 🍷✨",
 ]
 
+# Cava giving messages (sparkling Spanish wine)
+CAVA_MESSAGES = [
+    "slides {drink} across the bar to {user} ✨",
+    "pops the cork on {drink} for {user} *POP!* 🍾🥂",
+    "pours a bubbly glass of {drink} for {user} - ¡Salud! 🥂🇪🇸",
+    "serves {user} {drink} - cheers! 🥂",
+    "conjures {drink} out of thin air for {user} ✨🎩",
+    "uncorks {drink} with a loud pop for {user} 🍾✨",
+    "ceremoniously presents {user} with {drink} 🎊",
+    "teleports {drink} directly into {user}'s hand 🚀✨",
+    "pours a sparkling glass of {drink} for {user} 🥂✨",
+    "chills and pours {drink} for {user} 🧊🥂",
+]
+
 # Coffee giving messages
 COFFEE_MESSAGES = [
     "slides {drink} across the counter to {user} ✨",
@@ -1331,6 +1365,14 @@ def wine(bot, trigger):
     _serve_item(bot, trigger, 'wine', WINES, WINE_MESSAGES)
 
 
+@module.commands('cava', 'prosecco')
+@module.example('$cava', 'Give yourself a random Cava')
+@module.example('$cava username', 'Give a user a random Cava')
+def cava(bot, trigger):
+    """Give someone a bottle/glass of sparkling Cava! ¡Salud! 🍾🥂"""
+    _serve_item(bot, trigger, 'cava', CAVAS, CAVA_MESSAGES)
+
+
 @module.commands('mocktail', 'virgin')
 @module.example('$mocktail', 'Give yourself a random non-alcoholic drink')
 @module.example('$mocktail username', 'Give a user a random non-alcoholic drink')
@@ -1392,7 +1434,7 @@ def surprise(bot, trigger):
         target_user = trigger.group(2).strip()
     
     # Combine all drink lists
-    all_drinks = BEERS + SHOTS + MAGNERS + WHISKEYS + VODKAS + RUMS + TEQUILAS + GINS + BRANDIES + MARGARITAS + SAKES + LIQUEURS + MEADS + MIXED_DRINKS + WINES + MOCKTAILS + COFFEES + DECAFS + TEAS + WATERS
+    all_drinks = BEERS + SHOTS + MAGNERS + WHISKEYS + VODKAS + RUMS + TEQUILAS + GINS + BRANDIES + MARGARITAS + SAKES + LIQUEURS + MEADS + MIXED_DRINKS + WINES + CAVAS + MOCKTAILS + COFFEES + DECAFS + TEAS + WATERS
     all_foods = PIZZAS + APPETIZERS
     
     # Randomly decide if it's a drink or food
@@ -1400,7 +1442,9 @@ def surprise(bot, trigger):
         # It's a drink
         chosen_item = random.choice(all_drinks)
         # Pick appropriate message based on item characteristics
-        if any(word in chosen_item.lower() for word in ['wine', 'champagne', 'prosecco', 'cava']):
+        if any(word in chosen_item.lower() for word in ['cava', 'champagne', 'prosecco']):
+            giving_message = random.choice(CAVA_MESSAGES)
+        elif any(word in chosen_item.lower() for word in ['wine']):
             giving_message = random.choice(WINE_MESSAGES)
         elif any(word in chosen_item.lower() for word in ['coffee', 'espresso', 'latte', 'cappuccino']):
             giving_message = random.choice(COFFEE_MESSAGES)
@@ -1486,6 +1530,7 @@ def barhelp(bot, trigger):
         "  $sake [user] ............ 9 coins",
         "  $liqueur [user] ......... 8 coins",
         "  $wine [user] ............ 8 coins",
+        "  $cava [user] ............ 8 coins",
         "  $mead [user] ............ 7 coins",
         "  $magners [user] ......... 6 coins",
         "",
