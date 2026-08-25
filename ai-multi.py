@@ -233,7 +233,7 @@ _WHAT_REMEMBER_RE = re.compile(
 )
 
 # Max persistent facts per user
-MAX_USER_FACTS = 50
+MAX_USER_FACTS = 200
 
 # Conversation rows in grok_user_history older than this get pruned
 HISTORY_RETENTION_DAYS = 30
@@ -1766,6 +1766,8 @@ def _db_add_profile_fact(bot, nick, fact, updated_by):
                 facts = json.loads(row[0]) if row[0] else []
                 if fact not in facts:
                     facts.append(fact)
+                    if len(facts) > MAX_USER_FACTS:
+                        facts = facts[-MAX_USER_FACTS:]
                     c.execute(
                         'UPDATE grok_user_profiles SET facts = ?, last_updated = ?, updated_by = ? WHERE nick = ?',
                         (json.dumps(facts), now_ts, updated_by.lower(), nick.lower())
@@ -2648,9 +2650,6 @@ def handle(bot, trigger):
                     return
                 _existing_profile = _db_get_user_profile(bot, trigger.nick)
                 _existing_facts = (_existing_profile or {}).get('facts', [])
-                if len(_existing_facts) >= MAX_USER_FACTS:
-                    bot.say("I'm remembering too many things already — try telling me to forget something first", trigger.sender)
-                    return
                 # Check for duplicate
                 _fact_lower = _fact.lower()
                 if any(_fact_lower == f.lower() for f in _existing_facts):

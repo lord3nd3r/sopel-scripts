@@ -1044,7 +1044,18 @@ PM-only scanner to identify network/server IRC operators in a channel.
 
 ## 🔗 url_titles — URL Title Fetcher
 
-Automatically fetches and displays the HTML `<title>` tag of URLs posted in chat. Skips YouTube domains.
+Automatically fetches and displays the HTML `<title>` tag of URLs posted in chat. Skips YouTube domains. Channel ops and admins can toggle title fetching on or off per channel.
+
+### Commands
+
+| Command | Who | Description |
+|---------|-----|-------------|
+| `$urltitle on` | Halfop+ / Admin | Enable automatic URL title fetching in this channel |
+| `$urltitle off` | Halfop+ / Admin | Disable automatic URL title fetching in this channel |
+| `$urltitle` | Anyone | Check whether URL title fetching is enabled |
+
+* **Aliases:** `$urltitles`
+* **Permissions:** Changing toggles requires halfop+ (`%`) or bot admin/owner. State is saved per-channel in SQLite DB across restarts.
 
 📖 **Full docs:** [docs/url_titles.md](docs/url_titles.md)
 

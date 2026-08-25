@@ -88,3 +88,8 @@ def test_sanitize_reply():
     assert len(out) <= 1405
 
 
+def test_max_user_facts_limit():
+    assert ai_multi.MAX_USER_FACTS == 200
+
+
+
