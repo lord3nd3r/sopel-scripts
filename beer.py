@@ -236,6 +236,21 @@ def _choose_item(item_type, item_list):
         return chosen_item
 
 
+BOT_DRINK_RECEPTION_MESSAGES = [
+    "happily accepts {drink} from {sender}, raises a glass 🍻 and cheers!",
+    "thanks {sender}, takes a nice big sip of {drink} 🍺 and smiles!",
+    "catches {drink} slid down the bar by {sender}, takes a gulp 🍻 and nods in thanks!",
+    "sparks up a smile, toasts {sender} with {drink} 🥃 and takes a smooth sip!",
+    "pours a little {drink} out for the channel, thanks {sender}, and drinks up! 🍻",
+]
+
+BOT_FOOD_RECEPTION_MESSAGES = [
+    "happily accepts {food} from {sender}, takes a big bite 🍕 and says thanks!",
+    "grabs {food} courtesy of {sender}, munches away 🍿 and gives a thumbs up!",
+    "thanks {sender} for {food}, takes a delicious bite 🍔 and grins!",
+]
+
+
 def _serve_item(bot, trigger, item_type, item_list, message_list, placeholder_key='drink'):
     """Generic handler for serving any drink or food item.
     
@@ -265,10 +280,19 @@ def _serve_item(bot, trigger, item_type, item_list, message_list, placeholder_ke
         
         # Select random item and message
         chosen_item = _choose_item(item_type, item_list)
-        giving_message = random.choice(message_list)
         
         # Format and send message
-        message = giving_message.format(**{placeholder_key: chosen_item, 'user': target_user})
+        bot_nick = (getattr(bot, 'nick', '') or '').lower()
+        if target_user.lower() == bot_nick:
+            if placeholder_key == 'food':
+                giving_message = random.choice(BOT_FOOD_RECEPTION_MESSAGES)
+            else:
+                giving_message = random.choice(BOT_DRINK_RECEPTION_MESSAGES)
+            message = giving_message.format(**{placeholder_key: chosen_item, 'sender': trigger.nick, 'user': trigger.nick})
+        else:
+            giving_message = random.choice(message_list)
+            message = giving_message.format(**{placeholder_key: chosen_item, 'user': target_user, 'sender': trigger.nick})
+        
         bot.action(message)
         
         # Send balance update via PM
@@ -1572,7 +1596,12 @@ def surprise(bot, trigger):
         else:
             giving_message = random.choice(COCKTAIL_MESSAGES)
         
-        message = giving_message.format(drink=chosen_item, user=target_user)
+        bot_nick = (getattr(bot, 'nick', '') or '').lower()
+        if target_user.lower() == bot_nick:
+            giving_message = random.choice(BOT_DRINK_RECEPTION_MESSAGES)
+            message = giving_message.format(drink=chosen_item, sender=trigger.nick, user=trigger.nick)
+        else:
+            message = giving_message.format(drink=chosen_item, user=target_user)
     else:
         # It's food
         chosen_item = random.choice(all_foods)
@@ -1581,7 +1610,12 @@ def surprise(bot, trigger):
         else:
             giving_message = random.choice(FOOD_MESSAGES)
         
-        message = giving_message.format(food=chosen_item, user=target_user)
+        bot_nick = (getattr(bot, 'nick', '') or '').lower()
+        if target_user.lower() == bot_nick:
+            giving_message = random.choice(BOT_FOOD_RECEPTION_MESSAGES)
+            message = giving_message.format(food=chosen_item, sender=trigger.nick, user=trigger.nick)
+        else:
+            message = giving_message.format(food=chosen_item, user=target_user)
     
     # Send it!
     bot.action(message)
