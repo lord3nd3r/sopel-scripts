@@ -2406,7 +2406,7 @@ def handle(bot, trigger):
                     _log(bot).exception('Admin PM command handler failed')
                 return
             cmd = (candidate[1:].split(None, 1)[0] if len(candidate) > 1 else '').strip().lower()
-            if (not _is_admin(bot, trigger)) and (cmd not in allowlisted_commands):
+            if cmd not in allowlisted_commands:
                 return
     except Exception:
         pass
