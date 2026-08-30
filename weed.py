@@ -803,6 +803,15 @@ def _cleanup_threads():
         LOG.debug("All countdown threads completed gracefully")
 
 
+BOT_RECEPTION_ACTIONS = [
+    "happily accepts {gift} from {sender}, takes a quick rip 💨 and passes it right back!",
+    "thanks {sender}, takes a fat hit of {gift} 🌿💨 and passes it back to {sender}",
+    "grabs {gift} from {sender}, takes a puff ☁️ and hands it right back!",
+    "sparks up {gift} courtesy of {sender} 🔥 and passes it back to {sender}",
+    "takes a smooth hit of {gift} 🫧 and nudges it back to {sender}",
+]
+
+
 @module.commands('weed', 'bong', 'joint', 'jay', 'doobie', 'keef', 'kief', 'trip', 'shrooms', 'mushrooms',
                  'acid', 'lsd', 'peyote', 'mescaline', 'toke', 'edibles', 'edible',
                  'dab', 'dabs', 'blunt', 'vape', 'hash', 'munchies')
@@ -846,8 +855,12 @@ def weed_commands(bot, trigger):
             return
 
         gift = random.choice(gifts)
-        template = random.choice(action_msgs)
-        bot.action(template.format(target=target_user, gift=gift))
+        bot_nick = (getattr(bot, 'nick', '') or '').lower()
+        if target_user.lower() == bot_nick:
+            bot.action(random.choice(BOT_RECEPTION_ACTIONS).format(sender=trigger.nick, gift=gift))
+        else:
+            template = random.choice(action_msgs)
+            bot.action(template.format(target=target_user, gift=gift))
         LOG.debug(f"${cmd} gift to {target_user} in {channel} by {user_id}")
         return
 
@@ -909,6 +922,19 @@ PASS_ACTIONS = [
     "corners the bowl perfectly 🌿🔥 takes a smooth hit and nudges the pipe to {target}",
 ]
 
+BOT_PASS_ACTIONS = [
+    "grabs the chillum for a quick rip 🪈💨 and passes the peace pipe back to {sender}",
+    "takes a fat rip from the bong 🫧💨 thanks {sender}, and passes it back!",
+    "hits the joint, holds it… exhales a cloud ☁️ and passes it right back to {sender}",
+    "sparks up the bowl, takes a deep toke 🔥💨 and hands the pipe back to {sender}",
+    "lights the blunt, puffs twice 🌿🔥 and passes it back to {sender}",
+    "torches the one-hitter 🎯💨 then packs a fresh hit and passes it to {sender}",
+    "milks the bong until it's white 🥛💨 clears it… and hands it back to {sender}",
+    "takes a long drag off the spliff 🚬☁️ and offers it back to {sender}",
+    "rips the bubbler 🫧🔥 coughs a little… and passes it back to {sender}",
+    "corners the bowl perfectly 🌿🔥 takes a smooth hit and nudges the pipe back to {sender}",
+]
+
 
 @module.commands('pass')
 @module.example('$pass username', 'Take a hit and pass it to someone')
@@ -939,7 +965,11 @@ def pass_command(bot, trigger):
         bot.notice(f"Wait {_format_remaining(remaining)} before passing again.", trigger.nick)
         return
 
-    bot.action(random.choice(PASS_ACTIONS).format(target=target))
+    bot_nick = (getattr(bot, 'nick', '') or '').lower()
+    if target.lower() == bot_nick:
+        bot.action(random.choice(BOT_PASS_ACTIONS).format(sender=trigger.nick))
+    else:
+        bot.action(random.choice(PASS_ACTIONS).format(target=target))
 
 
 # =======================

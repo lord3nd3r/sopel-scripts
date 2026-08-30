@@ -313,9 +313,11 @@ A virtual bartender with a tipping economy integrated with the **mug** game's co
 
 | Command | Description | Example |
 |---------|-------------|---------|
+| `$scotch [nick]` | Serve a premium Scotch whisky (15 🪙) | `$scotch` |
+| `$whiskey [nick]` / `$whisky` | Serve a fine whiskey (12 🪙) | `$whiskey JohnDoe` |
+| `$irish [nick]` / `$irishwhiskey` | Serve an Irish whiskey (10 🪙) | `$irish m0n` |
 | `$beer [nick]` | Serve a random beer (5 🪙) | `$beer m0n` |
 | `$shot [nick]` | Serve a random shot (7 🪙) | `$shot` |
-| `$whiskey [nick]` / `$whisky` | Serve a fine whiskey (12 🪙) | `$whiskey JohnDoe` |
 | `$vodka [nick]` | Serve a premium vodka (10 🪙) | `$vodka` |
 | `$rum [nick]` | Serve a spiced rum (10 🪙) | `$rum` |
 | `$tequila [nick]` | Serve a fine tequila (10 🪙) | `$tequila` |

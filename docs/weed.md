@@ -58,8 +58,9 @@ When you trigger a command **without a target** (or if the target user is offlin
 * There is a **6-second delay** between each step.
 * The final step posts a random colorful outcome from that substance's pool.
 
-### Mode 2: Gift (With a Target User)
-When you specify a target user who is **active in the channel**, the bot posts a single `/me` action message gifting the target a random item from the chosen substance pool.
+### Mode 2: Gift & Pass (With a Target User)
+When you specify a target user who is **active in the channel**, the bot posts a single `/me` action message gifting the target a random item from the chosen substance pool or passing the rotation ($pass).
+* **Targeting the Bot**: If you pass or gift an item to the bot itself (e.g. `$pass BotNick` or `$weed BotNick`), the bot detects it is the target, takes a hit, and passes it right back to you!
 
 ---
 

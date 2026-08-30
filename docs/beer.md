@@ -24,9 +24,11 @@ All prices are in **coins** (🪙).
 
 | Command | Aliases | Cost | Description |
 |---------|---------|------|-------------|
+| `$scotch [nick]` | — | 15 🪙 | Premium Scotch whisky 🏴󠁧󠁢󠁳󠁣󠁴󠁿🥃 |
+| `$whiskey [nick]` | `$whisky` | 12 🪙 | Fine whiskey 🥃 |
+| `$irish [nick]` | `$irishwhiskey` | 10 🪙 | Irish whiskey 🇮🇪🥃 |
 | `$beer [nick]` | — | 5 🪙 | Serve a random beer 🍺 |
 | `$shot [nick]` | — | 7 🪙 | Serve a random shot 🥃 |
-| `$whiskey [nick]` | `$whisky` | 12 🪙 | Fine whiskey 🥃 |
 | `$vodka [nick]` | — | 10 🪙 | Premium vodka 🥃 |
 | `$rum [nick]` | — | 10 🪙 | Spiced rum 🏴‍☠️🥃 |
 | `$tequila [nick]` | — | 10 🪙 | Fine tequila 🇲🇽🥃 |

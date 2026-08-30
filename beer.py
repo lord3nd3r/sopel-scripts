@@ -172,9 +172,11 @@ def _deduct_mug_coins(bot, user, amount):
 # Prices for items
 
 PRICES = {
+    'scotch': 15,
     'beer': 5,
     'shot': 7,
     'whiskey': 12,
+    'irish': 10,
     'vodka': 10,
     'rum': 10,
     'tequila': 10,
@@ -384,6 +386,54 @@ WHISKEYS = [
     "a shot of Woodford Reserve 🐴🥃",
     "a dram of Oban 14 🏴🥃",
     "a pour of Buffalo Trace 🦬🥃",
+]
+
+# List of high-end Scotch whiskies to give out
+SCOTCHES = [
+    "a dram of The Macallan 25 Year Old Sherry Oak 🏴󠁧󠁢󠁳󠁣󠁴󠁿💎👑🥃",
+    "a measure of Glenfiddich 30 Year Old 🏴󠁧󠁢󠁳󠁣󠁴󠁿✨🥃",
+    "a glass of Lagavulin 16 Year Old 🏴󠁧󠁢󠁳󠁣󠁴󠁿🔥🥃",
+    "a dram of The Balvenie 21 Year Old PortWood 🏴󠁧󠁢󠁳󠁣󠁴󠁿🪵🥃",
+    "a measure of Highland Park 18 Year Old Viking Pride 🏴󠁧󠁢󠁳󠁣󠁴󠁿🛡️🥃",
+    "a dram of Oban 14 Year Old 🏴󠁧󠁢󠁳󠁣󠁴󠁿🌊🥃",
+    "a pour of Laphroaig 25 Year Old 🏴󠁧󠁢󠁳󠁣󠁴󠁿🔥💎🥃",
+    "a measure of Talisker 18 Year Old 🏴󠁧󠁢󠁳󠁣󠁴󠁿🌊🥃",
+    "a glass of Ardbeg Uigeadail 🏴󠁧󠁢󠁳󠁣󠁴󠁿🔥💪🥃",
+    "a dram of Glenmorangie Signet 🏴󠁧󠁢󠁳󠁣󠁴󠁿☕✨🥃",
+    "a pour of Aberlour A'bunadh 🏴󠁧󠁢󠁳󠁣󠁴󠁿🍷💪🥃",
+    "a dram of Springbank 18 Year Old 🏴󠁧󠁢󠁳󠁣󠁴󠁿🏴🥃",
+    "a glass of Johnnie Walker Blue Label 🏴󠁧󠁢󠁳󠁣󠁴󠁿🔵👑🥃",
+    "a dram of The Macallan 18 Year Old Double Cask 🏴󠁧󠁢󠁳󠁣󠁴󠁿💎🥃",
+    "a measure of Glenfarclas 25 Year Old 🏴󠁧󠁢󠁳󠁣󠁴󠁿🍷🥃",
+    "a dram of Bowmore 25 Year Old 🏴󠁧󠁢󠁳󠁣󠁴󠁿🌊🔥🥃",
+    "a pour of Dalmore 18 Year Old 🏴󠁧󠁢󠁳󠁣󠁴󠁿🦌🥃",
+    "a dram of Mortlach 20 Year Old 🏴󠁧󠁢󠁳󠁣󠁴󠁿🦁🥃",
+    "a tumbler of Bruichladdich Octomore 🏴󠁧󠁢󠁳󠁣󠁴󠁿💨🔥🥃",
+    "a dram of Royal Salute 21 Year Old 🏴󠁧󠁢󠁳󠁣󠁴󠁿👑🥃",
+]
+
+# List of Irish whiskies to give out
+IRISH_WHISKEYS = [
+    "a glass of smooth Jameson Irish Whiskey 🇮🇪🥃",
+    "a dram of Tullamore D.E.W. 🇮🇪☘️🥃",
+    "a shot of Paddy Old Irish Whiskey 🇮🇪🥃",
+    "a measure of Redbreast 12 Year Old Single Pot Still 🇮🇪🐦🥃",
+    "a pour of Bushmills 16 Year Old Single Malt 🇮🇪🪵🥃",
+    "a dram of Teeling Small Batch Irish Whiskey 🇮🇪🔥🥃",
+    "a glass of Green Spot Single Pot Still 🇮🇪🟢🥃",
+    "a dram of Yellow Spot 12 Year Old 🇮🇪🟡🥃",
+    "a measure of Redbreast 21 Year Old 🇮🇪🐦👑🥃",
+    "a luxurious pour of Midleton Very Rare 🇮🇪💎👑🥃",
+    "a tumbler of Bushmills Black Bush 🇮🇪🖤🥃",
+    "a shot of Powers Gold Label 🇮🇪🏅🥃",
+    "a glass of Writer's Tears Copper Pot 🇮🇪✍️🥃",
+    "a dram of Slane Irish Whiskey 🇮🇪🏰🥃",
+    "a pour of The Sexton Single Malt 🇮🇪💀🥃",
+    "a glass of Connemara Peated Single Malt 🇮🇪🔥☘️🥃",
+    "a dram of Kilbeggan Single Grain 🇮🇪🥃",
+    "a measure of Glendalough Double Cask 🇮🇪🏔️🥃",
+    "a pour of Roe & Co Irish Whiskey 🇮🇪🍸🥃",
+    "a dram of Egan's Fortitude 🇮🇪⚜️🥃",
 ]
 
 # List of vodkas to give out
@@ -1001,6 +1051,31 @@ WHISKEY_MESSAGES = [
     "pours a generous serving of {drink} for {user} 🥃",
 ]
 
+# Scotch giving messages
+SCOTCH_MESSAGES = [
+    "slides {drink} across the bar to {user} 🏴󠁧󠁢󠁳󠁣󠁴󠁿✨",
+    "pours {drink} for {user} - Slàinte mhath! 🥃🏴󠁧󠁢󠁳󠁣󠁴󠁿",
+    "serves {user} {drink} - savor every drop! 🥃✨",
+    "conjures {drink} out of thin air for {user} ✨🎩",
+    "pours {drink} neat in a Glencairn glass for {user} 🥃",
+    "ceremoniously presents {user} with {drink} 🎊",
+    "teleports {drink} directly into {user}'s hand 🚀✨",
+    "carefully measures out {drink} for {user} 🥃",
+    "pours a fine single malt measure of {drink} for {user} 🥃🏴󠁧󠁢󠁳󠁣󠁴󠁿",
+]
+
+# Irish whiskey giving messages
+IRISH_MESSAGES = [
+    "slides {drink} across the bar to {user} 🇮🇪✨",
+    "pours {drink} for {user} - Sláinte! 🇮🇪🥃",
+    "serves {user} {drink} with a touch of Irish warmth! ☘️🥃",
+    "conjures {drink} out of thin air for {user} ✨🎩",
+    "pours a measure of {drink} for {user} 🇮🇪🥃",
+    "ceremoniously presents {user} with {drink} 🎊",
+    "teleports {drink} directly into {user}'s hand 🚀✨",
+    "hands {user} a glass of fine {drink} ☘️🥃",
+]
+
 # Vodka giving messages
 VODKA_MESSAGES = [
     "slides {drink} across the bar to {user} ✨",
@@ -1278,6 +1353,20 @@ def whiskey(bot, trigger):
     _serve_item(bot, trigger, 'whiskey', WHISKEYS, WHISKEY_MESSAGES)
 
 
+@module.commands('scotch')
+@module.example('$scotch username', 'Give a user a premium Scotch whisky')
+def scotch(bot, trigger):
+    """Give someone a fine single malt or blend Scotch whisky! 🏴󠁧󠁢󠁳󠁣󠁴󠁿🥃"""
+    _serve_item(bot, trigger, 'scotch', SCOTCHES, SCOTCH_MESSAGES)
+
+
+@module.commands('irish', 'irishwhiskey')
+@module.example('$irish username', 'Give a user an Irish whiskey')
+def irish(bot, trigger):
+    """Give someone a fine Irish whiskey! Sláinte! 🇮🇪🥃"""
+    _serve_item(bot, trigger, 'irish', IRISH_WHISKEYS, IRISH_MESSAGES)
+
+
 @module.commands('vodka')
 @module.example('$vodka username', 'Give a user a random vodka')
 def vodka(bot, trigger):
@@ -1434,7 +1523,7 @@ def surprise(bot, trigger):
         target_user = trigger.group(2).strip()
     
     # Combine all drink lists
-    all_drinks = BEERS + SHOTS + MAGNERS + WHISKEYS + VODKAS + RUMS + TEQUILAS + GINS + BRANDIES + MARGARITAS + SAKES + LIQUEURS + MEADS + MIXED_DRINKS + WINES + CAVAS + MOCKTAILS + COFFEES + DECAFS + TEAS + WATERS
+    all_drinks = BEERS + SHOTS + MAGNERS + WHISKEYS + SCOTCHES + IRISH_WHISKEYS + VODKAS + RUMS + TEQUILAS + GINS + BRANDIES + MARGARITAS + SAKES + LIQUEURS + MEADS + MIXED_DRINKS + WINES + CAVAS + MOCKTAILS + COFFEES + DECAFS + TEAS + WATERS
     all_foods = PIZZAS + APPETIZERS
     
     # Randomly decide if it's a drink or food
@@ -1456,6 +1545,10 @@ def surprise(bot, trigger):
             giving_message = random.choice(SHOT_MESSAGES)
         elif any(word in chosen_item.lower() for word in ['beer', 'lager', 'ale', 'stout', 'ipa', 'magners', 'cider']):
             giving_message = random.choice(BEER_MESSAGES)
+        elif any(word in chosen_item.lower() for word in ['scotch', 'macallan', 'glenfiddich', 'lagavulin', 'balvenie', 'laphroaig', 'talisker', 'ardbeg', 'glenmorangie', 'springbank', 'royal salute']):
+            giving_message = random.choice(SCOTCH_MESSAGES)
+        elif any(word in chosen_item.lower() for word in ['irish', 'jameson', 'tullamore', 'paddy', 'paddies', 'redbreast', 'bushmills', 'teeling', 'green spot', 'midleton', 'slane']):
+            giving_message = random.choice(IRISH_MESSAGES)
         elif any(word in chosen_item.lower() for word in ['whiskey', 'whisky', 'bourbon']):
             giving_message = random.choice(WHISKEY_MESSAGES)
         elif any(word in chosen_item.lower() for word in ['vodka', 'belvedere', 'grey goose', 'ketel', 'absolut', 'smirnoff', 'stolichnaya']):
@@ -1517,9 +1610,11 @@ def barhelp(bot, trigger):
         "",
         "DRINKS:",
 
+        "  $scotch [user] .......... 15 coins",
+        "  $whiskey [user] ......... 12 coins",
+        "  $irish [user] ........... 10 coins",
         "  $beer [user] ............ 5 coins",
         "  $shot [user] ............ 7 coins",
-        "  $whiskey [user] ......... 12 coins",
         "  $vodka [user] ........... 10 coins",
         "  $rum [user] ............. 10 coins",
         "  $tequila [user] ......... 10 coins",
