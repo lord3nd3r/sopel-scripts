@@ -661,6 +661,12 @@ def setup(bot):
             t = threading.Thread(target=_api_worker_loop, daemon=True)
             t.start()
             worker_threads.append(t)
+
+    # Always start reminders worker thread
+    rt = threading.Thread(target=_reminders_worker_loop, args=(bot,), daemon=True, name="grok_reminders_worker")
+    rt.start()
+    worker_threads.append(rt)
+
     bot.memory['grok_worker_threads'] = worker_threads
 
 
@@ -845,6 +851,57 @@ def _is_channel_op(bot, trigger, channel=None):
     return False
 
 
+def _db_get_channel_admins(bot, channel):
+    if not channel:
+        return set()
+    try:
+        with _DBContext(bot) as conn:
+            c = conn.cursor()
+            c.execute('SELECT nick FROM grok_channel_admins WHERE channel = ?', (channel.lower(),))
+            rows = c.fetchall()
+            return {r[0].lower() for r in rows if r and r[0]}
+    except Exception:
+        return set()
+
+def _db_add_channel_admin(bot, channel, nick, added_by=None):
+    if not channel or not nick:
+        return False
+    try:
+        with _DBContext(bot) as conn:
+            c = conn.cursor()
+            c.execute(
+                'INSERT OR REPLACE INTO grok_channel_admins (channel, nick, added_by, ts) VALUES (?, ?, ?, ?)',
+                (channel.lower(), nick.lower(), (added_by or '').lower(), _utcnow_iso())
+            )
+            return True
+    except Exception:
+        _log(bot).exception('Failed to add channel admin %s for %s', nick, channel)
+        return False
+
+def _db_remove_channel_admin(bot, channel, nick):
+    if not channel or not nick:
+        return False
+    try:
+        with _DBContext(bot) as conn:
+            c = conn.cursor()
+            c.execute('DELETE FROM grok_channel_admins WHERE channel = ? AND nick = ?', (channel.lower(), nick.lower()))
+            return True
+    except Exception:
+        _log(bot).exception('Failed to remove channel admin %s for %s', nick, channel)
+        return False
+
+def _is_channel_admin(bot, trigger, channel=None):
+    """True if user is a global owner/admin or recorded in grok_channel_admins for channel."""
+    if _is_admin(bot, trigger):
+        return True
+    target_chan = channel or (trigger.sender if not _is_pm(trigger) else None)
+    if not target_chan:
+        return False
+    target_chan_low = target_chan.lower()
+    chan_admins = _db_get_channel_admins(bot, target_chan_low)
+    return trigger.nick.lower() in chan_admins
+
+
 def _get_channel_obj(bot, channel_name):
     """Safely fetch channel object from bot.channels case-insensitively."""
     try:
@@ -905,6 +962,15 @@ def _init_db(bot):
         )
     ''')
     c.execute('''
+        CREATE TABLE IF NOT EXISTS grok_channel_admins (
+            channel TEXT NOT NULL,
+            nick TEXT NOT NULL,
+            added_by TEXT,
+            ts TEXT,
+            PRIMARY KEY (channel, nick)
+        )
+    ''')
+    c.execute('''
         CREATE TABLE IF NOT EXISTS grok_user_prefs (
             nick TEXT PRIMARY KEY,
             tz_iana TEXT,
@@ -942,6 +1008,17 @@ def _init_db(bot):
             approved INTEGER DEFAULT 0
         )
     ''')
+    c.execute('''
+        CREATE TABLE IF NOT EXISTS grok_reminders (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            nick TEXT NOT NULL,
+            channel TEXT NOT NULL,
+            message TEXT NOT NULL,
+            remind_at REAL NOT NULL,
+            created_at TEXT NOT NULL,
+            status TEXT DEFAULT 'pending'
+        )
+    ''')
     try:
         c.execute('ALTER TABLE grok_channel_settings ADD COLUMN enabled INTEGER DEFAULT 1')
     except sqlite3.OperationalError:
@@ -952,6 +1029,10 @@ def _init_db(bot):
     c.execute(
         'CREATE INDEX IF NOT EXISTS idx_grok_history_nick_source '
         'ON grok_user_history (nick, source, id)'
+    )
+    c.execute(
+        'CREATE INDEX IF NOT EXISTS idx_grok_reminders_due '
+        'ON grok_reminders (remind_at, status)'
     )
     conn.commit()
     # Enable WAL mode for better concurrent read/write access
@@ -1360,11 +1441,11 @@ def _record_api_failure(bot, channel):
     state['last'] = time.time()
 
 
-def _api_worker(*, bot, trigger, messages, review_mode, is_pm, bot_nick, chan_lock, search_mode=False, wants_sources=False, is_chimein=False, is_action=False):
+def _api_worker(*, bot, trigger, messages, review_mode, is_pm, bot_nick, chan_lock, search_mode=False, wants_sources=False, is_chimein=False, is_action=False, target_channel=None, admin_pm_nick=None):
     try:
         # Circuit breaker: pause a channel after repeated failures, but let a
         # probe request through once the cooldown elapses so it can recover.
-        channel = trigger.sender
+        channel = target_channel if target_channel else trigger.sender
         api_failures = bot.memory.get('grok_api_failures', {})
         _cb = api_failures.get(channel)
         if _cb and _cb.get('count', 0) >= CIRCUIT_BREAKER_THRESHOLD:
@@ -1409,7 +1490,9 @@ def _api_worker(*, bot, trigger, messages, review_mode, is_pm, bot_nick, chan_lo
             _api_model = str(getattr(_cfg, 'model', 'grok-4.3'))
 
         conv_id = None
-        if is_pm:
+        if target_channel:
+            conv_id = f"chan-{target_channel.lower()}-{trigger.nick.lower()}"
+        elif is_pm:
             conv_id = f"pm-{trigger.nick.lower()}"
         else:
             conv_id = f"chan-{trigger.sender.lower()}-{trigger.nick.lower()}"
@@ -1521,7 +1604,7 @@ def _api_worker(*, bot, trigger, messages, review_mode, is_pm, bot_nick, chan_lo
         # Citation Cache: Store citations from successful searches, 
         # load from cache for "show sources" requests.
         cache = bot.memory.setdefault('grok_citation_cache', {})
-        channel = trigger.sender.lower()
+        channel = (target_channel if target_channel else trigger.sender).lower()
 
         # Strip citation links unless user explicitly asked for sources
         if not wants_sources:
@@ -1601,12 +1684,15 @@ def _api_worker(*, bot, trigger, messages, review_mode, is_pm, bot_nick, chan_lo
         except Exception:
             pass
 
+        dest_channel = target_channel if target_channel else trigger.sender
         is_reply_action = reply.lstrip().startswith('ACTION ')
         if is_action or is_reply_action:
             if is_action and not is_reply_action:
                 final_reply = f"ACTION {reply}"
             else:
                 final_reply = reply
+        elif target_channel:
+            final_reply = reply
         elif not is_chimein and trigger.nick.lower() not in reply.lower() and not _is_owner(bot, trigger):
             # Check if the reply already addresses someone in the channel
             # (e.g. relay/tell: "Glitchy tell Milamber ..." → AI replies "milamber ...")
@@ -1629,7 +1715,13 @@ def _api_worker(*, bot, trigger, messages, review_mode, is_pm, bot_nick, chan_lo
         _typing_delay = random.uniform(TYPING_DELAY_MIN, TYPING_DELAY_MAX)
         time.sleep(_typing_delay)
 
-        send(bot, trigger.sender, final_reply)
+        send(bot, dest_channel, final_reply)
+
+        if target_channel and admin_pm_nick:
+            try:
+                bot.say(f"[{target_channel}] Sent: {reply}", admin_pm_nick)
+            except Exception:
+                pass
 
         # Chime-ins are not part of any user's conversation — logging them into
         # the triggering user's history would make the bot "remember" a chat
@@ -1637,17 +1729,20 @@ def _api_worker(*, bot, trigger, messages, review_mode, is_pm, bot_nick, chan_lo
         # captures the reply for channel context.
         if not is_chimein:
             with chan_lock:
-                per_conv_key = ("PM", trigger.nick.lower()) if is_pm else (trigger.sender, trigger.nick)
+                if target_channel:
+                    per_conv_key = (target_channel.lower(), trigger.nick.lower())
+                else:
+                    per_conv_key = ("PM", trigger.nick.lower()) if is_pm else (trigger.sender, trigger.nick)
                 history = bot.memory['grok_history'].setdefault(per_conv_key, deque(maxlen=50))
                 history.append(f"{bot_nick}: {reply}")
 
             try:
-                _db_add_turn(bot, trigger.nick, 'assistant', reply, 'PM' if is_pm else trigger.sender)
+                _db_add_turn(bot, trigger.nick, 'assistant', reply, target_channel if target_channel else ('PM' if is_pm else trigger.sender))
             except Exception:
                 pass
 
     except Exception:
-        _log(bot).exception('Grok API worker failed for %s', trigger.sender)
+        _log(bot).exception('Grok API worker failed for %s', target_channel if target_channel else trigger.sender)
     finally:
         pass
 
@@ -2122,6 +2217,294 @@ def _db_set_user_pref(bot, nick, tz=None, tz_label=None, fmt=None):
     except Exception:
         _log(bot).exception('Failed to set user pref for %s', nick)
 
+
+# ==================== REMINDERS SYSTEM ====================
+
+def _parse_duration(s):
+    """Parse duration string like '24h', '10m', '45s', '2d', '1h30m', '2.5h'.
+    Returns total duration in seconds (float) or None if invalid.
+    """
+    if not s or not isinstance(s, str):
+        return None
+    s = s.strip().lower()
+    
+    # Try parsing combined time format like 1d2h30m45s or 1.5h or 10m
+    pattern = re.compile(r'^(?:(?P<days>\d+(?:\.\d+)?)d)?(?:(?P<hours>\d+(?:\.\d+)?)h)?(?:(?P<minutes>\d+(?:\.\d+)?)m)?(?:(?P<seconds>\d+(?:\.\d+)?)s)?$')
+    match = pattern.match(s)
+    if not match or not any(match.groupdict().values()):
+        return None
+    
+    parts = match.groupdict()
+    total_sec = 0.0
+    if parts.get('days'):
+        total_sec += float(parts['days']) * 86400.0
+    if parts.get('hours'):
+        total_sec += float(parts['hours']) * 3600.0
+    if parts.get('minutes'):
+        total_sec += float(parts['minutes']) * 60.0
+    if parts.get('seconds'):
+        total_sec += float(parts['seconds'])
+        
+    if total_sec <= 0:
+        return None
+    return total_sec
+
+
+def _format_duration_short(seconds):
+    """Format seconds into human readable short string like '24h', '1h 30m', '45s'."""
+    seconds = int(seconds)
+    if seconds <= 0:
+        return "0s"
+    days, rem = divmod(seconds, 86400)
+    hours, rem = divmod(rem, 3600)
+    mins, secs = divmod(rem, 60)
+    
+    parts = []
+    if days > 0:
+        parts.append(f"{days}d")
+    if hours > 0:
+        parts.append(f"{hours}h")
+    if mins > 0:
+        parts.append(f"{mins}m")
+    if secs > 0 and not (days or hours):
+        parts.append(f"{secs}s")
+    return " ".join(parts) if parts else "0s"
+
+
+def _db_add_reminder(bot, nick, channel, message, remind_at):
+    try:
+        with _DBContext(bot) as conn:
+            c = conn.cursor()
+            c.execute(
+                '''INSERT INTO grok_reminders (nick, channel, message, remind_at, created_at, status)
+                   VALUES (?, ?, ?, ?, ?, 'pending')''',
+                (nick.lower(), channel, message, float(remind_at), _utcnow_iso())
+            )
+            return c.lastrowid
+    except Exception:
+        _log(bot).exception('Failed to add reminder for %s', nick)
+        return None
+
+
+def _db_get_due_reminders(bot):
+    try:
+        now = time.time()
+        with _DBContext(bot) as conn:
+            c = conn.cursor()
+            c.execute(
+                '''SELECT id, nick, channel, message, remind_at, created_at
+                   FROM grok_reminders
+                   WHERE status = 'pending' AND remind_at <= ?
+                   ORDER BY remind_at ASC''',
+                (now,)
+            )
+            rows = c.fetchall()
+            reminders = []
+            for r in rows:
+                reminders.append({
+                    'id': r[0],
+                    'nick': r[1],
+                    'channel': r[2],
+                    'message': r[3],
+                    'remind_at': r[4],
+                    'created_at': r[5]
+                })
+            return reminders
+    except Exception:
+        _log(bot).exception('Failed to fetch due reminders')
+        return []
+
+
+def _db_mark_reminder_done(bot, reminder_id):
+    try:
+        with _DBContext(bot) as conn:
+            c = conn.cursor()
+            c.execute("UPDATE grok_reminders SET status = 'completed' WHERE id = ?", (reminder_id,))
+            return True
+    except Exception:
+        _log(bot).exception('Failed to mark reminder %s as done', reminder_id)
+        return False
+
+
+def _db_list_user_reminders(bot, nick):
+    try:
+        with _DBContext(bot) as conn:
+            c = conn.cursor()
+            c.execute(
+                '''SELECT id, channel, message, remind_at, created_at
+                   FROM grok_reminders
+                   WHERE nick = ? AND status = 'pending'
+                   ORDER BY remind_at ASC''',
+                (nick.lower(),)
+            )
+            rows = c.fetchall()
+            return [
+                {
+                    'id': r[0],
+                    'channel': r[1],
+                    'message': r[2],
+                    'remind_at': r[3],
+                    'created_at': r[4]
+                }
+                for r in rows
+            ]
+    except Exception:
+        _log(bot).exception('Failed to list reminders for %s', nick)
+        return []
+
+
+def _db_delete_reminder(bot, reminder_id, nick):
+    try:
+        with _DBContext(bot) as conn:
+            c = conn.cursor()
+            c.execute(
+                "UPDATE grok_reminders SET status = 'cancelled' WHERE id = ? AND nick = ? AND status = 'pending'",
+                (reminder_id, nick.lower())
+            )
+            return c.rowcount > 0
+    except Exception:
+        _log(bot).exception('Failed to delete reminder %s for %s', reminder_id, nick)
+        return False
+
+
+def _reminders_worker_loop(bot):
+    """Background worker loop checking and delivering due reminders."""
+    _log(bot).info('Grok reminders worker started')
+    while not API_WORKER_SHUTDOWN:
+        try:
+            due = _db_get_due_reminders(bot)
+            for rem in due:
+                rem_id = rem['id']
+                nick = rem['nick']
+                channel = rem['channel']
+                msg = rem['message']
+                
+                # Mark done in DB first to prevent duplicate sends
+                _db_mark_reminder_done(bot, rem_id)
+                
+                # Deliver reminder
+                try:
+                    if channel.startswith('#'):
+                        send(bot, channel, f"{nick}: ⏰ Reminder: {msg}")
+                    else:
+                        bot.say(f"⏰ Reminder: {msg}", nick)
+                except Exception:
+                    _log(bot).exception('Failed to deliver reminder %s to %s', rem_id, nick)
+        except Exception:
+            _log(bot).exception('Error in reminders worker loop')
+        
+        # Sleep for 5 seconds between checks
+        for _ in range(50):
+            if API_WORKER_SHUTDOWN:
+                break
+            time.sleep(0.1)
+
+
+def _enqueue_channel_directive(bot, trigger, target_channel, directive_text, is_action=False):
+    """Enqueue an AI directive to be generated and posted into a target channel from PM."""
+    target_chan_low = target_channel.lower()
+    chan_obj = _get_channel_obj(bot, target_channel)
+    has_log = target_chan_low in bot.memory.get('grok_channel_log', {})
+    if not chan_obj and not has_log:
+        try:
+            bot.reply(f"I'm not in {target_channel}.")
+        except Exception:
+            pass
+        return True
+
+    bot_nick = bot.nick
+    active_prompt = bot.config.ai_multi.system_prompt
+    ch_prompts = _load_channel_prompts()
+    ch_cfg = ch_prompts.get(target_chan_low)
+    if ch_cfg:
+        active_prompt = ch_cfg.get("prompt", active_prompt)
+
+    dynamic_personality = bot.memory.get('grok_channel_personality', {}).get(target_chan_low)
+    if dynamic_personality:
+        active_prompt = (
+            f"You are {bot_nick}. {dynamic_personality}. "
+            "Speak naturally in this role. Keep responses short and conversational — this is IRC. "
+            "Stay in character consistently. No ASCII art, no code blocks, no figlets — just talk."
+        )
+
+    chan_lock = _get_channel_lock(bot, target_chan_low)
+    bg_text = ""
+    try:
+        with chan_lock:
+            chan_log_dq = bot.memory.get('grok_channel_log', {}).get(target_chan_low)
+            if chan_log_dq:
+                bg_collected = []
+                bg_chars = 0
+                for n, t, _ in reversed(chan_log_dq):
+                    l = len(n) + len(t) + 3
+                    if bg_chars + l > BG_CHAR_BUDGET and bg_collected:
+                        break
+                    if len(bg_collected) >= 150:
+                        break
+                    bg_collected.append((n, t))
+                    bg_chars += l
+                bg_collected.reverse()
+                bg_text = "\n".join([f"{n}: {t}" for n, t in bg_collected])
+    except Exception:
+        pass
+
+    action_instruction = " (Respond using IRC /me action style)" if is_action else ""
+
+    directive_sys = (
+        f"You are {bot_nick} in {target_channel}. "
+        f"Your owner/admin, {trigger.nick}, sent you a private directive regarding {target_channel}: "
+        f"\"{directive_text}\"{action_instruction}.\n"
+        f"Read the recent conversation log from {target_channel} below to understand the current context, active users, and ongoing topics. "
+        f"Execute the admin's directive naturally by speaking directly into {target_channel}. "
+        f"Do NOT quote the admin, do NOT mention that you received a PM command or private directive. "
+        f"Act as a seamless participant in {target_channel} while carrying out the request. "
+        f"Single line only — this is IRC. No newlines."
+    )
+
+    messages = [
+        {"role": "system", "content": active_prompt},
+        {"role": "system", "content": directive_sys},
+    ]
+
+    if bg_text:
+        messages.append({
+            "role": "system",
+            "content": f"Recent conversation log from {target_channel}:\n\n" + bg_text
+        })
+
+    messages.append({"role": "user", "content": directive_text})
+
+    try:
+        API_TASK_QUEUE.put_nowait({
+            'bot': bot,
+            'trigger': trigger,
+            'messages': messages,
+            'review_mode': False,
+            'is_pm': True,
+            'bot_nick': bot_nick,
+            'chan_lock': chan_lock,
+            'search_mode': False,
+            'wants_sources': False,
+            'is_chimein': False,
+            'is_action': is_action,
+            'target_channel': target_channel,
+            'admin_pm_nick': trigger.nick,
+        })
+        try:
+            bot.reply(f"Directing {target_channel}...")
+        except Exception:
+            pass
+    except queue.Full:
+        try:
+            bot.reply("Grok is busy right now — try again in a moment.")
+        except Exception:
+            pass
+    except Exception:
+        _log(bot).exception('Failed to enqueue channel directive for %s', target_channel)
+
+    return True
+
+
 def _handle_admin_pm_commands(bot, trigger, user_message):
     s = (user_message or '').strip()
     if not s.startswith('$'):
@@ -2130,7 +2513,7 @@ def _handle_admin_pm_commands(bot, trigger, user_message):
     if not parts:
         return False
     cmd = parts[0].lower()
-    if cmd not in ('$join', '$part', '$ignore', '$unignore'):
+    if cmd not in ('$join', '$part', '$ignore', '$unignore', '$say', '$act', '$tell', '$shape', '$steer'):
         return False
     if not _is_pm(trigger):
         try:
@@ -2138,6 +2521,22 @@ def _handle_admin_pm_commands(bot, trigger, user_message):
         except Exception:
             pass
         return True
+    if cmd in ('$say', '$act', '$tell', '$shape', '$steer'):
+        if len(parts) < 3 or not parts[1].startswith('#'):
+            bot.reply(f'Usage: {cmd} #channel <directive or text>')
+            return True
+        target_channel = parts[1]
+        directive_text = s.split(None, 2)[2] if len(parts) >= 3 else ''
+        if not directive_text:
+            bot.reply(f'Usage: {cmd} #channel <directive or text>')
+            return True
+        if not _is_channel_admin(bot, trigger, target_channel):
+            try:
+                bot.reply(f'You are not authorized to send directives to {target_channel}.')
+            except Exception:
+                pass
+            return True
+        return _enqueue_channel_directive(bot, trigger, target_channel, directive_text, is_action=(cmd == '$act'))
     if not _is_admin(bot, trigger):
         try:
             bot.reply('You are not authorized to use admin commands.')
@@ -2202,8 +2601,21 @@ def _handle_admin_pm_commands(bot, trigger, user_message):
     bot.reply(f'Unignored {nick}.')
     return True
 
+def _strip_irc_codes(text):
+    """Strip IRC color, bold, underline, italic, reverse, and reset codes."""
+    if not text or not isinstance(text, str):
+        return ""
+    # Strip IRC color codes \x03NN,MM or \x03NN or \x03
+    text = re.sub(r'\x03(?:\d{1,2}(?:,\d{1,2})?)?', '', text)
+    # Strip hex color codes \x04RRGGBB,RRGGBB or \x04RRGGBB
+    text = re.sub(r'\x04[0-9a-fA-F]{6}(?:,[0-9a-fA-F]{6})?', '', text)
+    # Strip formatting control codes \x02 (bold), \x0f (reset), \x16 (reverse), \x1d (italic), \x1f (underline)
+    text = re.sub(r'[\x02\x03\x04\x0f\x16\x1d\x1f]', '', text)
+    return text.strip()
+
+
 def _heuristic_intent_check(bot, trigger, line, bot_nick):
-    s = line.strip()
+    s = _strip_irc_codes(line).strip()
     lower = s.lower()
     nick = bot_nick.lower()
     if s.startswith('>') or '```' in s:
@@ -2236,20 +2648,20 @@ def _heuristic_intent_check(bot, trigger, line, bot_nick):
     # IRC /me action directed at the bot — always handle
     if s.startswith('*') and re.search(rf'\b{re.escape(nick)}\b', s, re.IGNORECASE):
         return True
-    if re.match(rf'^\s*{re.escape(bot_nick)}[,:>\s]', s, re.IGNORECASE):
+    if re.match(rf'^\s*{re.escape(bot_nick)}\s*[:,>»›-]', s, re.IGNORECASE):
         return True
     if re.search(rf'{re.escape(bot_nick)}\s*\W*$', s, re.IGNORECASE):
         return True
     # Addressed to someone else explicitly via "Nick:" or "hey Nick,"
-    if re.match(r'^\s*(?:hey|hi|yo|hello)?\s*[a-zA-Z0-9_|-]+[:,]\s+', s, re.IGNORECASE):
-        if not re.match(rf'^\s*(?:hey|hi|yo|hello)?\s*{re.escape(bot_nick)}[:,]\s+', s, re.IGNORECASE):
+    if re.match(r'^\s*(?:hey|hi|yo|hello)?\s*[a-zA-Z0-9_|-]+\s*[:,>»›]\s+', s, re.IGNORECASE):
+        if not re.match(rf'^\s*(?:hey|hi|yo|hello)?\s*{re.escape(bot_nick)}\s*[:,>»›]\s+', s, re.IGNORECASE):
             return False
 
     # Nick is part of a conjunction list (glitchy and X, X and glitchy)
     if (re.search(rf'\b{re.escape(nick)}\s+(?:and|or)\s+\w+\b', lower) or 
         re.search(rf'\b\w+\s+(?:and|or)\s+{re.escape(nick)}\b', lower)):
         # But allow it if the message is explicitly addressed to the bot at the start
-        if not re.match(rf'^\s*(?:hey|hi|yo|hello)?\s*{re.escape(bot_nick)}[:,>\s]', s, re.IGNORECASE):
+        if not re.match(rf'^\s*(?:hey|hi|yo|hello)?\s*{re.escape(bot_nick)}\s*[:,>»›-]', s, re.IGNORECASE):
             return False
 
     if '?' in s and re.search(rf'\b{re.escape(bot_nick)}\b', s, re.IGNORECASE):
@@ -2332,7 +2744,10 @@ def handle(bot, trigger):
     if (not is_pm) and (trigger.sender.lower() in blocked):
         return
 
-    line = trigger.group(0).strip()
+    raw_line = trigger.group(0).strip()
+    line = _strip_irc_codes(raw_line).strip()
+    if not line:
+        line = raw_line
 
     # Early channel-log capture: log ALL user messages (including $ commands)
     # BEFORE any filtering, so the AI has full context of what's happening.
@@ -2392,7 +2807,7 @@ def handle(bot, trigger):
         allowlisted_commands = {'grokreset', 'testemote'}
         command_prefixes = ('!', '$', '.', ':', '/', '\\')
         candidate = line.lstrip()
-        m_addr = re.match(rf'^\s*{re.escape(bot_nick)}\s*[:,>]\s*(.+)$', line, re.IGNORECASE)
+        m_addr = re.match(rf'^\s*{re.escape(bot_nick)}\s*[:,>»›-]*\s*(.+)$', line, re.IGNORECASE)
         if m_addr:
             candidate = (m_addr.group(1) or '').lstrip()
         if candidate and candidate.startswith(command_prefixes):
@@ -2480,7 +2895,7 @@ def handle(bot, trigger):
 
     if mentioned:
         text_for_history = re.sub(
-            rf'^{re.escape(bot_nick)}[,:>\s]+',
+            rf'^\s*{re.escape(bot_nick)}\s*[:,>»›-]*\s*',
             '',
             line,
             flags=re.IGNORECASE,
@@ -2628,6 +3043,28 @@ def handle(bot, trigger):
     except Exception:
         _log(bot).exception('Admin PM command handler failed')
         return
+
+    # Check for natural language cross-channel steering directive (e.g. "in #8chan, tell owo he is a fat fuck")
+    if is_pm:
+        m_dir = re.match(r'^\s*(?:in|to|for)\s+(#[a-zA-Z0-9_\|-]+)\s*[,:]?\s*(.+)$', user_message, re.IGNORECASE)
+        if m_dir:
+            target_chan = m_dir.group(1)
+            directive_text = m_dir.group(2).strip()
+            _query_re = re.compile(
+                r'^\s*(?:what|who|why|where|when|how|which|is|are|was|were|has|have|did|does|can|could|'
+                r'tell\s+me\s+about|summarize|summary|overview|status|info|check)\b',
+                re.IGNORECASE
+            )
+            is_query = bool(_query_re.search(directive_text)) and not bool(re.match(r'^\s*tell\s+(?!me\s+about\b)', directive_text, re.IGNORECASE))
+            if not is_query:
+                if not _is_channel_admin(bot, trigger, target_chan):
+                    try:
+                        bot.say(f"You must be an admin or channel admin for {target_chan} to shape conversations or send directives via PM.", trigger.sender)
+                    except Exception:
+                        pass
+                    return
+                _enqueue_channel_directive(bot, trigger, target_chan, directive_text)
+                return
 
     # ========== INSTANT CONFIG COMMANDS (no rate limiting, no busy check) ==========
     # These are processed immediately and return early - they don't queue API calls
@@ -3496,6 +3933,169 @@ def grokreset(bot, trigger):
         bot.reply('Your Grok data has been fully reset (history, facts, prefs).')
     except Exception:
         pass
+
+@plugin.command('badmin')
+def badmin(bot, trigger):
+    """Manage per-channel bot admins.
+    Usage:
+      $badmin add [#channel] <nick>
+      $badmin del [#channel] <nick>
+      $badmin list [#channel]
+    """
+    is_pm = _is_pm(trigger)
+    args = (trigger.group(2) or '').strip().split()
+    if not args:
+        bot.reply('Usage: $badmin <add|del|list> [#channel] [nick]')
+        return
+
+    subcmd = args[0].lower()
+
+    # Parse optional channel argument
+    channel = None
+    nick_arg = None
+    if len(args) >= 2 and args[1].startswith('#'):
+        channel = args[1]
+        nick_arg = args[2] if len(args) >= 3 else None
+    elif len(args) >= 2:
+        nick_arg = args[1]
+        if not is_pm:
+            channel = trigger.sender
+
+    if not channel and not is_pm:
+        channel = trigger.sender
+
+    if subcmd in ('list', 'show'):
+        target_chan = channel or (args[1] if len(args) >= 2 and args[1].startswith('#') else None)
+        if not target_chan and not is_pm:
+            target_chan = trigger.sender
+        if not target_chan:
+            bot.reply('Usage: $badmin list #channel')
+            return
+        admins = _db_get_channel_admins(bot, target_chan)
+        if not admins:
+            bot.reply(f'No per-channel bot admins configured for {target_chan}.')
+        else:
+            bot.reply(f'Bot admins for {target_chan}: {", ".join(sorted(admins))}')
+        return
+
+    if subcmd in ('add', 'del', 'remove', 'rm'):
+        if not channel or not nick_arg:
+            bot.reply(f'Usage: $badmin {subcmd} [#channel] <nick>')
+            return
+
+        # Check permission: caller must be a global admin, channel OP, or existing channel admin for target channel
+        if not _is_channel_admin(bot, trigger, channel):
+            bot.reply(f'You are not authorized to manage bot admins for {channel}.')
+            return
+
+        if subcmd == 'add':
+            if _db_add_channel_admin(bot, channel, nick_arg, added_by=trigger.nick):
+                bot.reply(f'Added {nick_arg} as bot admin for {channel}.')
+            else:
+                bot.reply(f'Failed to add {nick_arg} as bot admin for {channel}.')
+        else:
+            if _db_remove_channel_admin(bot, channel, nick_arg):
+                bot.reply(f'Removed {nick_arg} from bot admins for {channel}.')
+            else:
+                bot.reply(f'Failed to remove {nick_arg} from bot admins for {channel}.')
+        return
+
+    bot.reply('Usage: $badmin <add|del|list> [#channel] [nick]')
+
+@plugin.command('remind')
+def remind(bot, trigger):
+    """Set a timed reminder, or list/cancel active reminders.
+    Usage:
+      $remind 24h Do the daily!
+      $remind me 10m Check oven
+      $remind list
+      $remind del <id>
+    """
+    raw_args = (trigger.group(2) or '').strip()
+    if not raw_args:
+        bot.reply('Usage: $remind <duration> <message> | $remind list | $remind del <id>')
+        return
+    
+    parts = raw_args.split()
+    cmd = parts[0].lower()
+    
+    # Handle $remind list
+    if cmd in ('list', 'show'):
+        reminders = _db_list_user_reminders(bot, trigger.nick)
+        if not reminders:
+            bot.reply('You have no active reminders.')
+            return
+        
+        now = time.time()
+        lines = []
+        for r in reminders:
+            remain = r['remind_at'] - now
+            time_str = _format_duration_short(max(0, remain))
+            lines.append(f"[{r['id']}] in {time_str}: \"{r['message']}\"")
+        
+        bot.reply(f'Your active reminders: {" | ".join(lines)}')
+        return
+    
+    # Handle $remind del <id> or $remind cancel <id>
+    if cmd in ('del', 'delete', 'cancel', 'remove', 'rm'):
+        if len(parts) < 2:
+            bot.reply('Usage: $remind del <id>')
+            return
+        try:
+            rem_id = int(parts[1])
+        except ValueError:
+            bot.reply('Reminder ID must be an integer.')
+            return
+        
+        if _db_delete_reminder(bot, rem_id, trigger.nick):
+            bot.reply(f'Cancelled reminder #{rem_id}.')
+        else:
+            bot.reply(f'Failed to cancel reminder #{rem_id} (not found or not owned by you).')
+        return
+
+    # Handle optional "me" prefix ($remind me 10m check oven)
+    if cmd == 'me' and len(parts) >= 2:
+        parts = parts[1:]
+        raw_args = raw_args[3:].strip()
+    
+    if len(parts) < 2:
+        bot.reply('Usage: $remind <duration> <message> (e.g. $remind 24h Do the daily!)')
+        return
+    
+    duration_str = parts[0]
+    seconds = _parse_duration(duration_str)
+    if not seconds:
+        bot.reply(f'Invalid duration format "{duration_str}". Examples: 24h, 10m, 45s, 2d, 1h30m.')
+        return
+    
+    if seconds < 5:
+        bot.reply('Reminder duration must be at least 5 seconds.')
+        return
+    if seconds > 365 * 86400:
+        bot.reply('Reminder duration cannot exceed 365 days.')
+        return
+    
+    # Extract message after duration_str
+    dur_idx = raw_args.find(duration_str)
+    if dur_idx != -1:
+        message = raw_args[dur_idx + len(duration_str):].strip()
+    else:
+        message = " ".join(parts[1:])
+        
+    if not message:
+        bot.reply('Usage: $remind <duration> <message>')
+        return
+    
+    remind_at = time.time() + seconds
+    channel = trigger.sender
+    
+    rem_id = _db_add_reminder(bot, trigger.nick, channel, message, remind_at)
+    if rem_id:
+        dt_utc = datetime.datetime.fromtimestamp(remind_at, datetime.timezone.utc).strftime('%Y-%m-%d %H:%M UTC')
+        dur_fmt = _format_duration_short(seconds)
+        bot.reply(f'⏰ Reminder #{rem_id} set! I\'ll remind you in {dur_fmt} ({dt_utc}): "{message}"')
+    else:
+        bot.reply('Failed to set reminder due to database error.')
 
 @plugin.command('talkback')
 def talkback(bot, trigger):
