@@ -80,6 +80,10 @@ An AI chatbot supporting **xAI Grok**, local **Ollama**, and OpenAI-compatible A
 | `BotNick: what do you remember about me` | List saved facts | `Grok: what do you remember about me` |
 | `$grokreset` | Reset your conversation history | `$grokreset` |
 | `$grokreset channel` | Reset all channel history (admin/op) | `$grokreset channel` |
+| `$remind <duration> <msg>` | Set a timed reminder | `$remind 24h Do the daily!` |
+| `$remind list` | List your active pending reminders | `$remind list` |
+| `$remind del <id>` | Cancel a pending reminder by ID | `$remind del 3` |
+| `$badmin <add\|del\|list>` | Manage per-channel bot admins (admin/op) | `$badmin add #chat m0n` |
 | `$ai <on\|off>` | Enable/disable AI for the channel (admin/op) | `$ai off` |
 | `$talkback <on\|off>` | Enable/disable chime-ins (admin/op) | `$talkback off` |
 | `$testemote` | Verify emote plugin is loaded | `$testemote` |
@@ -284,6 +288,9 @@ The bot reacts to `/me` actions and emote-style messages directed at it. Respons
 | `$part #channel` | Make bot leave a channel | `$part #mychannel` |
 | `$ignore <nick>` | Ignore a user (persisted to DB) | `$ignore spammer` |
 | `$unignore <nick>` | Unignore a user | `$unignore spammer` |
+| `$say #channel <msg>` | Make bot say something in channel | `$say #chat hello` |
+| `$act #channel <action>` | Make bot do a /me action in channel | `$act #chat dances` |
+| `$tell #channel <directive>` | Direct the bot to post into a channel | `$tell #chat greet m0n` |
 
 ### Configuration (`default.cfg`)
 ```ini

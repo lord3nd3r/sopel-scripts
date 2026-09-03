@@ -86,6 +86,10 @@ Channel-wide (`in this channel` / `for everyone`) requires **op or bot admin**.
 | `BotNick: what do you remember about me` | Anyone | List all your saved facts |
 | `$grokreset` | Anyone | Reset your conversation history (not permanent facts) |
 | `$grokreset channel` | Op+ / Admin | Reset all channel conversation history |
+| `$remind <duration> <msg>` | Anyone | Set a timed reminder (e.g. `$remind 24h Do daily`, `$remind me 10m check oven`) |
+| `$remind list` | Anyone | List your active pending reminders |
+| `$remind del <id>` | Anyone | Cancel a pending reminder by ID |
+| `$badmin <add\|del\|list>` | Op+ / Admin | Manage per-channel bot admins (`$badmin add [#chan] <nick>`) |
 | `$ai <on\|off>` | Op+ / Admin | Enable/disable AI entirely for the channel |
 | `$talkback <on\|off>` | Op+ / Admin | Enable/disable unprompted chime-ins |
 | `$testemote` | Anyone | Test that the emote plugin is loaded |
@@ -98,6 +102,9 @@ Channel-wide (`in this channel` / `for everyone`) requires **op or bot admin**.
 | `$part #channel` | Make bot leave a channel |
 | `$ignore <nick>` | Add nick to ignore list |
 | `$unignore <nick>` | Remove nick from ignore list |
+| `$say #channel <msg>` | Make bot say something in a target channel |
+| `$act #channel <action>` | Make bot do a /me action in a target channel |
+| `$tell #channel <directive>` | Send an AI directive into a target channel |
 
 ### 🔍 Moderation: Schizo Check
 
