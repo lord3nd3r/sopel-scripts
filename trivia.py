@@ -476,22 +476,6 @@ def trivia_stop(bot, trigger):
         return
     
     game = channel_games[channel]
-    
-    # Permissions check: only the starter, channel ops, or bot admin can stop
-    is_starter = (trigger.nick.lower() == game.started_by.lower())
-    is_admin_or_op = getattr(trigger, 'admin', False)
-    if not is_admin_or_op and hasattr(bot, 'channels') and channel in bot.channels:
-        try:
-            priv = bot.channels[channel].privileges.get(trigger.nick, 0)
-            if priv >= plugin.OP:
-                is_admin_or_op = True
-        except Exception:
-            pass
-    
-    if not (is_starter or is_admin_or_op):
-        bot.say(f"Only {game.started_by} or a channel operator can stop the trivia game.", channel)
-        return
-    
     game.end_game()
 
 
