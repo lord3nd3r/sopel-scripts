@@ -1013,11 +1013,6 @@
     "answer": "murder"
   },
   {
-    "category": "Science",
-    "question": "What is the chemical symbol for Gold?",
-    "answer": "Au"
-  },
-  {
     "category": "Geography",
     "question": "What is the capital of Thailand?",
     "answer": "Bangkok"
@@ -1053,11 +1048,6 @@
     "answer": "Central Processing Unit"
   },
   {
-    "category": "Animals",
-    "question": "What is the fastest land animal?",
-    "answer": "Cheetah"
-  },
-  {
     "category": "Food",
     "question": "What is the primary ingredient in hummus?",
     "answer": "Chickpeas"
@@ -1088,11 +1078,6 @@
     "answer": "9"
   },
   {
-    "category": "Literature",
-    "question": "Who wrote 'Romeo and Juliet'?",
-    "answer": "William Shakespeare"
-  },
-  {
     "category": "Music",
     "question": "Who is the 'King of Pop'?",
     "answer": "Michael Jackson"
@@ -1118,19 +1103,9 @@
     "answer": "Oxygen"
   },
   {
-    "category": "History",
-    "question": "Who was the first President of the United States?",
-    "answer": "George Washington"
-  },
-  {
     "category": "Geography",
     "question": "What is the largest continent?",
     "answer": "Asia"
-  },
-  {
-    "category": "Movies",
-    "question": "Who played Jack in 'Titanic'?",
-    "answer": "Leonardo DiCaprio"
   },
   {
     "category": "Sports",
@@ -1158,11 +1133,6 @@
     "answer": "Blue Whale"
   },
   {
-    "category": "Food",
-    "question": "What is the main ingredient in guacamole?",
-    "answer": "Avocado"
-  },
-  {
     "category": "Science",
     "question": "What represents 'H2O'?",
     "answer": "Water"
@@ -1188,11 +1158,6 @@
     "answer": "France"
   },
   {
-    "category": "Literature",
-    "question": "Who wrote 'To Kill a Mockingbird'?",
-    "answer": "Harper Lee"
-  },
-  {
     "category": "Music",
     "question": "Which band released 'Yellow Submarine'?",
     "answer": "The Beatles"
@@ -1201,11 +1166,6 @@
     "category": "Technology",
     "question": "What does HTTP stand for?",
     "answer": "HyperText Transfer Protocol"
-  },
-  {
-    "category": "Animals",
-    "question": "What is a group of lions called?",
-    "answer": "Pride"
   },
   {
     "category": "Food",
@@ -1223,11 +1183,6 @@
     "answer": "Leonardo da Vinci"
   },
   {
-    "category": "Geography",
-    "question": "What is the longest river in the world?",
-    "answer": "Nile"
-  },
-  {
     "category": "Movies",
     "question": "Who played the Joker in 'The Dark Knight'?",
     "answer": "Heath Ledger"
@@ -1236,11 +1191,6 @@
     "category": "Sports",
     "question": "How many rings are in the Olympic symbol?",
     "answer": "5"
-  },
-  {
-    "category": "Literature",
-    "question": "Who wrote 'Harry Potter'?",
-    "answer": "J.K. Rowling"
   },
   {
     "category": "Music",
@@ -1273,11 +1223,6 @@
     "answer": "Christopher Columbus"
   },
   {
-    "category": "Geography",
-    "question": "What is the capital of France?",
-    "answer": "Paris"
-  },
-  {
     "category": "Movies",
     "question": "Which movie features a character named Luke Skywalker?",
     "answer": "Star Wars"
@@ -1286,11 +1231,6 @@
     "category": "Sports",
     "question": "In golf, what is one stroke under par called?",
     "answer": "Birdie"
-  },
-  {
-    "category": "Literature",
-    "question": "Who wrote 'The Great Gatsby'?",
-    "answer": "F. Scott Fitzgerald"
   },
   {
     "category": "Music",
@@ -1323,11 +1263,6 @@
     "answer": "Yuri Gagarin"
   },
   {
-    "category": "Geography",
-    "question": "Which ocean is the largest?",
-    "answer": "Pacific Ocean"
-  },
-  {
     "category": "Movies",
     "question": "Which movie features the quote 'Here's looking at you, kid'?",
     "answer": "Casablanca"
@@ -1336,11 +1271,6 @@
     "category": "Sports",
     "question": "How long is a marathon?",
     "answer": "26.2 miles"
-  },
-  {
-    "category": "Literature",
-    "question": "Who wrote 'Moby Dick'?",
-    "answer": "Herman Melville"
   },
   {
     "category": "Music",
@@ -1373,24 +1303,9 @@
     "answer": "Winston Churchill"
   },
   {
-    "category": "Geography",
-    "question": "What is the capital of Italy?",
-    "answer": "Rome"
-  },
-  {
     "category": "Movies",
     "question": "Which movie features a character named Forrest Gump?",
     "answer": "Forrest Gump"
-  },
-  {
-    "category": "Sports",
-    "question": "Which sport uses a shuttlecock?",
-    "answer": "Badminton"
-  },
-  {
-    "category": "Literature",
-    "question": "Who wrote 'Pride and Prejudice'?",
-    "answer": "Jane Austen"
   },
   {
     "category": "Music",
@@ -1413,11 +1328,6 @@
     "answer": "Vermicelli"
   },
   {
-    "category": "Science",
-    "question": "What gas do plants absorb from the atmosphere?",
-    "answer": "Carbon Dioxide"
-  },
-  {
     "category": "History",
     "question": "Who invented the lightbulb?",
     "answer": "Thomas Edison"
@@ -1436,11 +1346,6 @@
     "category": "Sports",
     "question": "Which country hosts the Wimbledon tennis tournament?",
     "answer": "United Kingdom"
-  },
-  {
-    "category": "Literature",
-    "question": "Who wrote 'War and Peace'?",
-    "answer": "Leo Tolstoy"
   },
   {
     "category": "Music",
@@ -1478,19 +1383,9 @@
     "answer": "Berlin"
   },
   {
-    "category": "Movies",
-    "question": "Which movie features the character 'Darth Vader'?",
-    "answer": "Star Wars"
-  },
-  {
     "category": "Sports",
     "question": "Which sport is played in a velodrome?",
     "answer": "Cycling"
-  },
-  {
-    "category": "Literature",
-    "question": "Who wrote 'The Catcher in the Rye'?",
-    "answer": "J.D. Salinger"
   },
   {
     "category": "Music",
@@ -1513,16 +1408,6 @@
     "answer": "Rice"
   },
   {
-    "category": "Science",
-    "question": "What is the speed of light?",
-    "answer": "299,792,458 m/s"
-  },
-  {
-    "category": "History",
-    "question": "Who discovered penicillin?",
-    "answer": "Alexander Fleming"
-  },
-  {
     "category": "Geography",
     "question": "What is the capital of Canada?",
     "answer": "Ottawa"
@@ -1538,11 +1423,6 @@
     "answer": "Uruguay"
   },
   {
-    "category": "Literature",
-    "question": "Who wrote 'The Odyssey'?",
-    "answer": "Homer"
-  },
-  {
     "category": "Music",
     "question": "Which band represents 'The Fab Four'?",
     "answer": "The Beatles"
@@ -1553,29 +1433,9 @@
     "answer": "HyperText Markup Language"
   },
   {
-    "category": "Animals",
-    "question": "How many hearts does an octopus have?",
-    "answer": "3"
-  },
-  {
     "category": "Food",
     "question": "What is the main ingredient in traditional paella?",
     "answer": "Rice"
-  },
-  {
-    "category": "Science",
-    "question": "What is the largest organ in the human body?",
-    "answer": "Skin"
-  },
-  {
-    "category": "History",
-    "question": "Who was the first woman to win a Nobel Prize?",
-    "answer": "Marie Curie"
-  },
-  {
-    "category": "Geography",
-    "question": "What is the capital of Australia?",
-    "answer": "Canberra"
   },
   {
     "category": "Movies",
@@ -1613,11 +1473,6 @@
     "answer": "Flour"
   },
   {
-    "category": "Science",
-    "question": "What is the chemical symbol for Iron?",
-    "answer": "Fe"
-  },
-  {
     "category": "History",
     "question": "Who was the leader of the Soviet Union during WWII?",
     "answer": "Joseph Stalin"
@@ -1631,11 +1486,6 @@
     "category": "Movies",
     "question": "Who played the character 'Wolverine'?",
     "answer": "Hugh Jackman"
-  },
-  {
-    "category": "Sports",
-    "question": "What is the national sport of Japan?",
-    "answer": "Sumo Wrestling"
   },
   {
     "category": "Literature",
@@ -1668,11 +1518,6 @@
     "answer": "Nitrogen"
   },
   {
-    "category": "History",
-    "question": "Who invented the telephone?",
-    "answer": "Alexander Graham Bell"
-  },
-  {
     "category": "Geography",
     "question": "What is the capital of China?",
     "answer": "Beijing"
@@ -1686,11 +1531,6 @@
     "category": "Sports",
     "question": "Which NBA player is known as 'King James'?",
     "answer": "LeBron James"
-  },
-  {
-    "category": "Literature",
-    "question": "Who wrote 'Frankenstein'?",
-    "answer": "Mary Shelley"
   },
   {
     "category": "Music",
@@ -1716,11 +1556,6 @@
     "category": "Science",
     "question": "What is the smallest unit of matter?",
     "answer": "Atom"
-  },
-  {
-    "category": "History",
-    "question": "Who was the first emperor of Rome?",
-    "answer": "Augustus"
   },
   {
     "category": "Geography",
@@ -1751,11 +1586,6 @@
     "category": "Technology",
     "question": "What does IoT stand for?",
     "answer": "Internet of Things"
-  },
-  {
-    "category": "Animals",
-    "question": "What is the tallest animal in the world?",
-    "answer": "Giraffe"
   },
   {
     "category": "Food",
@@ -1823,11 +1653,6 @@
     "answer": "Thomas Jefferson"
   },
   {
-    "category": "Geography",
-    "question": "What is the capital of Egypt?",
-    "answer": "Cairo"
-  },
-  {
     "category": "Movies",
     "question": "Who directed 'Avatar'?",
     "answer": "James Cameron"
@@ -1839,7 +1664,7 @@
   },
   {
     "category": "Literature",
-    "question": "Who wrote 'Les Mis\u00e9rables'?",
+    "question": "Who wrote 'Les Misérables'?",
     "answer": "Victor Hugo"
   },
   {
@@ -1886,11 +1711,6 @@
     "category": "Sports",
     "question": "Which country won the 2014 FIFA World Cup?",
     "answer": "Germany"
-  },
-  {
-    "category": "Literature",
-    "question": "Who wrote 'The Divine Comedy'?",
-    "answer": "Dante Alighieri"
   },
   {
     "category": "Music",
@@ -1963,11 +1783,6 @@
     "answer": "Milk"
   },
   {
-    "category": "Science",
-    "question": "What is the chemical symbol for Silver?",
-    "answer": "Ag"
-  },
-  {
     "category": "History",
     "question": "Who was the 35th President of the US?",
     "answer": "John F. Kennedy"
@@ -1990,7 +1805,7 @@
   {
     "category": "Literature",
     "question": "Who wrote 'Jane Eyre'?",
-    "answer": "Charlotte Bront\u00eb"
+    "answer": "Charlotte Brontë"
   },
   {
     "category": "Music",
@@ -2045,7 +1860,7 @@
   {
     "category": "Music",
     "question": "Which band released 'Imagine'?",
-    "answer": "John Lennon (solo)"
+    "answer": "John Lennon"
   },
   {
     "category": "Technology",
@@ -2090,7 +1905,7 @@
   {
     "category": "Literature",
     "question": "Who wrote 'Wuthering Heights'?",
-    "answer": "Emily Bront\u00eb"
+    "answer": "Emily Brontë"
   },
   {
     "category": "Music",
@@ -2113,11 +1928,6 @@
     "answer": "Peanuts"
   },
   {
-    "category": "Science",
-    "question": "What is the pH of pure water?",
-    "answer": "7"
-  },
-  {
     "category": "History",
     "question": "Who was the second President of the US?",
     "answer": "John Adams"
@@ -2125,7 +1935,7 @@
   {
     "category": "Geography",
     "question": "What is the capital of South Africa?",
-    "answer": "Pretoria (executive), Cape Town (legislative), Bloemfontein (judicial)"
+    "answer": "Pretoria"
   },
   {
     "category": "Movies",
@@ -2180,7 +1990,7 @@
   {
     "category": "Movies",
     "question": "Which movie features the character 'James Bond'?",
-    "answer": "Dr. No (first one)"
+    "answer": "Dr. No"
   },
   {
     "category": "Sports",
@@ -2255,7 +2065,7 @@
   {
     "category": "Animals",
     "question": "What is a baby rabbit called?",
-    "answer": "Kitten or Kit"
+    "answer": "kitten or kit"
   },
   {
     "category": "Food",
@@ -2415,17 +2225,12 @@
   {
     "category": "Science",
     "question": "What is the hardest bone in the human body?",
-    "answer": "Jawbone (Mandible)"
+    "answer": "jawbone (mandible)"
   },
   {
     "category": "History",
     "question": "Who was the 44th President of the US?",
     "answer": "Barack Obama"
-  },
-  {
-    "category": "Geography",
-    "question": "What is the capital of Egypt?",
-    "answer": "Cairo"
   },
   {
     "category": "Movies",
@@ -2468,11 +2273,6 @@
     "answer": "Milky Way"
   },
   {
-    "category": "History",
-    "question": "Who was the first woman to win a Nobel Prize?",
-    "answer": "Marie Curie"
-  },
-  {
     "category": "Geography",
     "question": "What is the capital of Greece?",
     "answer": "Athens"
@@ -2490,7 +2290,7 @@
   {
     "category": "Literature",
     "question": "Who wrote 'The Little Prince'?",
-    "answer": "Antoine de Saint-Exup\u00e9ry"
+    "answer": "Antoine de Saint-Exupéry"
   },
   {
     "category": "Music",
@@ -2520,7 +2320,7 @@
   {
     "category": "History",
     "question": "Who was the first settler of Iceland?",
-    "answer": "Ing\u00f3lfur Arnarson"
+    "answer": "Ingólfur Arnarson"
   },
   {
     "category": "Geography",

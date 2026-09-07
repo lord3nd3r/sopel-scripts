@@ -95,7 +95,12 @@ class TriviaDB:
     def record_answer(self, game_id: int, nick: str, server: str, channel: str,
                      question_text: str, answer_text: str, points: int, 
                      time_taken: float, streak: int):
-        """Record a correct answer and update player stats."""
+        """Record a correct answer and update player stats.
+        
+        NOTE: This is only called for correct answers, so total_answers and
+        total_wins in player_stats are always identical. If wrong-answer
+        tracking is added later, increment total_answers there too.
+        """
         with sqlite3.connect(self.db_path) as conn:
             # Record the answer
             conn.execute(

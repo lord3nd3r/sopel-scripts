@@ -1,7 +1,21 @@
 import json
 import random
 import re
-from typing import List, Dict, Optional, Any
+from typing import List, Dict, Optional, Any, Set
+
+
+def normalize_alnum(text: str) -> str:
+    """Lowercase and strip all non-alphanumeric characters."""
+    return re.sub(r'[^a-z0-9]', '', (text or '').lower())
+
+
+def strip_article(text: str) -> str:
+    """Strip leading English articles ('the', 'a', 'an')."""
+    t = (text or '').strip().lower()
+    for art in ('the ', 'a ', 'an '):
+        if t.startswith(art):
+            return t[len(art):].strip()
+    return t
 
 
 class TriviaGame:
@@ -22,10 +36,20 @@ class TriviaGame:
         self.last_winner = None
 
     @classmethod
-    def load_from_file(cls, path: str) -> "TriviaGame":
+    def load_from_file(cls, path: str, category: Optional[str] = None) -> "TriviaGame":
         with open(path, "r", encoding="utf-8") as f:
             data = json.load(f)
+        if category:
+            cat_lower = category.strip().lower()
+            data = [q for q in data if q.get("category", "").strip().lower() == cat_lower]
         return cls(data)
+
+    @classmethod
+    def get_categories(cls, path: str) -> List[str]:
+        with open(path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        cats = sorted({q.get("category", "").strip() for q in data if q.get("category")})
+        return cats
 
     def shuffle(self) -> None:
         random.shuffle(self.questions)
@@ -47,20 +71,114 @@ class TriviaGame:
         return q
 
     def get_answer_text(self, question: Dict[str, Any]) -> str:
-        """Get the correct answer as a string."""
+        """Get the primary canonical answer as a display string."""
         if "choices" in question and "answer_index" in question:
-            return question["choices"][question["answer_index"]]
+            idx = question["answer_index"]
+            if 0 <= idx < len(question["choices"]):
+                return question["choices"][idx]
         return question.get("answer", "")
+
+    def get_acceptable_answers(self, question: Dict[str, Any]) -> List[str]:
+        """Return all acceptable answer strings and option aliases for a question."""
+        answers: Set[str] = set()
+
+        if "choices" in question and "answer_index" in question:
+            idx = question["answer_index"]
+            choices = question.get("choices", [])
+            if 0 <= idx < len(choices):
+                choice_text = choices[idx]
+                answers.add(choice_text)
+                # Allow letter option: A, B, C, D
+                if idx < 26:
+                    answers.add(chr(ord('a') + idx))
+                # Allow number option: 1, 2, 3, 4
+                answers.add(str(idx + 1))
+            return list(answers)
+
+        raw = question.get("answer", "")
+        if not raw:
+            return []
+
+        raw_str = str(raw).strip()
+        answers.add(raw_str)
+
+        # Handle slash alternatives (e.g. "Margaret Court / Novak Djokovic")
+        if " / " in raw_str:
+            for part in raw_str.split(" / "):
+                part_clean = part.strip()
+                if part_clean:
+                    answers.add(part_clean)
+
+        # Handle 'or' alternatives (e.g. "Kitten or Kit", "Corn or Wheat")
+        if re.search(r'\b or \b', raw_str, re.IGNORECASE):
+            for part in re.split(r'\b or \b', raw_str, flags=re.IGNORECASE):
+                part_clean = part.strip()
+                if part_clean:
+                    answers.add(part_clean)
+
+        # Handle parenthetical notes (e.g. "Jawbone (Mandible)", "John Lennon (solo)")
+        if '(' in raw_str and ')' in raw_str:
+            # Without parentheses
+            without_parens = re.sub(r'\s*\([^)]*\)', '', raw_str).strip()
+            if without_parens:
+                answers.add(without_parens)
+            # Inside parentheses
+            for inside in re.findall(r'\(([^)]+)\)', raw_str):
+                inside_clean = inside.strip()
+                # Ignore notes like "(first one)" or "(executive)" unless it's a substantive name
+                if inside_clean and not any(k in inside_clean.lower() for k in ['first one', 'executive', 'legislative', 'judicial', 'solo']):
+                    answers.add(inside_clean)
+
+        return [a for a in answers if a]
+
+    def is_correct(self, question: Dict[str, Any], given: Any) -> bool:
+        """Check if user input matches any acceptable answer."""
+        if given is None:
+            return False
+
+        given_s = str(given).strip()
+        if not given_s:
+            return False
+
+        given_lower = given_s.lower()
+        given_no_art = strip_article(given_lower)
+        given_alnum = normalize_alnum(given_lower)
+        given_alnum_no_art = normalize_alnum(given_no_art)
+
+        acceptable = self.get_acceptable_answers(question)
+        for variant in acceptable:
+            var_lower = variant.strip().lower()
+            var_no_art = strip_article(var_lower)
+            var_alnum = normalize_alnum(var_lower)
+            var_alnum_no_art = normalize_alnum(var_no_art)
+
+            # 1. Exact string match (case-insensitive)
+            if given_lower == var_lower:
+                return True
+
+            # 2. String match with leading 'the/a/an' stripped
+            if given_no_art and given_no_art == var_no_art:
+                return True
+
+            # 3. Alphanumeric match (ignores punctuation, dashes, spaces, quotes)
+            if given_alnum and given_alnum == var_alnum:
+                return True
+
+            # 4. Alphanumeric match with leading articles stripped
+            if given_alnum_no_art and given_alnum_no_art == var_alnum_no_art:
+                return True
+
+        return False
 
     def check_answer(self, question: Dict[str, Any], given: Any, winner_name: str = None) -> bool:
         """Check if the given answer is correct. Updates score and streak."""
-        correct = False
-        if "answer_index" in question and isinstance(given, int):
-            correct = (given == question["answer_index"])
-        else:
-            expected = str(self.get_answer_text(question)).strip().lower()
-            given_s = str(given).strip().lower()
-            correct = expected != "" and given_s == expected
+        if given is None or str(given).strip() == "":
+            # Timeout / reset
+            self.streak = 0
+            self.last_winner = None
+            return False
+
+        correct = self.is_correct(question, given)
 
         if correct:
             self.score += 1
@@ -69,11 +187,6 @@ class TriviaGame:
             else:
                 self.streak = 1
                 self.last_winner = winner_name
-        else:
-            # Reset streak if no one answered correctly
-            if given is None or given == "":
-                self.streak = 0
-                self.last_winner = None
 
         return correct
 
@@ -85,8 +198,11 @@ class TriviaGame:
         if not answer:
             return []
         
-        # Replace special chars with spaces for hint generation
-        clean = re.sub(r'[^\w\s]', ' ', answer.lower())
+        # Replace special chars with spaces for hint generation,
+        # but preserve decimal points within numbers (e.g. "26.2" stays as one token)
+        clean = re.sub(r'(?<=\d)\.(?=\d)', 'DECPT', answer.lower())
+        clean = re.sub(r'[^\w\s]', ' ', clean)
+        clean = clean.replace('DECPT', '.')
         words = clean.split()
         
         hints = []
@@ -97,27 +213,23 @@ class TriviaGame:
             for word in words:
                 word_len = len(word)
 
-                # Fully mask purely-numeric words so hints do not reveal digits
-                if word.isdigit():
+                # Fully mask numeric words (including decimals) so hints
+                # do not reveal digits
+                if word.isdigit() or re.match(r'^\d+\.\d+$', word):
                     hint_words.append('*' * word_len)
                     continue
                 
                 if word_len == 1:
                     # Single char: only reveal on last hint
-                    # Never reveal single-char words in progressive hints;
-                    # they will be revealed only on timeout by the caller.
                     hint_words.append('*')
                 elif word_len == 2:
-                    # Two chars: reveal 1 char per hint (never fully reveal until last)
+                    # Two chars: reveal 1 char per hint
                     if hint_num == 1:
                         hint_words.append('**')
                     else:
-                        # For hint 2+ reveal first char only; never reveal both in hints
                         hint_words.append(word[0] + '*')
                 elif word_len <= 4:
                     # Short words (3-4 chars): reveal gradually
-                    # Never fully reveal the word in progressive hints; allow up to
-                    # word_len-1 characters to be shown.
                     chars_to_reveal = min(hint_num, max(1, word_len - 1))
                     revealed = word[:chars_to_reveal]
                     masked = '*' * (word_len - chars_to_reveal)
@@ -126,7 +238,6 @@ class TriviaGame:
                     # Longer words: progressive reveal based on ratio
                     reveal_ratio = hint_num / (num_hints + 1)
                     chars_to_reveal = max(1, int(word_len * reveal_ratio))
-                    # Cap reveal to word_len-1 so hints never show the full word
                     chars_to_reveal = min(chars_to_reveal, word_len - 1)
                     revealed = word[:chars_to_reveal]
                     masked = '*' * (word_len - chars_to_reveal)
