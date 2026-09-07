@@ -34,9 +34,32 @@ def _get_prefix(bot):
 
 # Import our trivia game engine
 import sys
+import importlib
 sys.path.insert(0, os.path.dirname(__file__))
+
+import trivia_game
+import trivia_db
+# Force reload helper modules if the plugin is reloaded via bot rehash
+if 'trivia_game' in sys.modules:
+    importlib.reload(trivia_game)
+if 'trivia_db' in sys.modules:
+    importlib.reload(trivia_db)
+
 from trivia_game import TriviaGame
 from trivia_db import TriviaDB
+
+
+def _get_categories(questions_file):
+    """Retrieve unique trivia categories from TriviaGame or directly from questions.json."""
+    if hasattr(TriviaGame, 'get_categories'):
+        return TriviaGame.get_categories(questions_file)
+    try:
+        import json
+        with open(questions_file, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+        return sorted({q.get('category', '').strip() for q in data if q.get('category')})
+    except Exception:
+        return []
 
 
 # Per-channel game state
@@ -364,7 +387,7 @@ def trivia_start(bot, trigger):
     arg = trigger.group(2).strip() if trigger.group(2) else ""
     if arg.lower() in ('categories', 'cats', 'category'):
         try:
-            cats = TriviaGame.get_categories(questions_file)
+            cats = _get_categories(questions_file)
             bot.say(f"Available trivia categories: {', '.join(cats)}", channel)
         except Exception as e:
             bot.say(f"Error loading categories: {e}", channel)
@@ -380,7 +403,7 @@ def trivia_start(bot, trigger):
     
     if arg:
         tokens = arg.split()
-        available_cats = {c.lower(): c for c in TriviaGame.get_categories(questions_file)}
+        available_cats = {c.lower(): c for c in _get_categories(questions_file)}
         for token in tokens:
             if token.isdigit():
                 val = int(token)
@@ -436,7 +459,7 @@ def trivia_categories(bot, trigger):
     channel = trigger.sender
     questions_file = os.path.join(os.path.dirname(__file__), 'questions.json')
     try:
-        cats = TriviaGame.get_categories(questions_file)
+        cats = _get_categories(questions_file)
         bot.say(f"Available trivia categories: {', '.join(cats)}", channel)
     except Exception as e:
         bot.say(f"Error loading categories: {e}", channel)
