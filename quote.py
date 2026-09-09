@@ -17,6 +17,7 @@ Database: ~/.sopel/quotes.db  (SQLite, one DB shared across all channels)
 """
 
 import os
+import re
 import sqlite3
 import threading
 import time
@@ -80,12 +81,74 @@ GREEN = '\x0303'
 GREY  = '\x0314'
 
 
+def _clean_nick(nick):
+    """Strip brackets and IRC status prefixes (~, &, @, %, +, !) from a nick."""
+    if not nick:
+        return ''
+    nick = nick.strip()
+    if nick.startswith('<') and nick.endswith('>'):
+        nick = nick[1:-1]
+    return re.sub(r'^[~&@%+!:]+', '', nick).strip()
+
+
+def _parse_quote_add(rest):
+    """Parse 'quote add' arguments, supporting single-user quotes and multi-line dialogues."""
+    rest = rest.strip()
+    if rest.lower().startswith(('dialogue ', 'dialog ', 'multi ')):
+        rest = rest.split(None, 1)[1].strip()
+
+    # Find all <nick> or <@nick> or <+nick> patterns
+    speaker_tags = re.findall(r'<[~&@%+!:]?([A-Za-z0-9_\[\]\`^{}|-]+)>', rest)
+
+    # Check for IRC action patterns like "* nick ..."
+    action_tags = re.findall(r'(?:^|\|\s*)\*\s+([A-Za-z0-9_\[\]\`^{}|-]+)', rest)
+    all_speakers = []
+    for s in speaker_tags + action_tags:
+        clean = _clean_nick(s)
+        if clean and clean not in all_speakers:
+            all_speakers.append(clean)
+
+    # Check if this is a dialogue / multi-line quote:
+    # 1. More than one speaker tag found, OR
+    # 2. Text starts with '<' and contains '|' or newlines, OR
+    # 3. Explicit dialogue separator with speaker tags
+    is_dialogue = (
+        len(all_speakers) > 1
+        or (rest.startswith('<') and ('|' in rest or '\n' in rest))
+        or (' | <' in rest or ' | *' in rest)
+    )
+
+    if is_dialogue:
+        quote_text = rest
+        quoted_nick = ', '.join(all_speakers) if all_speakers else 'dialogue'
+        return quoted_nick, quote_text
+
+    # Single-line quote copied with '<nick> text'
+    if rest.startswith('<') and '>' in rest:
+        first_word, _, text = rest.partition('>')
+        quoted_nick = _clean_nick(first_word + '>')
+        quote_text = text.strip()
+        if quote_text:
+            return quoted_nick, quote_text
+
+    # Standard syntax: '<nick> <text>'
+    parts = rest.split(None, 1)
+    if len(parts) >= 2:
+        quoted_nick = _clean_nick(parts[0])
+        quote_text = parts[1].strip()
+        return quoted_nick, quote_text
+
+    return None, None
+
+
 def _fmt_quote(row):
     """Format a quote row for IRC output."""
+    if row['text'].startswith('<') or ' | <' in row['text']:
+        return f"{BOLD}#{row['id']}{RESET} \"{row['text']}\""
+    nick_part = f" {GREY}— {BOLD}{row['nick']}{RESET}" if row['nick'] else ""
     return (
         f"{BOLD}#{row['id']}{RESET} "
-        f"\"{row['text']}\" "
-        f"{GREY}— {BOLD}{row['nick']}{RESET}"
+        f"\"{row['text']}\"{nick_part}"
     )
 
 
@@ -114,9 +177,12 @@ def _get_by_id(channel, qid):
 def _random_quote(channel, nick=None):
     with _db_lock, _get_conn() as conn:
         if nick:
+            clean = _clean_nick(nick)
+            pattern = f"%{clean}%"
             rows = conn.execute(
-                "SELECT * FROM quotes WHERE channel=? AND nick=? AND deleted=0",
-                (channel, nick)
+                "SELECT * FROM quotes WHERE channel=? AND deleted=0 "
+                "AND (nick = ? COLLATE NOCASE OR nick LIKE ? COLLATE NOCASE)",
+                (channel, clean, pattern)
             ).fetchall()
         else:
             rows = conn.execute(
@@ -166,12 +232,19 @@ def _last_quote(channel):
 
 def _top_nicks(channel, limit=5):
     with _db_lock, _get_conn() as conn:
-        return conn.execute(
-            "SELECT nick, COUNT(*) AS c FROM quotes "
-            "WHERE channel=? AND deleted=0 "
-            "GROUP BY nick ORDER BY c DESC LIMIT ?",
-            (channel, limit)
+        rows = conn.execute(
+            "SELECT nick FROM quotes WHERE channel=? AND deleted=0",
+            (channel,)
         ).fetchall()
+    counts = {}
+    for r in rows:
+        raw_nick = r['nick'] or ''
+        for n in raw_nick.split(','):
+            clean = _clean_nick(n)
+            if clean:
+                counts[clean] = counts.get(clean, 0) + 1
+    sorted_nicks = sorted(counts.items(), key=lambda x: x[1], reverse=True)[:limit]
+    return [{'nick': n, 'c': c} for n, c in sorted_nicks]
 
 
 # ──────────────────────────────────────────────────────────────
@@ -239,19 +312,15 @@ def cmd_quote(bot, trigger):
     # ── !quote add <nick> <text> ─────────────────────────────
     if sub == 'add':
         if not rest:
-            bot.reply("Usage: !quote add <nick> <text>")
+            bot.reply("Usage: !quote add <nick> <text> (or paste IRC dialogue)")
             return
-        add_parts = rest.split(None, 1)
-        if len(add_parts) < 2:
-            bot.reply("Usage: !quote add <nick> <text>")
-            return
-        quoted_nick = add_parts[0]
-        quote_text  = add_parts[1].strip()
-        if not quote_text:
-            bot.reply("Quote text can't be empty.")
+        quoted_nick, quote_text = _parse_quote_add(rest)
+        if not quoted_nick or not quote_text:
+            bot.reply("Usage: !quote add <nick> <text> (or paste IRC dialogue)")
             return
         qid = _add_quote(channel, quoted_nick, quote_text, str(trigger.nick))
-        bot.say(f"{GREEN}Quote #{qid} added{RESET} \"{quote_text}\" — {quoted_nick}")
+        nick_str = f" — {quoted_nick}" if quoted_nick else ""
+        bot.say(f"{GREEN}Quote #{qid} added{RESET} \"{quote_text}\"{nick_str}")
         return
 
     # ── !quote search <term> ─────────────────────────────────
@@ -273,7 +342,7 @@ def cmd_quote(bot, trigger):
         if not rest:
             bot.reply("Usage: !quote by <nick>")
             return
-        nick_arg = rest.split()[0]
+        nick_arg = _clean_nick(rest.split()[0])
         q = _random_quote(channel, nick=nick_arg)
         if q:
             bot.say(_fmt_quote(q))
