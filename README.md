@@ -40,6 +40,7 @@ A collection of custom [Sopel](https://sopel.chat/) IRC bot plugins for fun, uti
 - [Rizon Help](docs/rizonhelp.md)
 - [Tell](docs/tell.md)
 - [Seen](docs/seen.md)
+- [Hunting Game](docs/hunt.md)
 - [Installation](#-installation)
 - [Configuration](#-configuration)
 
@@ -1203,8 +1204,36 @@ Tracks and reports the last time a user was seen speaking in a channel.
 
 ---
 
+## 🌲 hunt — Wildlife Hunting Game
 
-## �📦 Installation
+A wildlife hunting game modeled after the authentic IRCHunt v5.5.0 mechanics. Features wildlife encounters, weapon progression, steady aim, ammo & reload mechanics, permits, shop, and bounties.
+
+### Features
+- **Disabled by default** across all channels to prevent unwanted channel chatter until enabled by an admin/op (`$hunttoggle on`)
+- Multiple wildlife tiers (Common, Uncommon, Rare, Legendary, Mythic) with authentic adjectives (`Large`, `Mature`, `Old`, `Prize`, etc.)
+- **Steady Aim**: consecutive misses grant +9% accuracy towards the next shot
+- **Combat lock & extension**: engaging an animal keeps target lock and grants +180s on successful hit
+- Weapon leveling, magazine capacity, and reloading (`$reloadgun`)
+- Private IRC notices for ammo alerts, reload reminders, and permit requirements
+- Configurable spawn timer rates (`$huntrate [slow|normal|fast|<min> <max>]`)
+
+| Command | Description |
+|---------|-------------|
+| `$shoot` (`$sh`) | Shoot at the active or newest spawned wildlife |
+| `$reloadgun` (`$reload`, `$rel`) | Reload your active weapon |
+| `$bef <animal>` | Attempt to befriend an animal with food |
+| `$hunter` | View hunter level, XP progress, and active permits |
+| `$gun` | View current weapon stats, ammo count, and upgrades |
+| `$huntshop` (`$shop`) | Browse weapons, permits, and equipment |
+| `$contract` | View active hunting contract bounties |
+| `$hunttoggle [on\|off]` | Enable/disable hunting game in channel (Admin/Op) |
+| `$huntrate [preset\|min max]` | Configure animal spawn frequency (Admin/Op) |
+
+📖 **Full docs:** [docs/hunt.md](docs/hunt.md)
+
+---
+
+## 📦 Installation
 
 1. **Clone the repository:**
    ```bash

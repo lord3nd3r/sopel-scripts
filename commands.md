@@ -40,3 +40,4 @@ The bot command prefix is **`$`** unless noted otherwise.
 | [🆘 Rizon Help](docs/rizonhelp.md) | Rizon network help and FAQ |
 | [📬 Tell](docs/tell.md) | Leave offline messages for users, delivered when they next speak (`$tell`) |
 | [👁️ Seen](docs/seen.md) | Report when a user was last seen in the channel |
+| [🌲 Hunting Game](docs/hunt.md) | Wildlife hunting game with guns, permits, ammo, and steady aim mechanics |
