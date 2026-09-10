@@ -16,6 +16,7 @@ The plugin is disabled by default in all channels so it won't spam active discus
 ```
 $hunttoggle on
 ```
+When enabled, the bot announces that hunting is active in the channel and directs users to `$hunthelp` to get started.
 
 **3. Database:**
 No configuration needed. The database (`hunt.db`) is automatically created in the scripts directory on first use.
@@ -25,6 +26,12 @@ No configuration needed. The database (`hunt.db`) is automatically created in th
 ## Commands
 
 The command prefix matches your bot's configured prefix (default `$`).
+
+### Help & Overview
+
+| Command | Aliases | Description |
+|---------|---------|-------------|
+| `$hunthelp` | `$hunt`, `$huntinghelp` | Display the full in-depth hunting reference, commands, and guide. |
 
 ### Hunting Actions
 

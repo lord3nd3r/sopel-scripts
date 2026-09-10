@@ -1880,16 +1880,29 @@ def cmd_hunttoggle(bot, trigger):
 
     if action in ('on', 'enable', '1', 'true'):
         _set_channel_enabled(bot, target_channel, True)
-        _reply(f"🌲 Hunting is now {GREEN}ENABLED{RESET} in {target_channel}! Grab your gear ({p}gun, {p}huntshop, {p}permits). Wildlife will begin appearing.")
+        msg = (
+            f"🌲 Hunting is now {GREEN}ENABLED{RESET} in {target_channel}! "
+            f"Type {BOLD}{p}hunthelp{RESET} for commands & how to play. "
+            f"Grab your gear ({p}gun, {p}huntshop, {p}permits). Wildlife will begin appearing."
+        )
+        _reply(msg)
+        if not in_channel:
+            bot.say(msg, target_channel)
     elif action in ('off', 'disable', '0', 'false'):
         _set_channel_enabled(bot, target_channel, False)
         with _animal_lock:
             _active_animals[target_channel.lower()] = []
-        _reply(f"🔒 Hunting is now {RED}DISABLED{RESET} in {target_channel}. All active animals have scattered.")
+        msg = f"🔒 Hunting is now {RED}DISABLED{RESET} in {target_channel}. All active animals have scattered."
+        _reply(msg)
+        if not in_channel:
+            bot.say(msg, target_channel)
     else:
         is_en = _plugin_enabled(bot, target_channel)
         st = f"{GREEN}ENABLED ✅{RESET}" if is_en else f"{RED}DISABLED 🔒{RESET}"
-        _reply(f"🌲 Hunting in {target_channel}: {st} (Disabled by default in all channels. Toggle with: {p}hunttoggle [on|off])")
+        if is_en:
+            _reply(f"🌲 Hunting in {target_channel}: {st}. Type {BOLD}{p}hunthelp{RESET} for commands. Toggle with: {p}hunttoggle [on|off]")
+        else:
+            _reply(f"🌲 Hunting in {target_channel}: {st} (Disabled by default in all channels. Enable with: {p}hunttoggle on)")
 
 
 @plugin.command('huntrate', 'huntinterval', 'spawnrate')
@@ -1951,8 +1964,9 @@ def cmd_huntrate(bot, trigger):
     bot.reply(f"🌲 Updated Critter Spawn Rate! Animals will now spawn every {new_min//60} to {new_max//60} minutes.", trigger.sender)
 
 
-@plugin.command('hunthelp')
+@plugin.command('hunthelp', 'huntinghelp', 'hunt')
 @plugin.example('$hunthelp')
+@plugin.example('$hunt')
 def cmd_hunthelp(bot, trigger):
     """View the hunting game help and quick-start reference."""
     nick = trigger.nick

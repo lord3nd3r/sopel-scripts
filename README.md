@@ -1219,6 +1219,7 @@ A wildlife hunting game modeled after the authentic IRCHunt v5.5.0 mechanics. Fe
 
 | Command | Description |
 |---------|-------------|
+| `$hunthelp` (`$hunt`) | In-depth hunting guide, command reference, and tutorial |
 | `$shoot` (`$sh`) | Shoot at the active or newest spawned wildlife |
 | `$reloadgun` (`$reload`, `$rel`) | Reload your active weapon |
 | `$bef <animal>` | Attempt to befriend an animal with food |
