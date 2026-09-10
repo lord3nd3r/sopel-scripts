@@ -160,13 +160,24 @@ _TIME_INTENT_RE = re.compile(
     re.IGNORECASE,
 )
 
+_SUMMARY_INTENT_RE = re.compile(
+    r"\b(tldr|tl;dr|tl-dr|recap|summarize|summary|"
+    r"catch me up|fill me in|what(?: did|'d)? i miss|what(?:'s| has)? happened|"
+    r"what(?:'s| is| has)?(?: been)? (?:being |going )?(?:talked about|discussed|happening|going on)|"
+    r"what(?:'s| was| is) (?:being )?said|"
+    r"what(?:'s| are) (?:they|people|everyone|you(?: guys)?) (?:talking|saying|discussing)(?: about)?|"
+    r"what(?:'s| is) the topic|what(?:'s| is) above)\b",
+    re.IGNORECASE,
+)
+
 _REVIEW_INTENT_RE = re.compile(
-    r"\b(thoughts?|opinion|what do you think|summarize|give (me )?(your )?(take|opinion)|opine|"
-    r"what(?:'s| is) (being |going )?(?:talked|discussed|happening|going on)|"
+    r"\b(thoughts?|opinion|what do you think|give (me )?(your )?(take|opinion)|opine|"
+    r"tldr|tl;dr|tl-dr|recap|summarize|summary|"
+    r"catch me up|fill me in|what(?: did|'d)? i miss|what(?:'s| has)? happened|"
+    r"what(?:'s| is| has)?(?: been)? (?:being |going )?(?:talked about|discussed|happening|going on)|"
     r"what(?:'s| was| is) (?:being )?said|what(?:'s| is) up|"
-    r"what(?:'s| are) they (talking|saying|discussing)|"
-    r"catch me up|fill me in|what did i miss|what('s| is) above|"
-    r"what(?:'s| is) the topic|recap|tldr|tl;dr|what happened)\b",
+    r"what(?:'s| are) (?:they|people|everyone|you(?: guys)?) (?:talking|saying|discussing)(?: about)?|"
+    r"what(?:'s| is) the topic|what(?:'s| is) above)\b",
     re.IGNORECASE,
 )
 
@@ -3397,6 +3408,7 @@ def handle(bot, trigger):
     # ========== END INSTANT CONFIG COMMANDS ==========
 
     review_mode = bool(_REVIEW_INTENT_RE.search(user_message)) or (user_message.strip() == '^^')
+    is_summary_request = review_mode and bool(_SUMMARY_INTENT_RE.search(user_message))
 
     if not user_message:
         return
@@ -3620,18 +3632,23 @@ def handle(bot, trigger):
                 )
                 if chan_log_dq:
                     channel_entries = [(n, t) for n, t, _ in chan_log_dq]
+        # Exclude the current trigger command message from the summary log if present
+        if channel_entries and channel_entries[-1][0].lower() == trigger.nick.lower() and _REVIEW_INTENT_RE.search(channel_entries[-1][1]):
+            channel_entries = channel_entries[:-1]
+
         filtered = []
         for nick, text in channel_entries:
             t = text.strip()
             if not t:
                 continue
-            if re.search(r'https?://|\S+\.(com|net|org|io|gg)\b', t, re.IGNORECASE):
+            # Replace long URLs with [link] so context is preserved without eating character budget
+            t_clean = re.sub(r'https?://\S+', '[link]', t)
+            t_clean = re.sub(r'\b\S+\.(?:com|net|org|io|gg|ai|dev)/\S*', '[link]', t_clean, flags=re.IGNORECASE)
+            if len(t_clean.split()) <= 1 and len(t_clean) <= 3:
                 continue
-            if len(t.split()) <= 1 and len(t) <= 3:
+            if re.match(r'^[^\w\s]+$', t_clean):
                 continue
-            if re.match(r'^[^\w\s]+$', t):
-                continue
-            filtered.append((nick, t))
+            filtered.append((nick, t_clean))
         char_budget = REVIEW_CHAR_BUDGET
         collected = []
         total_chars = 0
@@ -3751,25 +3768,52 @@ def handle(bot, trigger):
         except Exception:
             pass
     else:
-        review_sys = (
-            f"You are {bot_nick}, a real participant in this IRC channel — not a summarizer or a bot assistant. "
-            "You have been reading the conversation and now someone is asking you to chime in. "
-            "React like a person who actually read the whole backlog: engage with the topic, "
-            "add your take, agree or push back, be funny or thoughtful — whatever fits naturally. "
-            "Do NOT give a structured summary with headers, highlights, or suggestions. "
-            "Do NOT say things like 'The conversation is about...' or 'Highlight:'. "
-            "Just talk like you've been sitting in the channel the whole time. "
-            "If the log is empty, say so briefly. Single line only — this is IRC."
-        )
+        if is_summary_request:
+            review_sys = (
+                f"You are {bot_nick}, an active and observant member of this IRC channel. "
+                f"{trigger.nick} is asking for a summary/TL;DR of what has been happening in the channel. "
+                "Based strictly on the chronological chat log below, tell them what has been happening: "
+                "summarize what people have been discussing, arguing about, or doing, and mention who was involved. "
+                "Keep it concise, direct, and casual for IRC (1 to 2 brief sentences, or a punchy summary). "
+                "Do NOT use markdown headers, bullet lists, or robotic phrases like 'Here is a summary:'. "
+                f"Do NOT just share your own personal hot take or opinion on the topic — your primary job is to inform {trigger.nick} what was said and discussed. "
+                "If the log is empty or there has been no real conversation, say so directly."
+            )
+            bg_lines = []
+            for nick, text in relevant_turns[-REVIEW_MAX_ENTRIES:]:
+                bg_lines.append(f"{nick}: {text}")
+            background = "\n".join(bg_lines)
+            if background.strip():
+                combined = (
+                    "Recent channel conversation log (chronological):\n" + background + "\n\n"
+                    + f"{trigger.nick} asked: {user_message}\n"
+                    + f"Give {trigger.nick} an accurate, natural IRC TL;DR/summary of what has been happening in the channel based on the log above."
+                )
+            else:
+                combined = (
+                    f"{trigger.nick} asked: {user_message}\n"
+                    "The recent channel log is currently empty. Tell the user there hasn't been any recent conversation to summarize."
+                )
+        else:
+            review_sys = (
+                f"You are {bot_nick}, a real participant in this IRC channel. "
+                "You have been reading the conversation and someone is asking you to weigh in with your thoughts. "
+                "React like a person who actually read the whole backlog: engage with the topic, "
+                "add your take, agree or push back, be funny or thoughtful — whatever fits naturally. "
+                "Do NOT give a structured summary with headers, highlights, or suggestions. "
+                "Do NOT say things like 'The conversation is about...' or 'Highlight:'. "
+                "Just talk like you've been sitting in the channel the whole time. "
+                "If the log is empty, say so briefly. Single line only — this is IRC."
+            )
+            bg_lines = []
+            for nick, text in relevant_turns[-REVIEW_MAX_ENTRIES:]:
+                bg_lines.append(f"{nick}: {text}")
+            background = "\n".join(bg_lines)
+            combined = (
+                "Channel conversation so far (chronological):\n" + background + "\n\n"
+                + (f"{trigger.nick} is asking you to weigh in. User said: {user_message}" if user_message.strip() != '^^' else f"{trigger.nick} wants you to jump into the conversation.")
+            )
         messages.append({"role": "system", "content": review_sys})
-        bg_lines = []
-        for nick, text in relevant_turns[-REVIEW_MAX_ENTRIES:]:
-            bg_lines.append(f"{nick}: {text}")
-        background = "\n".join(bg_lines)
-        combined = (
-            "Channel conversation so far (chronological):\n" + background + "\n\n"
-            + (f"{trigger.nick} is asking you to weigh in. User said: {user_message}" if user_message.strip() != '^^' else f"{trigger.nick} wants you to jump into the conversation.")
-        )
         messages.append({"role": "user", "content": combined})
 
     try:
@@ -3783,14 +3827,18 @@ def handle(bot, trigger):
                 pass
             return
 
-        search_mode = _channel_always_search or bool(_SEARCH_INTENT_RE.search(user_message))
-        wants_sources = bool(_WANTS_SOURCES_RE.search(user_message))
-        # If user is asking for sources/URLs, force search so the API returns real citations
-        if wants_sources:
-            search_mode = True
-        # Sunrise/sunset/dawn/dusk queries need a web lookup
-        if _time_needs_lookup:
-            search_mode = True
+        if review_mode:
+            search_mode = False
+            wants_sources = False
+        else:
+            search_mode = _channel_always_search or bool(_SEARCH_INTENT_RE.search(user_message))
+            wants_sources = bool(_WANTS_SOURCES_RE.search(user_message))
+            # If user is asking for sources/URLs, force search so the API returns real citations
+            if wants_sources:
+                search_mode = True
+            # Sunrise/sunset/dawn/dusk queries need a web lookup
+            if _time_needs_lookup:
+                search_mode = True
         # If responding to a /me action, tell Grok to reply in /me style
         if action_bot_mentioned:
             messages.append({"role": "system", "content":
