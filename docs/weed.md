@@ -46,6 +46,8 @@ All commands support an optional target `<nick>` argument. If the target is pres
 | Command | Arguments | Description | Example |
 |---------|-----------|-------------|---------|
 | `$pass` | `<nick>` | Take a hit and pass the rotation to someone else (requires target in channel) | `$pass Friend` |
+| `$coffee` | `[nick]` | Offer hot coffee or cold water to sober up the bot (or another user) | `$coffee Glitchy` |
+| `$sober` | — | Alias for `$coffee` to sober up the bot in this channel | `$sober` |
 | `$weedhelp` | — | PM a complete command reference card to the user | `$weedhelp` |
 
 ---
@@ -60,7 +62,12 @@ When you trigger a command **without a target** (or if the target user is offlin
 
 ### Mode 2: Gift & Pass (With a Target User)
 When you specify a target user who is **active in the channel**, the bot posts a single `/me` action message gifting the target a random item from the chosen substance pool or passing the rotation ($pass).
-* **Targeting the Bot**: If you pass or gift an item to the bot itself (e.g. `$pass BotNick` or `$weed BotNick`), the bot detects it is the target, takes a hit, and passes it right back to you!
+* **Targeting the Bot (AI Intoxication State)**:
+  If you pass or gift an item to the bot itself (e.g. `$pass BotNick` or `$weed BotNick`), the bot takes a hit, passes it back, and enters an **altered AI state in that channel for 1 to 2 hours**:
+  - **Weed / Bong / Joint / Blunt / Dabs**: The bot becomes **stoned/baked** (`intensity 1 to 5` if passed repeatedly). Responses in that channel become super chill, philosophical, giggly, with occasional typos, slurring, trailing thoughts (`...`), and munchies.
+  - **Shrooms / Acid / LSD / Peyote**: The bot starts **tripping**, seeing patterns and fractals, and sharing cosmic revelations.
+  - **Stacking**: Passing to the bot again adds +30 minutes (capped at 3 hours).
+  - **Sobering Up**: The effect naturally wears off after 1–2 hours, or anyone can hand the bot coffee with `$coffee BotNick` or `$sober` to sober it up instantly.
 
 ---
 

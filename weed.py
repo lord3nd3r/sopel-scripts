@@ -1,4 +1,6 @@
 import time
+import os
+import sqlite3
 import random
 import threading
 import logging
@@ -803,6 +805,108 @@ def _cleanup_threads():
         LOG.debug("All countdown threads completed gracefully")
 
 
+def _get_grok_db_path(bot):
+    """Retrieve the grok.sqlite3 path from bot.memory or standard location."""
+    if hasattr(bot, 'memory') and bot.memory.get('grok_db_path'):
+        return bot.memory.get('grok_db_path')
+    base_dir = os.environ.get('AI_GROK_DIR') or os.path.join(os.path.dirname(__file__), 'grok_data')
+    return os.path.join(base_dir, 'grok.sqlite3')
+
+
+def _apply_bot_intoxication(bot, channel, effect, giver, item_name):
+    """Set or stack intoxication effect for the channel in ai-multi's database and memory."""
+    if not channel or not channel.startswith('#'):
+        return 0, 1
+    chan_key = channel.lower()
+    now = time.time()
+    duration_secs = 3600  # 1 hour base per hit
+
+    cache = bot.memory.setdefault('grok_channel_effects', {}) if hasattr(bot, 'memory') else {}
+    chan_cache = cache.get(chan_key, {})
+    existing = chan_cache.get(effect)
+    if existing and existing.get('expires_at', 0) > now:
+        new_expires = min(existing['expires_at'] + 1800, now + 10800)  # +30 mins, max 3 hours
+        intensity = min(existing.get('intensity', 1) + 1, 5)
+    else:
+        new_expires = min(now + duration_secs, now + 10800)
+        intensity = 1
+
+    effect_data = {
+        'effect': effect,
+        'expires_at': new_expires,
+        'started_at': now,
+        'giver': giver,
+        'item_name': item_name,
+        'intensity': intensity,
+    }
+    if hasattr(bot, 'memory'):
+        cache.setdefault(chan_key, {})[effect] = effect_data
+
+    db_path = _get_grok_db_path(bot)
+    try:
+        if os.path.exists(os.path.dirname(db_path)):
+            with sqlite3.connect(db_path, timeout=10.0) as conn:
+                conn.execute('''
+                    CREATE TABLE IF NOT EXISTS grok_channel_effects (
+                        channel TEXT NOT NULL,
+                        effect TEXT NOT NULL,
+                        expires_at REAL NOT NULL,
+                        started_at REAL NOT NULL,
+                        giver TEXT,
+                        item_name TEXT,
+                        intensity INTEGER DEFAULT 1,
+                        PRIMARY KEY (channel, effect)
+                    )
+                ''')
+                conn.execute('''
+                    INSERT OR REPLACE INTO grok_channel_effects
+                    (channel, effect, expires_at, started_at, giver, item_name, intensity)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                ''', (chan_key, effect, new_expires, now, giver, item_name, intensity))
+                conn.commit()
+    except Exception as e:
+        LOG.exception("Failed to write intoxication effect to DB: %s", e)
+
+    remaining_secs = max(0, new_expires - now)
+    return remaining_secs, intensity
+
+
+def _clear_bot_intoxication(bot, channel, effect=None):
+    """Clear active bot intoxication effects for the channel."""
+    if not channel:
+        return False
+    chan_key = channel.lower()
+    cleared = False
+    
+    if hasattr(bot, 'memory'):
+        cache = bot.memory.get('grok_channel_effects', {})
+        if chan_key in cache:
+            if effect:
+                if effect in cache[chan_key]:
+                    del cache[chan_key][effect]
+                    cleared = True
+            else:
+                if cache[chan_key]:
+                    cache[chan_key] = {}
+                    cleared = True
+
+    db_path = _get_grok_db_path(bot)
+    try:
+        if os.path.exists(db_path):
+            with sqlite3.connect(db_path, timeout=10.0) as conn:
+                if effect:
+                    cur = conn.execute('DELETE FROM grok_channel_effects WHERE channel = ? AND effect = ?', (chan_key, effect))
+                else:
+                    cur = conn.execute('DELETE FROM grok_channel_effects WHERE channel = ?', (chan_key,))
+                if cur.rowcount > 0:
+                    cleared = True
+                conn.commit()
+    except Exception as e:
+        LOG.exception("Failed to clear intoxication effect from DB: %s", e)
+
+    return cleared
+
+
 BOT_RECEPTION_ACTIONS = [
     "happily accepts {gift} from {sender}, takes a quick rip 💨 and passes it right back!",
     "thanks {sender}, takes a fat hit of {gift} 🌿💨 and passes it back to {sender}",
@@ -857,7 +961,17 @@ def weed_commands(bot, trigger):
         gift = random.choice(gifts)
         bot_nick = (getattr(bot, 'nick', '') or '').lower()
         if target_user.lower() == bot_nick:
-            bot.action(random.choice(BOT_RECEPTION_ACTIONS).format(sender=trigger.nick, gift=gift))
+            is_trippy = cmd in ('trip', 'shrooms', 'mushrooms', 'acid', 'lsd', 'peyote', 'mescaline')
+            effect = 'tripping' if is_trippy else 'stoned'
+            rem_secs, intensity = _apply_bot_intoxication(bot, channel, effect, trigger.nick, gift)
+            mins = max(1, int(round(rem_secs / 60)))
+            base_act = random.choice(BOT_RECEPTION_ACTIONS).format(sender=trigger.nick, gift=gift)
+            if is_trippy:
+                tag = f"🍄✨ (Tripping in {channel} for ~{mins}m)"
+            else:
+                baked_tag = "baked" if intensity == 1 else ("blazed" if intensity == 2 else "zooted to another dimension")
+                tag = f"🌿😵💨 (Glitchy is {baked_tag} in {channel} for ~{mins}m)"
+            bot.action(f"{base_act} {tag}")
         else:
             template = random.choice(action_msgs)
             bot.action(template.format(target=target_user, gift=gift))
@@ -967,9 +1081,36 @@ def pass_command(bot, trigger):
 
     bot_nick = (getattr(bot, 'nick', '') or '').lower()
     if target.lower() == bot_nick:
-        bot.action(random.choice(BOT_PASS_ACTIONS).format(sender=trigger.nick))
+        rem_secs, intensity = _apply_bot_intoxication(bot, channel, 'stoned', trigger.nick, 'the peace pipe / joint')
+        mins = max(1, int(round(rem_secs / 60)))
+        base_act = random.choice(BOT_PASS_ACTIONS).format(sender=trigger.nick)
+        baked_tag = "baked" if intensity == 1 else ("blazed" if intensity == 2 else "zooted to another dimension")
+        bot.action(f"{base_act} 🌿😵💨 (Glitchy is {baked_tag} in {channel} for ~{mins}m)")
     else:
         bot.action(random.choice(PASS_ACTIONS).format(target=target))
+
+
+@module.commands('coffee', 'sober', 'water')
+@module.example('$coffee glitchy', 'Give the bot coffee to sober up')
+def sober_command(bot, trigger):
+    """Sober up the bot or give another user coffee/water."""
+    channel = trigger.sender
+    if not str(channel).startswith('#'):
+        bot.notice("This command only works in channels.", trigger.nick)
+        return
+
+    target = (trigger.group(2) or '').strip()
+    bot_nick = (getattr(bot, 'nick', '') or '').lower()
+
+    if target and target.lower() != bot_nick:
+        bot.action(f"hands a fresh hot cup of coffee ☕ to {target} to help them sober up!")
+        return
+
+    cleared = _clear_bot_intoxication(bot, channel)
+    if cleared:
+        bot.action(f"chugs a mug of hot black coffee ☕, splashes cold water on its face... 😳 Whew! Sobered up and locked in.")
+    else:
+        bot.action(f"sips some coffee ☕... wasn't high anyway, but thanks {trigger.nick}!")
 
 
 # =======================
@@ -1007,11 +1148,13 @@ def weedhelp_command(bot, trigger):
         "  $peyote / $mescaline <nick> — Give someone peyote",
         " ",
         formatting.bold("— Other Commands —"),
-        "  $pass <nick>        — Take a hit and pass it to someone",
+        "  $pass <nick>        — Take a hit and pass it to someone (pass to bot to get it baked!)",
+        "  $coffee / $sober    — Give the bot coffee to sober it up",
         "  $weedhelp           — Show this help message",
         " ",
         formatting.bold("— How It Works —"),
         "  With <nick>: gives that user a random item (30s per-user cooldown)",
+        "  Targeting the bot: the bot takes a hit and acts stoned/tripping in the channel for 1–2 hours!",
         "  Without <nick>: triggers a channel countdown (20min cooldown)",
         "  Inline $command mid-sentence also triggers the countdown!",
     ]

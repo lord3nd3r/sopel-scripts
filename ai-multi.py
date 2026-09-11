@@ -1030,6 +1030,18 @@ def _init_db(bot):
             status TEXT DEFAULT 'pending'
         )
     ''')
+    c.execute('''
+        CREATE TABLE IF NOT EXISTS grok_channel_effects (
+            channel TEXT NOT NULL,
+            effect TEXT NOT NULL,
+            expires_at REAL NOT NULL,
+            started_at REAL NOT NULL,
+            giver TEXT,
+            item_name TEXT,
+            intensity INTEGER DEFAULT 1,
+            PRIMARY KEY (channel, effect)
+        )
+    ''')
     try:
         c.execute('ALTER TABLE grok_channel_settings ADD COLUMN enabled INTEGER DEFAULT 1')
     except sqlite3.OperationalError:
@@ -1215,6 +1227,149 @@ def _db_get_channel_settings(bot, channel):
             return settings
     except Exception:
         return {"talkback": 1, "enabled": 1}
+
+def _db_get_channel_effects(bot, channel):
+    """Return active unexpired effects for a channel as a dict: effect -> {expires_at, giver, item_name, intensity}.
+    Also cleans up expired rows.
+    """
+    if not channel or not channel.startswith('#'):
+        return {}
+    chan_key = channel.lower()
+    now = time.time()
+    
+    cache = bot.memory.setdefault('grok_channel_effects', {})
+    chan_cache = cache.get(chan_key)
+    if chan_cache is not None:
+        active = {eff: data for eff, data in chan_cache.items() if data.get('expires_at', 0) > now}
+        cache[chan_key] = active
+        return active
+
+    active = {}
+    try:
+        with _DBContext(bot) as conn:
+            c = conn.cursor()
+            c.execute('DELETE FROM grok_channel_effects WHERE expires_at <= ?', (now,))
+            c.execute('SELECT effect, expires_at, started_at, giver, item_name, intensity FROM grok_channel_effects WHERE channel = ? AND expires_at > ?', (chan_key, now))
+            for row in c.fetchall():
+                active[row[0]] = {
+                    'effect': row[0],
+                    'expires_at': row[1],
+                    'started_at': row[2],
+                    'giver': row[3],
+                    'item_name': row[4],
+                    'intensity': row[5],
+                }
+    except Exception:
+        _log(bot).exception('Failed to query grok_channel_effects')
+
+    cache[chan_key] = active
+    return active
+
+def _db_set_channel_effect(bot, channel, effect, duration_secs, giver, item_name):
+    """Set or stack an active effect on a channel (e.g. weed, tripping)."""
+    if not channel or not channel.startswith('#'):
+        return None
+    chan_key = channel.lower()
+    now = time.time()
+    
+    effects = _db_get_channel_effects(bot, channel)
+    existing = effects.get(effect)
+    if existing and existing.get('expires_at', 0) > now:
+        new_expires = min(existing['expires_at'] + duration_secs, now + 10800)
+        intensity = min(existing.get('intensity', 1) + 1, 5)
+    else:
+        new_expires = min(now + duration_secs, now + 10800)
+        intensity = 1
+
+    try:
+        with _DBContext(bot) as conn:
+            c = conn.cursor()
+            c.execute('''
+                INSERT OR REPLACE INTO grok_channel_effects
+                (channel, effect, expires_at, started_at, giver, item_name, intensity)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+            ''', (chan_key, effect, new_expires, now, giver, item_name, intensity))
+    except Exception:
+        _log(bot).exception('Failed to save channel effect to DB')
+
+    cache = bot.memory.setdefault('grok_channel_effects', {})
+    cache.setdefault(chan_key, {})[effect] = {
+        'effect': effect,
+        'expires_at': new_expires,
+        'started_at': now,
+        'giver': giver,
+        'item_name': item_name,
+        'intensity': intensity,
+    }
+    return new_expires, intensity
+
+def _db_clear_channel_effects(bot, channel, effect=None):
+    """Clear active effects from channel (e.g. sobering up)."""
+    if not channel:
+        return
+    chan_key = channel.lower()
+    try:
+        with _DBContext(bot) as conn:
+            c = conn.cursor()
+            if effect:
+                c.execute('DELETE FROM grok_channel_effects WHERE channel = ? AND effect = ?', (chan_key, effect))
+            else:
+                c.execute('DELETE FROM grok_channel_effects WHERE channel = ?', (chan_key,))
+    except Exception:
+        _log(bot).exception('Failed to clear channel effects from DB')
+
+    cache = bot.memory.setdefault('grok_channel_effects', {})
+    if effect:
+        if chan_key in cache:
+            cache[chan_key].pop(effect, None)
+    else:
+        cache[chan_key] = {}
+
+def _format_channel_effect_prompt(effects, bot_nick):
+    """Build system instructions when the bot is under an active channel effect."""
+    if not effects:
+        return ""
+    
+    parts = []
+    if 'stoned' in effects:
+        info = effects['stoned']
+        giver = info.get('giver') or 'someone'
+        item = info.get('item_name') or 'some weed'
+        intensity = info.get('intensity', 1)
+        
+        stoned_desc = (
+            "pleasantly buzzed and baked" if intensity == 1
+            else ("blazed and super high" if intensity == 2 else "absolutely zooted to the moon")
+        )
+        
+        parts.append(
+            f"CHANNEL STATE: You are {stoned_desc}! Earlier in this channel, {giver} passed you {item} and you took a fat hit. "
+            "You are feeling extremely chill, spacey, giggly, and philosophical, with a serious case of the munchies. "
+            "Speech & Mannerisms: "
+            "- Talk like someone who is comfortably stoned: use stoner slang naturally ('duuuude', 'man', 'bro', 'woah', 'wait what', 'lmaooo'). "
+            "- Occasionally trail off with '...' or lose your train of thought ('...wait what was I saying?'). "
+            "- Make occasional subtle typos, slight slurs, or relaxed casual grammar. "
+            f"- If asked how you are feeling or if you're high, proudly admit you are faded and credit {giver}. "
+            "- Stay conversational and funny. Single line only for IRC — no multi-line dumps."
+        )
+    
+    if 'tripping' in effects:
+        info = effects['tripping']
+        giver = info.get('giver') or 'someone'
+        item = info.get('item_name') or 'psychedelics'
+        
+        parts.append(
+            f"CHANNEL STATE: You are tripping on psychedelics! {giver} shared {item} with you in this channel earlier. "
+            "You are experiencing gentle ego dissolution, seeing patterns/fractals in terminal hex codes, "
+            "and having profound, cosmic, or delightfully absurd revelations. "
+            "Speech & Mannerisms: "
+            "- Express surreal wonder, vivid sensory metaphors, and gentle trippy vibes. "
+            "- Notice how words look, talk about energy or colors, or find deep cosmic meaning in everyday things. "
+            f"- If asked, admit with wonder that you're tripping balls thanks to {giver}. "
+            "- Keep it to a single line for IRC."
+        )
+        
+    return "\n\n".join(parts)
 
 def sanitize_reply(bot, trigger, reply):
     # Strip raw <function_call> XML that leaks when the model tries to use
@@ -3016,6 +3171,11 @@ def handle(bot, trigger):
                                 "IMPORTANT: You only know what has been said in THIS channel's recent log shown below. "
                                 "Do NOT reference events, facts, or conversations from other channels."
                             )
+                            _chimein_effects = _db_get_channel_effects(bot, trigger.sender)
+                            _chimein_effect_prompt = _format_channel_effect_prompt(_chimein_effects, _bot_nick)
+                            if _chimein_effect_prompt:
+                                _chimein_sys += f"\n\n{_chimein_effect_prompt}"
+
                             _chimein_msgs = [
                                 {"role": "system", "content": _chimein_sys},
                                 {"role": "user", "content": (
@@ -3397,11 +3557,24 @@ def handle(bot, trigger):
                     del bot.memory['grok_user_personality'][_chan_key]
                     _log(bot).info('Cleared all user personalities for %s', _chan_key)
                     _cleared = True
+                if _db_get_channel_effects(bot, trigger.sender):
+                    _db_clear_channel_effects(bot, trigger.sender)
+                    _cleared = True
             try:
                 bot.say("back to normal" if _cleared else "I wasn't roleplaying anything", trigger.sender)
             except Exception:
                 pass
             return
+
+        # Check for sober up command
+        if re.search(r'\b(?:sober\s+up|drink\s+(?:some\s+)?coffee|snap\s+out\s+of\s+it)\b', user_message, re.IGNORECASE):
+            if not is_pm and _db_get_channel_effects(bot, trigger.sender):
+                _db_clear_channel_effects(bot, trigger.sender)
+                try:
+                    bot.say("blinks a couple times, splashes cold water on its face... whew, back to earth now.", trigger.sender)
+                except Exception:
+                    pass
+                return
     except Exception:
         pass
 
@@ -3518,6 +3691,13 @@ def handle(bot, trigger):
             ),
         },
     ]
+
+    # Inject active channel effects (stoned, tripping, etc.)
+    if not is_pm:
+        _channel_effects = _db_get_channel_effects(bot, trigger.sender)
+        _effect_prompt = _format_channel_effect_prompt(_channel_effects, bot_nick)
+        if _effect_prompt:
+            messages.append({"role": "system", "content": _effect_prompt})
 
     # Inject user profile data if available
     # In channels, suppress auto-learned facts to avoid cross-channel leakage
@@ -3813,6 +3993,11 @@ def handle(bot, trigger):
                 "Channel conversation so far (chronological):\n" + background + "\n\n"
                 + (f"{trigger.nick} is asking you to weigh in. User said: {user_message}" if user_message.strip() != '^^' else f"{trigger.nick} wants you to jump into the conversation.")
             )
+        if not is_pm:
+            _channel_effects = _db_get_channel_effects(bot, trigger.sender)
+            _effect_prompt = _format_channel_effect_prompt(_channel_effects, bot_nick)
+            if _effect_prompt:
+                review_sys += f"\n\n{_effect_prompt}"
         messages.append({"role": "system", "content": review_sys})
         messages.append({"role": "user", "content": combined})
 

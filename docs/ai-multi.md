@@ -331,6 +331,22 @@ The bot reacts to `/me` actions and emote-style messages directed at it. Respons
 
 ---
 
+## 🌿 Cross-Plugin Intoxication State (Stoned & Trippy Modes)
+
+When users interact with the weed plugin (`weed.py`), passing a hit to the bot enters it into an **intoxicated state** scoped to that specific channel:
+- **`$pass BotNick`** or **`$weed / $bong / $joint / $blunt BotNick`**: The bot takes a hit and enters the `stoned` state for **60 minutes** (stacking +30 minutes per extra hit up to 3 hours).
+- **`$shrooms / $acid / $lsd / $peyote BotNick`**: The bot takes the psychedelic and enters the `tripping` state for 60–180 minutes.
+
+### How the AI Behaves While Under the Influence
+- **Stoned State**: Responses in that channel become super chill, philosophical, and spacey. The bot uses stoner slang naturally (`duuuude`, `man`, `bro`, `woah`, `wait what`, `lmaooo`), trails off thoughts (`...`), experiences the munchies, and has occasional relaxed typos/slurs.
+- **Tripping State**: The bot experiences gentle cosmic wonder, sees patterns in terminal hex codes, and makes delightfully absurd or profound observations.
+- **Awareness**: The bot knows *who* smoked it out and *what* it smoked, and proudly gives credit when asked how it's feeling.
+- **Chime-ins & Review**: Unprompted chime-ins and review summaries in that channel reflect this relaxed state.
+- **Channel Isolation**: The effect only applies to the channel where the sesh took place. The bot remains completely sober in other channels and PMs.
+- **Sobering Up Early**: Anyone can clear the effect immediately with `$coffee BotNick`, `$sober`, or by telling the bot `sober up` in chat.
+
+---
+
 ## 🧑 Humanization Features
 
 The bot includes several features designed to make it feel less like an AI and more like a regular channel participant.
