@@ -4051,6 +4051,19 @@ def handle(bot, trigger):
                     except Exception:
                         pass
 
+        # When the bot is currently intoxicated, filter out stale assistant turns
+        # where the bot talked about being sober / pizza fixing it / coffee fixing it.
+        # This prevents the LLM from mimicking its own old sober responses.
+        # NOTE: This is in-flight filtering only — the DB records are preserved intact.
+        if not is_pm and _channel_effects and any(k in _channel_effects for k in ('stoned', 'drunk', 'tripping')):
+            _sober_markers = ('sober', 'back to earth', 'back down to earth', 'pizza fixed', 'coffee fixed',
+                              'pizza got me', 'coffee got me', 'sobered up', 'clear-headed', 'feeling great now',
+                              'pizza brought me', 'coffee brought me', 'not high', 'not drunk', "wasn't high")
+            relevant_turns = [
+                (nick, text) for (nick, text) in relevant_turns
+                if nick != bot_nick or not any(m in text.lower() for m in _sober_markers)
+            ]
+
         for nick, text in relevant_turns[-MAX_HISTORY_PER_USER:]:
             role = "assistant" if nick == bot_nick else "user"
             messages.append({"role": role, "content": text})
