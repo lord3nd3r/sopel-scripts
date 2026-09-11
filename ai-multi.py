@@ -1326,9 +1326,12 @@ def _db_clear_channel_effects(bot, channel, effect=None):
         cache[chan_key] = {}
 
 def _format_channel_effect_prompt(effects, bot_nick):
-    """Build system instructions when the bot is under an active channel effect."""
+    """Build system instructions when the bot is under an active channel effect or sober."""
     if not effects:
-        return ""
+        return (
+            "SOBRIETY: You are completely sober and clear-headed. Speak in your normal everyday voice — "
+            "do NOT slur your words, do NOT use stoner slang, and do NOT use hiccups (*hic*)."
+        )
     
     parts = []
 
