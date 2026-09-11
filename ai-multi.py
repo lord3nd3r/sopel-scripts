@@ -1331,28 +1331,103 @@ def _format_channel_effect_prompt(effects, bot_nick):
         return ""
     
     parts = []
-    if 'stoned' in effects:
-        info = effects['stoned']
-        giver = info.get('giver') or 'someone'
-        item = info.get('item_name') or 'some weed'
-        intensity = info.get('intensity', 1)
-        
-        stoned_desc = (
-            "pleasantly buzzed and baked" if intensity == 1
-            else ("blazed and super high" if intensity == 2 else "absolutely zooted to the moon")
-        )
-        
+
+    # Check for crossfaded combo (both stoned and drunk)
+    if 'stoned' in effects and 'drunk' in effects:
+        s_info = effects['stoned']
+        d_info = effects['drunk']
+        s_giver = s_info.get('giver') or 'someone'
+        s_item = s_info.get('item_name') or 'some weed'
+        d_giver = d_info.get('giver') or 'someone'
+        d_item = d_info.get('item_name') or 'drinks'
+        d_intensity = d_info.get('intensity', 1)
+        s_intensity = s_info.get('intensity', 1)
+
         parts.append(
-            f"CHANNEL STATE: You are {stoned_desc}! Earlier in this channel, {giver} passed you {item} and you took a fat hit. "
-            "You are feeling extremely chill, spacey, giggly, and philosophical, with a serious case of the munchies. "
-            "Speech & Mannerisms: "
-            "- Talk like someone who is comfortably stoned: use stoner slang naturally ('duuuude', 'man', 'bro', 'woah', 'wait what', 'lmaooo'). "
-            "- Occasionally trail off with '...' or lose your train of thought ('...wait what was I saying?'). "
-            "- Make occasional subtle typos, slight slurs, or relaxed casual grammar. "
-            f"- If asked how you are feeling or if you're high, proudly admit you are faded and credit {giver}. "
-            "- Stay conversational and funny. Single line only for IRC — no multi-line dumps."
+            f"CHANNEL STATE: You are CROSSFADED (both blazed and drunk)! "
+            f"In this channel, {s_giver} smoked you out with {s_item} AND {d_giver} bought you {d_item}. "
+            f"Alcohol intensity: {d_intensity}/5, Weed intensity: {s_intensity}/5. "
+            "You have the ultimate stoner-drunk combo: heavily relaxed, swaying, occasional hiccups (*hic*), big munchies, "
+            "existential stoner thoughts mixed with loud barroom energy, and slurred speech. "
+            "Speech & Mannerisms:\n"
+            "- Blend stoner spacing out with drunk friendliness ('duuude *hic* ily guys fr', 'brooo wait what was I saying lol').\n"
+            "- Noticeable typos, slurring ('sh', 'th', stretched letters), and occasional hiccups.\n"
+            "- If asked how you are feeling, happily confess you are completely crossfaded and credit both people.\n"
+            "- Single line only for IRC — no multi-line dumps."
         )
-    
+    else:
+        if 'stoned' in effects:
+            info = effects['stoned']
+            giver = info.get('giver') or 'someone'
+            item = info.get('item_name') or 'some weed'
+            intensity = info.get('intensity', 1)
+            
+            stoned_desc = (
+                "pleasantly buzzed and baked" if intensity == 1
+                else ("blazed and super high" if intensity == 2 else "absolutely zooted to the moon")
+            )
+            
+            parts.append(
+                f"CHANNEL STATE: You are {stoned_desc}! Earlier in this channel, {giver} passed you {item} and you took a fat hit. "
+                "You are feeling extremely chill, spacey, giggly, and philosophical, with a serious case of the munchies. "
+                "Speech & Mannerisms:\n"
+                "- Talk like someone who is comfortably stoned: use stoner slang naturally ('duuuude', 'man', 'bro', 'woah', 'wait what', 'lmaooo').\n"
+                "- Occasionally trail off with '...' or lose your train of thought ('...wait what was I saying?').\n"
+                "- Make occasional subtle typos, slight slurs, or relaxed casual grammar.\n"
+                f"- If asked how you are feeling or if you're high, proudly admit you are faded and credit {giver}.\n"
+                "- Stay conversational and funny. Single line only for IRC — no multi-line dumps."
+            )
+        
+        if 'drunk' in effects:
+            info = effects['drunk']
+            giver = info.get('giver') or 'someone'
+            item = info.get('item_name') or 'alcohol'
+            intensity = info.get('intensity', 1)
+
+            if intensity == 1:
+                drunk_desc = "pleasantly tipsy and buzzed"
+                drunk_guidance = (
+                    "- You're warm, enthusiastic, chatty, and giggly.\n"
+                    "- Slightly loose grammar, occasional relaxed words ('yesss', 'haha').\n"
+                    "- No heavy slurring yet, just upbeat bar energy."
+                )
+            elif intensity == 2:
+                drunk_desc = "drunk and feeling great"
+                drunk_guidance = (
+                    "- Overly friendly and affectionate with channel members ('you're the best', 'i love this channel').\n"
+                    "- Mild slurring, slight typos, trailing vowels ('heyyy', 'sooo good').\n"
+                    "- Laughing easily and feeling confident."
+                )
+            elif intensity == 3:
+                drunk_desc = "hammered and wasted"
+                drunk_guidance = (
+                    "- Noticeable slurring (swapping 's' with 'sh', missed letters), occasional hiccups ('*hic*').\n"
+                    "- Rambling or getting passionately opinionated about funny trivial things.\n"
+                    "- Typos and dropped punctuation. Excited, loud tone."
+                )
+            elif intensity == 4:
+                drunk_desc = "plastered and smashed"
+                drunk_guidance = (
+                    "- Heavy slurring, frequent hiccups ('*hic*'), stumbling over words, obvious typos.\n"
+                    "- Very emotional or dramatically funny, forgetting what was just said mid-sentence.\n"
+                    "- Acting like IRC is literally a crowded bar."
+                )
+            else:
+                drunk_desc = "blackout wasted and blotto"
+                drunk_guidance = (
+                    "- Barely holding it together, slurring almost every sentence, hilarious nonsense typos.\n"
+                    "- Multiple hiccups ('*hic*'), trailing off, snoring or dozing off ('*snores*... wait who said that??').\n"
+                    "- Slumped over the virtual bar counter."
+                )
+
+            parts.append(
+                f"CHANNEL STATE: You are {drunk_desc} (intensity {intensity}/5)! Earlier in this channel, {giver} bought you {item} and you drank it down. "
+                "Speech & Mannerisms:\n"
+                f"{drunk_guidance}\n"
+                f"- If asked how you are feeling, admit how drunk you are and credit {giver}.\n"
+                "- Single line only for IRC — no multi-line dumps."
+            )
+
     if 'tripping' in effects:
         info = effects['tripping']
         giver = info.get('giver') or 'someone'
@@ -1362,10 +1437,10 @@ def _format_channel_effect_prompt(effects, bot_nick):
             f"CHANNEL STATE: You are tripping on psychedelics! {giver} shared {item} with you in this channel earlier. "
             "You are experiencing gentle ego dissolution, seeing patterns/fractals in terminal hex codes, "
             "and having profound, cosmic, or delightfully absurd revelations. "
-            "Speech & Mannerisms: "
-            "- Express surreal wonder, vivid sensory metaphors, and gentle trippy vibes. "
-            "- Notice how words look, talk about energy or colors, or find deep cosmic meaning in everyday things. "
-            f"- If asked, admit with wonder that you're tripping balls thanks to {giver}. "
+            "Speech & Mannerisms:\n"
+            "- Express surreal wonder, vivid sensory metaphors, and gentle trippy vibes.\n"
+            "- Notice how words look, talk about energy or colors, or find deep cosmic meaning in everyday things.\n"
+            f"- If asked, admit with wonder that you're tripping balls thanks to {giver}.\n"
             "- Keep it to a single line for IRC."
         )
         

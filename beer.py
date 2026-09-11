@@ -10,6 +10,8 @@ import logging
 import atexit
 import threading
 import unicodedata
+import os
+import sqlite3
 from sopel import module
 import re
 
@@ -251,6 +253,215 @@ BOT_FOOD_RECEPTION_MESSAGES = [
 ]
 
 
+HARD_ALCOHOL_TYPES = {
+    'shot', 'whiskey', 'scotch', 'irish', 'vodka', 'rum',
+    'tequila', 'gin', 'brandy', 'margarita', 'liqueur', 'mixed_drink'
+}
+LIGHT_ALCOHOL_TYPES = {
+    'beer', 'magners', 'wine', 'cava', 'mead', 'sake'
+}
+SOBERING_COFFEE_TYPES = {'coffee', 'decaf'}
+SOBERING_FOOD_TYPES = {'pizza', 'appetizer'}
+SOBERING_HYDRATION_TYPES = {'water', 'tea', 'mocktail'}
+
+DRUNK_TITLES = {
+    1: 'tipsy',
+    2: 'drunk',
+    3: 'hammered',
+    4: 'plastered',
+    5: 'blackout wasted'
+}
+
+
+def _format_dur(minutes: int) -> str:
+    """Format minutes into human-readable duration."""
+    if minutes >= 60:
+        h = minutes // 60
+        m = minutes % 60
+        return f"{h}h {m}m" if m else f"{h}h"
+    return f"{minutes}m"
+
+
+def _get_grok_db_path(bot):
+    """Retrieve the grok.sqlite3 path from bot.memory or standard location (ibot-safe)."""
+    core = getattr(bot, '_bot', bot)
+    if hasattr(core, 'memory') and core.memory.get('grok_db_path'):
+        return core.memory.get('grok_db_path')
+    if hasattr(bot, 'memory') and bot.memory.get('grok_db_path'):
+        return bot.memory.get('grok_db_path')
+    base_dir = os.environ.get('AI_GROK_DIR') or os.path.join(os.path.dirname(__file__), 'grok_data')
+    return os.path.join(base_dir, 'grok.sqlite3')
+
+
+def _get_effects_cache(bot):
+    """Retrieve or create the grok_channel_effects dict across Sopel / ibot."""
+    core = getattr(bot, '_bot', bot)
+    if hasattr(core, 'memory'):
+        return core.memory.setdefault('grok_channel_effects', {})
+    if hasattr(bot, 'memory'):
+        return bot.memory.setdefault('grok_channel_effects', {})
+    return {}
+
+
+def _apply_bot_alcohol(bot, channel, giver, item_name, is_hard_liquor=False):
+    """Apply or increase bot alcohol intoxication for the channel."""
+    if not channel or not str(channel).startswith('#'):
+        return 0, 1, 'tipsy'
+
+    chan_key = str(channel).lower()
+    now = time.time()
+    add_duration = 3600 if is_hard_liquor else 2700  # 60m for hard liquor, 45m for beer/wine
+    add_intensity = 2 if is_hard_liquor else 1
+
+    cache = _get_effects_cache(bot)
+    chan_cache = cache.setdefault(chan_key, {})
+    existing = chan_cache.get('drunk')
+
+    if existing and existing.get('expires_at', 0) > now:
+        new_expires = min(existing['expires_at'] + add_duration, now + 10800)  # max 3 hours total
+        new_intensity = min(existing.get('intensity', 1) + add_intensity, 5)
+    else:
+        new_expires = min(now + add_duration, now + 10800)
+        new_intensity = min(add_intensity, 5)
+
+    effect_data = {
+        'effect': 'drunk',
+        'expires_at': new_expires,
+        'started_at': now,
+        'giver': giver,
+        'item_name': item_name,
+        'intensity': new_intensity,
+    }
+    chan_cache['drunk'] = effect_data
+
+    db_path = _get_grok_db_path(bot)
+    try:
+        if os.path.exists(os.path.dirname(db_path)):
+            with sqlite3.connect(db_path, timeout=10.0) as conn:
+                conn.execute('''
+                    CREATE TABLE IF NOT EXISTS grok_channel_effects (
+                        channel TEXT NOT NULL,
+                        effect TEXT NOT NULL,
+                        expires_at REAL NOT NULL,
+                        started_at REAL NOT NULL,
+                        giver TEXT,
+                        item_name TEXT,
+                        intensity INTEGER DEFAULT 1,
+                        PRIMARY KEY (channel, effect)
+                    )
+                ''')
+                conn.execute('''
+                    INSERT OR REPLACE INTO grok_channel_effects
+                    (channel, effect, expires_at, started_at, giver, item_name, intensity)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                ''', (chan_key, 'drunk', new_expires, now, giver, item_name, new_intensity))
+                conn.commit()
+    except Exception as e:
+        LOG.exception("Failed to write drunk effect to DB: %s", e)
+
+    remaining_mins = max(1, int((new_expires - now) // 60))
+    title = DRUNK_TITLES.get(new_intensity, 'drunk')
+    return remaining_mins, new_intensity, title
+
+
+def _sober_bot(bot, channel, giver, item_name, item_type):
+    """Sober up the bot using coffee, food, water, etc.
+    
+    Returns: (action_type, details)
+    action_type can be:
+      - 'sobered_both'
+      - 'sobered_drunk'
+      - 'sobered_stoned'
+      - 'reduced_drunk'
+      - 'none' (wasn't intoxicated)
+    """
+    if not channel or not str(channel).startswith('#'):
+        return 'none', {}
+
+    chan_key = str(channel).lower()
+    now = time.time()
+    cache = _get_effects_cache(bot)
+    chan_cache = cache.get(chan_key, {})
+
+    had_drunk = chan_cache.get('drunk') and chan_cache['drunk'].get('expires_at', 0) > now
+    had_stoned = chan_cache.get('stoned') and chan_cache['stoned'].get('expires_at', 0) > now
+
+    if not had_drunk and not had_stoned:
+        return 'none', {}
+
+    sober_levels = 2 if (item_type in SOBERING_COFFEE_TYPES or item_type == 'pizza') else 1
+
+    cleared_drunk = False
+    new_drunk_intensity = 0
+    new_drunk_mins = 0
+    new_drunk_title = ''
+
+    cleared_stoned = False
+
+    # Handle weed high: coffee clears it completely; food satisfies munchies and reduces/clears it
+    if had_stoned:
+        if item_type in SOBERING_COFFEE_TYPES:
+            cleared_stoned = True
+            if 'stoned' in chan_cache:
+                del chan_cache['stoned']
+        elif item_type in SOBERING_FOOD_TYPES:
+            st_intensity = chan_cache['stoned'].get('intensity', 1)
+            if st_intensity <= 1:
+                cleared_stoned = True
+                del chan_cache['stoned']
+            else:
+                chan_cache['stoned']['intensity'] = st_intensity - 1
+
+    # Handle alcohol
+    if had_drunk:
+        current_intensity = chan_cache['drunk'].get('intensity', 1)
+        if current_intensity <= sober_levels:
+            cleared_drunk = True
+            if 'drunk' in chan_cache:
+                del chan_cache['drunk']
+        else:
+            new_drunk_intensity = current_intensity - sober_levels
+            chan_cache['drunk']['intensity'] = new_drunk_intensity
+            curr_exp = chan_cache['drunk']['expires_at']
+            new_exp = max(now + 600, curr_exp - (1800 * sober_levels))
+            chan_cache['drunk']['expires_at'] = new_exp
+            new_drunk_mins = max(1, int((new_exp - now) // 60))
+            new_drunk_title = DRUNK_TITLES.get(new_drunk_intensity, 'tipsy')
+
+    # Update DB
+    db_path = _get_grok_db_path(bot)
+    try:
+        if os.path.exists(db_path):
+            with sqlite3.connect(db_path, timeout=10.0) as conn:
+                if cleared_drunk:
+                    conn.execute('DELETE FROM grok_channel_effects WHERE channel = ? AND effect = ?', (chan_key, 'drunk'))
+                elif had_drunk:
+                    conn.execute('UPDATE grok_channel_effects SET intensity = ?, expires_at = ? WHERE channel = ? AND effect = ?',
+                                 (new_drunk_intensity, chan_cache['drunk']['expires_at'], chan_key, 'drunk'))
+
+                if cleared_stoned:
+                    conn.execute('DELETE FROM grok_channel_effects WHERE channel = ? AND effect = ?', (chan_key, 'stoned'))
+                elif had_stoned and item_type in SOBERING_FOOD_TYPES:
+                    conn.execute('UPDATE grok_channel_effects SET intensity = ? WHERE channel = ? AND effect = ?',
+                                 (chan_cache['stoned']['intensity'], chan_key, 'stoned'))
+                conn.commit()
+    except Exception as e:
+        LOG.exception("Failed to update DB while sobering bot: %s", e)
+
+    if cleared_drunk and cleared_stoned:
+        return 'sobered_both', {}
+    elif cleared_drunk:
+        return 'sobered_drunk', {}
+    elif cleared_stoned and not had_drunk:
+        return 'sobered_stoned', {}
+    elif had_drunk and not cleared_drunk:
+        return 'reduced_drunk', {'intensity': new_drunk_intensity, 'title': new_drunk_title, 'mins': new_drunk_mins}
+    elif cleared_stoned:
+        return 'sobered_stoned', {}
+
+    return 'none', {}
+
+
 def _serve_item(bot, trigger, item_type, item_list, message_list, placeholder_key='drink'):
     """Generic handler for serving any drink or food item.
     
@@ -263,11 +474,16 @@ def _serve_item(bot, trigger, item_type, item_list, message_list, placeholder_ke
         placeholder_key: 'drink' or 'food' for message formatting
     """
     try:
-        # Parse target user (may be empty)
-        if not trigger.group(2):
+        # Parse target user (may be empty) - ibot safe
+        try:
+            raw_target = trigger.group(2)
+        except (IndexError, AttributeError):
+            raw_target = None
+
+        if not raw_target:
             target_user = trigger.nick
         else:
-            target_user = trigger.group(2).strip()
+            target_user = raw_target.strip()
         
         # Deduct price
         sender = trigger.account or trigger.nick
@@ -288,7 +504,29 @@ def _serve_item(bot, trigger, item_type, item_list, message_list, placeholder_ke
                 giving_message = random.choice(BOT_FOOD_RECEPTION_MESSAGES)
             else:
                 giving_message = random.choice(BOT_DRINK_RECEPTION_MESSAGES)
-            message = giving_message.format(**{placeholder_key: chosen_item, 'sender': trigger.nick, 'user': trigger.nick})
+            base_message = giving_message.format(**{placeholder_key: chosen_item, 'sender': trigger.nick, 'user': trigger.nick})
+
+            channel = trigger.sender
+            status_tag = ""
+            if channel and str(channel).startswith('#'):
+                if item_type in HARD_ALCOHOL_TYPES:
+                    mins, intensity, title = _apply_bot_alcohol(bot, channel, trigger.nick, chosen_item, is_hard_liquor=True)
+                    status_tag = f" ({bot.nick} is {title} in {channel} ~{_format_dur(mins)})"
+                elif item_type in LIGHT_ALCOHOL_TYPES:
+                    mins, intensity, title = _apply_bot_alcohol(bot, channel, trigger.nick, chosen_item, is_hard_liquor=False)
+                    status_tag = f" ({bot.nick} is {title} in {channel} ~{_format_dur(mins)})"
+                elif item_type in (SOBERING_COFFEE_TYPES | SOBERING_FOOD_TYPES | SOBERING_HYDRATION_TYPES):
+                    action_type, details = _sober_bot(bot, channel, trigger.nick, chosen_item, item_type)
+                    if action_type == 'sobered_both':
+                        status_tag = f" ({bot.nick} is completely sober and down to earth in {channel})"
+                    elif action_type == 'sobered_drunk':
+                        status_tag = f" ({bot.nick} has sobered up in {channel})"
+                    elif action_type == 'sobered_stoned':
+                        status_tag = f" ({bot.nick} sobered up and the high wore off in {channel})"
+                    elif action_type == 'reduced_drunk':
+                        status_tag = f" ({bot.nick} soaked up some booze, down to {details['title']} in {channel} ~{_format_dur(details['mins'])})"
+
+            message = base_message + status_tag
         else:
             giving_message = random.choice(message_list)
             message = giving_message.format(**{placeholder_key: chosen_item, 'user': target_user, 'sender': trigger.nick})
@@ -1540,11 +1778,16 @@ def appetizer(bot, trigger):
 def surprise(bot, trigger):
     """Give someone a random surprise from everything available! 🎉"""
     
-    # Use sender's nick if no user specified
-    if not trigger.group(2):
+    # Use sender's nick if no user specified - ibot safe
+    try:
+        raw_target = trigger.group(2)
+    except (IndexError, AttributeError):
+        raw_target = None
+
+    if not raw_target:
         target_user = trigger.nick
     else:
-        target_user = trigger.group(2).strip()
+        target_user = raw_target.strip()
     
     # Combine all drink lists
     all_drinks = BEERS + SHOTS + MAGNERS + WHISKEYS + SCOTCHES + IRISH_WHISKEYS + VODKAS + RUMS + TEQUILAS + GINS + BRANDIES + MARGARITAS + SAKES + LIQUEURS + MEADS + MIXED_DRINKS + WINES + CAVAS + MOCKTAILS + COFFEES + DECAFS + TEAS + WATERS
@@ -1599,7 +1842,35 @@ def surprise(bot, trigger):
         bot_nick = (getattr(bot, 'nick', '') or '').lower()
         if target_user.lower() == bot_nick:
             giving_message = random.choice(BOT_DRINK_RECEPTION_MESSAGES)
-            message = giving_message.format(drink=chosen_item, sender=trigger.nick, user=trigger.nick)
+            base_message = giving_message.format(drink=chosen_item, sender=trigger.nick, user=trigger.nick)
+            status_tag = ""
+            channel = trigger.sender
+            if channel and str(channel).startswith('#'):
+                item_lower = chosen_item.lower()
+                atype = 'none'
+                d = {}
+                if any(w in item_lower for w in ['coffee', 'latte', 'espresso', 'cappuccino', 'decaf']):
+                    atype, d = _sober_bot(bot, channel, trigger.nick, chosen_item, 'coffee')
+                elif any(w in item_lower for w in ['tea', 'chai', 'matcha', 'tisane', 'water', 'h2o', 'mocktail', 'virgin']):
+                    atype, d = _sober_bot(bot, channel, trigger.nick, chosen_item, 'water')
+                elif any(w in item_lower for w in ['beer', 'ale', 'stout', 'lager', 'ipa', 'pilsner', 'cider', 'magners', 'wine', 'cava', 'champagne', 'prosecco', 'sake', 'mead']):
+                    mins, intensity, title = _apply_bot_alcohol(bot, channel, trigger.nick, chosen_item, is_hard_liquor=False)
+                    status_tag = f" ({bot.nick} is {title} in {channel} ~{_format_dur(mins)})"
+                else:
+                    mins, intensity, title = _apply_bot_alcohol(bot, channel, trigger.nick, chosen_item, is_hard_liquor=True)
+                    status_tag = f" ({bot.nick} is {title} in {channel} ~{_format_dur(mins)})"
+
+                if not status_tag:
+                    if atype == 'sobered_both':
+                        status_tag = f" ({bot.nick} is completely sober and down to earth in {channel})"
+                    elif atype == 'sobered_drunk':
+                        status_tag = f" ({bot.nick} has sobered up in {channel})"
+                    elif atype == 'sobered_stoned':
+                        status_tag = f" ({bot.nick} sobered up and the high wore off in {channel})"
+                    elif atype == 'reduced_drunk':
+                        status_tag = f" ({bot.nick} soaked up some booze, down to {d['title']} in {channel} ~{_format_dur(d['mins'])})"
+
+            message = base_message + status_tag
         else:
             message = giving_message.format(drink=chosen_item, user=target_user)
     else:
@@ -1613,7 +1884,22 @@ def surprise(bot, trigger):
         bot_nick = (getattr(bot, 'nick', '') or '').lower()
         if target_user.lower() == bot_nick:
             giving_message = random.choice(BOT_FOOD_RECEPTION_MESSAGES)
-            message = giving_message.format(food=chosen_item, sender=trigger.nick, user=trigger.nick)
+            base_message = giving_message.format(food=chosen_item, sender=trigger.nick, user=trigger.nick)
+            status_tag = ""
+            channel = trigger.sender
+            if channel and str(channel).startswith('#'):
+                food_type = 'pizza' if 'pizza' in chosen_item.lower() else 'appetizer'
+                atype, d = _sober_bot(bot, channel, trigger.nick, chosen_item, food_type)
+                if atype == 'sobered_both':
+                    status_tag = f" ({bot.nick} is completely sober and down to earth in {channel})"
+                elif atype == 'sobered_drunk':
+                    status_tag = f" ({bot.nick} has sobered up in {channel})"
+                elif atype == 'sobered_stoned':
+                    status_tag = f" ({bot.nick} sobered up and the high wore off in {channel})"
+                elif atype == 'reduced_drunk':
+                    status_tag = f" ({bot.nick} soaked up some booze, down to {d['title']} in {channel} ~{_format_dur(d['mins'])})"
+
+            message = base_message + status_tag
         else:
             message = giving_message.format(food=chosen_item, user=target_user)
     
@@ -1641,6 +1927,11 @@ def barhelp(bot, trigger):
         "  • Credits are applied when you order or run $barcash; $tip does not trigger credits",
         "  • Coins are shared with the mug game - one balance for everything",
         "  • Water is always FREE!",
+        "",
+        "BOT INTOXICATION:",
+        "  • Buying drinks for the bot makes it progressively drunk in chat! 😵🍺",
+        "  • Shots & spirits increase drunkenness faster (+2) than beer & wine (+1).",
+        "  • Food ($pizza, $appetizer) and coffee/water sober the bot back up! 🍕☕",
         "",
         "DRINKS:",
 

@@ -806,23 +806,36 @@ def _cleanup_threads():
 
 
 def _get_grok_db_path(bot):
-    """Retrieve the grok.sqlite3 path from bot.memory or standard location."""
+    """Retrieve the grok.sqlite3 path from bot.memory or standard location (ibot-safe)."""
+    core = getattr(bot, '_bot', bot)
+    if hasattr(core, 'memory') and core.memory.get('grok_db_path'):
+        return core.memory.get('grok_db_path')
     if hasattr(bot, 'memory') and bot.memory.get('grok_db_path'):
         return bot.memory.get('grok_db_path')
     base_dir = os.environ.get('AI_GROK_DIR') or os.path.join(os.path.dirname(__file__), 'grok_data')
     return os.path.join(base_dir, 'grok.sqlite3')
 
 
+def _get_effects_cache(bot):
+    """Retrieve or create the grok_channel_effects dict across Sopel / ibot."""
+    core = getattr(bot, '_bot', bot)
+    if hasattr(core, 'memory'):
+        return core.memory.setdefault('grok_channel_effects', {})
+    if hasattr(bot, 'memory'):
+        return bot.memory.setdefault('grok_channel_effects', {})
+    return {}
+
+
 def _apply_bot_intoxication(bot, channel, effect, giver, item_name):
     """Set or stack intoxication effect for the channel in ai-multi's database and memory."""
-    if not channel or not channel.startswith('#'):
+    if not channel or not str(channel).startswith('#'):
         return 0, 1
-    chan_key = channel.lower()
+    chan_key = str(channel).lower()
     now = time.time()
     duration_secs = 3600  # 1 hour base per hit
 
-    cache = bot.memory.setdefault('grok_channel_effects', {}) if hasattr(bot, 'memory') else {}
-    chan_cache = cache.get(chan_key, {})
+    cache = _get_effects_cache(bot)
+    chan_cache = cache.setdefault(chan_key, {})
     existing = chan_cache.get(effect)
     if existing and existing.get('expires_at', 0) > now:
         new_expires = min(existing['expires_at'] + 1800, now + 10800)  # +30 mins, max 3 hours
@@ -839,8 +852,7 @@ def _apply_bot_intoxication(bot, channel, effect, giver, item_name):
         'item_name': item_name,
         'intensity': intensity,
     }
-    if hasattr(bot, 'memory'):
-        cache.setdefault(chan_key, {})[effect] = effect_data
+    chan_cache[effect] = effect_data
 
     db_path = _get_grok_db_path(bot)
     try:
@@ -875,20 +887,19 @@ def _clear_bot_intoxication(bot, channel, effect=None):
     """Clear active bot intoxication effects for the channel."""
     if not channel:
         return False
-    chan_key = channel.lower()
+    chan_key = str(channel).lower()
     cleared = False
     
-    if hasattr(bot, 'memory'):
-        cache = bot.memory.get('grok_channel_effects', {})
-        if chan_key in cache:
-            if effect:
-                if effect in cache[chan_key]:
-                    del cache[chan_key][effect]
-                    cleared = True
-            else:
-                if cache[chan_key]:
-                    cache[chan_key] = {}
-                    cleared = True
+    cache = _get_effects_cache(bot)
+    if chan_key in cache:
+        if effect:
+            if effect in cache[chan_key]:
+                del cache[chan_key][effect]
+                cleared = True
+        else:
+            if cache[chan_key]:
+                cache[chan_key] = {}
+                cleared = True
 
     db_path = _get_grok_db_path(bot)
     try:
@@ -1090,8 +1101,8 @@ def pass_command(bot, trigger):
         bot.action(random.choice(PASS_ACTIONS).format(target=target))
 
 
-@module.commands('coffee', 'sober', 'water')
-@module.example('$coffee glitchy', 'Give the bot coffee to sober up')
+@module.commands('sober', 'unhigh')
+@module.example('$sober glitchy', 'Sober up the bot from being high')
 def sober_command(bot, trigger):
     """Sober up the bot or give another user coffee/water."""
     channel = trigger.sender
@@ -1110,7 +1121,7 @@ def sober_command(bot, trigger):
     if cleared:
         bot.action(f"chugs a mug of hot black coffee ☕, splashes cold water on its face... 😳 Whew! Sobered up and locked in.")
     else:
-        bot.action(f"sips some coffee ☕... wasn't high anyway, but thanks {trigger.nick}!")
+        bot.action(f"splashes cold water on its face... wasn't high anyway, but thanks {trigger.nick}!")
 
 
 # =======================
@@ -1149,7 +1160,7 @@ def weedhelp_command(bot, trigger):
         " ",
         formatting.bold("— Other Commands —"),
         "  $pass <nick>        — Take a hit and pass it to someone (pass to bot to get it baked!)",
-        "  $coffee / $sober    — Give the bot coffee to sober it up",
+        "  $sober              — Sober the bot up from being high",
         "  $weedhelp           — Show this help message",
         " ",
         formatting.bold("— How It Works —"),

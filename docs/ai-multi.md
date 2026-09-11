@@ -331,19 +331,34 @@ The bot reacts to `/me` actions and emote-style messages directed at it. Respons
 
 ---
 
-## 🌿 Cross-Plugin Intoxication State (Stoned & Trippy Modes)
+## 🌿🍺 Cross-Plugin Intoxication System (Stoned, Drunk, & Crossfaded)
 
-When users interact with the weed plugin (`weed.py`), passing a hit to the bot enters it into an **intoxicated state** scoped to that specific channel:
-- **`$pass BotNick`** or **`$weed / $bong / $joint / $blunt BotNick`**: The bot takes a hit and enters the `stoned` state for **60 minutes** (stacking +30 minutes per extra hit up to 3 hours).
-- **`$shrooms / $acid / $lsd / $peyote BotNick`**: The bot takes the psychedelic and enters the `tripping` state for 60–180 minutes.
+When users interact with the weed plugin (`weed.py`) or the bartender plugin (`beer.py`), serving hits or drinks to the bot triggers dynamic **intoxication states** scoped to that specific channel:
+- **`$pass BotNick`** / **`$weed / $bong / $joint / $blunt BotNick`**: Bot enters the `stoned` state for **60 minutes** (stacking +30 minutes up to 3 hours).
+- **`$shrooms / $acid / $lsd / $peyote BotNick`**: Bot enters the `tripping` state for 60–180 minutes.
+- **`$beer / $magners / $wine / $cava / $mead / $sake BotNick`**: Light alcohol (+1 intensity level, +45m duration).
+- **`$shot / $whiskey / $scotch / $vodka / $rum / $tequila / $drink BotNick`**: Hard liquor / cocktails (+2 intensity levels, +60m duration).
 
-### How the AI Behaves While Under the Influence
-- **Stoned State**: Responses in that channel become super chill, philosophical, and spacey. The bot uses stoner slang naturally (`duuuude`, `man`, `bro`, `woah`, `wait what`, `lmaooo`), trails off thoughts (`...`), experiences the munchies, and has occasional relaxed typos/slurs.
-- **Tripping State**: The bot experiences gentle cosmic wonder, sees patterns in terminal hex codes, and makes delightfully absurd or profound observations.
-- **Awareness**: The bot knows *who* smoked it out and *what* it smoked, and proudly gives credit when asked how it's feeling.
-- **Chime-ins & Review**: Unprompted chime-ins and review summaries in that channel reflect this relaxed state.
-- **Channel Isolation**: The effect only applies to the channel where the sesh took place. The bot remains completely sober in other channels and PMs.
-- **Sobering Up Early**: Anyone can clear the effect immediately with `$coffee BotNick`, `$sober`, or by telling the bot `sober up` in chat.
+### Dynamic Drunkenness Levels (1–5)
+1. **Level 1 (Tipsy)**: Upbeat, chatty, relaxed bar energy, slightly informal.
+2. **Level 2 (Drunk)**: Affectionate ("you guys are my best friends"), laughing, mild slurring and trailing vowels.
+3. **Level 3 (Hammered)**: Noticeable slurring (`sh` for `s`), hiccups (`*hic*`), rambles, dropped letters.
+4. **Level 4 (Plastered)**: Heavy slurs, repeated hiccups, stumbling over words, confused/dramatic bar banter.
+5. **Level 5 (Blackout / Blotto)**: Barely holding it together, snoozing on the bar counter (`*snores*... wait what?`), blotto typos.
+
+### 🌀 CROSSFADED Mode
+When the bot is passed weed AND bought drinks in the same channel, it becomes **crossfaded**! It combines spacey cosmic stoner thoughts with loud drunk affection, hiccups, munchies, and hilarious slurred speech.
+
+### Sobering Up
+- **Coffee & Decaf** (`$coffee BotNick`, `$decaf BotNick`): Lowers drunkenness by 2 levels (sobers completely if level $\le$ 2) and completely clears weed high!
+- **Food** (`$pizza BotNick`, `$appetizer BotNick`): Soaks up the alcohol (lowers drunkenness by 1–2 levels) and satisfies munchies.
+- **Water & Tea** (`$water BotNick`, `$tea BotNick`): Hydrates and lowers drunkenness by 1 level.
+- **`$sober`**: Manual reset to sober up immediately.
+
+### Channel Isolation & State Awareness
+- The bot remembers *who* gave it drinks or weed and *what* it consumed, proudly giving credit when asked how it feels.
+- Intoxication states are completely isolated to the channel where they were served. In other channels and private messages, the bot remains 100% professional and sober.
+- Unprompted chime-ins and review/catch-up queries in the channel automatically reflect these states.
 
 ---
 

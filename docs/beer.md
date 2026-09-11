@@ -101,3 +101,37 @@ Must be private messaged to the bot. Requires bot admin/owner status.
 <Glitchy> User tips Friend 100 coins! 💰✨
 ```
 *(You will receive a PM notice: New balance: 895 coins 🪙)*
+
+---
+
+## 😵 Bot Intoxication & Sobering
+
+When users buy drinks or food for the bot (e.g. `$beer <botnick>`, `$shot <botnick>`, `$pizza <botnick>`), the bot participates dynamically!
+
+### Getting the Bot Drunk
+* **Beers / Ciders / Wines / Meads** (`$beer`, `$magners`, `$wine`, `$cava`, `$mead`, `$sake`):
+  * **+1 Intensity Level**, adds **~45 minutes** duration.
+* **Shots / Spirits / Cocktails** (`$shot`, `$whiskey`, `$scotch`, `$irish`, `$vodka`, `$rum`, `$tequila`, `$gin`, `$brandy`, `$margarita`, `$liqueur`, `$drink`):
+  * **+2 Intensity Levels**, adds **~60 minutes** duration.
+* **Intoxication Levels**:
+  * **Level 1 (Tipsy)**: Upbeat, warm, chatty, relaxed bar energy.
+  * **Level 2 (Drunk)**: Affectionate ("you're my best friend"), laughing, mild slurring/typos.
+  * **Level 3 (Hammered)**: Noticeable slurring (`sh` for `s`), hiccups (`*hic*`), rambling tangents.
+  * **Level 4 (Plastered)**: Heavy slurs, frequent hiccups, stumbling, dramatic bar banter.
+  * **Level 5 (Blackout)**: Slumped on the bar counter, sleeping (`*snores*`), blotto typos.
+* **Duration**: Stacks up to a maximum of 3 hours per channel.
+
+### Sobering Up the Bot
+* **Coffee & Decaf** (`$coffee <botnick>`, `$decaf <botnick>`):
+  * Lowers drunkenness by **2 levels** (sobers up completely if level $\le$ 2).
+  * Also completely clears active weed high from `weed.py`!
+* **Food** (`$pizza <botnick>`, `$appetizer <botnick>`):
+  * Greasy pizza & snacks soak up the booze! Lowers drunkenness by **1–2 levels**.
+  * Satisfies munchies and eases active weed highs.
+* **Water & Tea** (`$water <botnick>`, `$tea <botnick>`):
+  * Responsible hydration lowers drunkenness by **1 level**.
+
+### Cross-Plugin Synergy (`ai-multi.py` & `weed.py`)
+* The bot's AI responses in the channel dynamically reflect its drunkenness level in real-time.
+* **Crossfaded Mode**: If the bot is passed weed (`$pass <botnick>` in `weed.py`) AND bought drinks, it becomes **crossfaded** — blending cosmic stoner thoughts with drunk slurs, hiccups, and affection!
+
