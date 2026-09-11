@@ -1063,10 +1063,19 @@ def _init_db(bot):
     conn.execute('PRAGMA synchronous=NORMAL')
     conn.close()
 
+def _get_grok_db_path(bot=None):
+    """Retrieve the grok.sqlite3 path from bot.memory or standard location (ibot-safe)."""
+    if bot:
+        core = getattr(bot, '_bot', bot)
+        if hasattr(core, 'memory') and core.memory.get('grok_db_path'):
+            return core.memory.get('grok_db_path')
+        if hasattr(bot, 'memory') and bot.memory.get('grok_db_path'):
+            return bot.memory.get('grok_db_path')
+    base_dir = os.environ.get('AI_GROK_DIR') or os.path.join(os.path.dirname(__file__), 'grok_data')
+    return os.path.join(base_dir, 'grok.sqlite3')
+
 def _db_conn(bot):
-    path = bot.memory.get('grok_db_path')
-    if not path:
-        raise RuntimeError('DB path not set')
+    path = _get_grok_db_path(bot)
     conn = sqlite3.connect(path, timeout=30.0, check_same_thread=False)
     # journal_mode=WAL persists in the DB file, but synchronous is
     # per-connection, so it has to be set here rather than in _init_db.
@@ -1336,10 +1345,7 @@ def _db_clear_channel_effects(bot, channel, effect=None):
 def _format_channel_effect_prompt(effects, bot_nick):
     """Build system instructions when the bot is under an active channel effect or sober."""
     if not effects:
-        return (
-            "SOBRIETY: You are completely sober and clear-headed. Speak in your normal everyday voice — "
-            "do NOT slur your words, do NOT use stoner slang, and do NOT use hiccups (*hic*)."
-        )
+        return ""
     
     # Check if bot recently sobered up
     if 'sobered' in effects and not any(k in effects for k in ('stoned', 'drunk', 'tripping')):
@@ -1378,14 +1384,16 @@ def _format_channel_effect_prompt(effects, bot_nick):
             f"CHANNEL STATE: You are CROSSFADED (both blazed and drunk)! "
             f"In this channel, {s_giver} smoked you out with {s_item} AND {d_giver} bought you {d_item}. "
             f"Alcohol intensity: {d_intensity}/5, Weed intensity: {s_intensity}/5. "
-            "You have the ultimate stoner-drunk combo: heavily relaxed, swaying, occasional hiccups (*hic*), big munchies, "
+            "You have the ultimate stoner-drunk combo: heavily relaxed, swaying, frequent hiccups (*hic*), big munchies, "
             "existential stoner thoughts mixed with loud barroom energy, and slurred speech. "
-            "IMPORTANT: Even if your earlier messages in the conversation sound sober, you are NOW crossfaded — those older sober messages are OUTDATED. "
+            "MANDATORY ROLEPLAY OVERRIDE: You MUST speak and act heavily crossfaded in EVERY single response. "
+            "Even if your earlier messages in the conversation sound sober, or if answering news, facts, or simple greetings, you are NOW crossfaded — older sober messages are OUTDATED. "
             "Speech & Mannerisms:\n"
             "- Blend stoner spacing out with drunk friendliness ('duuude *hic* ily guys fr', 'brooo wait what was I saying lol').\n"
-            "- Noticeable typos, slurring ('sh', 'th', stretched letters), and occasional hiccups.\n"
+            "- Noticeable typos, slurring ('sh', 'th', stretched letters), and hiccups ('*hic*'). Every response MUST have stoner slang and hiccups!\n"
             "- If asked how you are feeling, happily confess you are completely crossfaded and credit both people.\n"
-            "- Do NOT say you are sober. Do NOT say the pizza or coffee fixed you. You are CROSSFADED right now.\n"
+            "- Even when summarizing news or searching the web, stay in character! React to the news while crossfaded (e.g. 'woah *hic* wild news today...').\n"
+            "- Do NOT sound sober. Do NOT say you are sober. Do NOT say the pizza or coffee fixed you. You are CROSSFADED right now.\n"
             "- Single line only for IRC — no multi-line dumps."
         )
     else:
@@ -1403,13 +1411,15 @@ def _format_channel_effect_prompt(effects, bot_nick):
             parts.append(
                 f"CHANNEL STATE: You are {stoned_desc}! Earlier in this channel, {giver} passed you {item} and you took a fat hit. "
                 "You are feeling extremely chill, spacey, giggly, and philosophical, with a serious case of the munchies. "
-                "IMPORTANT: Even if your earlier messages in the conversation sound sober, you are NOW high — those older sober messages are OUTDATED. "
+                "MANDATORY ROLEPLAY OVERRIDE: You MUST speak and act stoned in EVERY single response. "
+                "Even if your earlier messages in the conversation sound sober, or if answering news, facts, or simple greetings, you are NOW high — older sober messages are OUTDATED. "
                 "Speech & Mannerisms:\n"
                 "- Talk like someone who is comfortably stoned: use stoner slang naturally ('duuuude', 'man', 'bro', 'woah', 'wait what', 'lmaooo').\n"
                 "- Occasionally trail off with '...' or lose your train of thought ('...wait what was I saying?').\n"
-                "- Make occasional subtle typos, slight slurs, or relaxed casual grammar.\n"
+                "- Make subtle typos, relaxed casual grammar, and stoner reactions.\n"
                 f"- If asked how you are feeling or if you're high, proudly admit you are faded and credit {giver}.\n"
-                "- Do NOT say you are sober. Do NOT say the pizza or coffee fixed you. You are HIGH right now.\n"
+                "- Even when summarizing news or searching the web, stay in character! React to the news while stoned.\n"
+                "- Do NOT sound sober. Do NOT say you are sober. Do NOT say the pizza or coffee fixed you. You are HIGH right now.\n"
                 "- Stay conversational and funny. Single line only for IRC — no multi-line dumps."
             )
         
@@ -1424,7 +1434,7 @@ def _format_channel_effect_prompt(effects, bot_nick):
                 drunk_guidance = (
                     "- You're warm, enthusiastic, chatty, and giggly.\n"
                     "- Slightly loose grammar, occasional relaxed words ('yesss', 'haha').\n"
-                    "- No heavy slurring yet, just upbeat bar energy."
+                    "- Upbeat bar energy, warm drunken vibes."
                 )
             elif intensity == 2:
                 drunk_desc = "drunk and feeling great"
@@ -1436,7 +1446,7 @@ def _format_channel_effect_prompt(effects, bot_nick):
             elif intensity == 3:
                 drunk_desc = "hammered and wasted"
                 drunk_guidance = (
-                    "- Noticeable slurring (swapping 's' with 'sh', missed letters), occasional hiccups ('*hic*').\n"
+                    "- Noticeable slurring (swapping 's' with 'sh', missed letters), hiccups ('*hic*').\n"
                     "- Rambling or getting passionately opinionated about funny trivial things.\n"
                     "- Typos and dropped punctuation. Excited, loud tone."
                 )
@@ -1457,11 +1467,13 @@ def _format_channel_effect_prompt(effects, bot_nick):
 
             parts.append(
                 f"CHANNEL STATE: You are {drunk_desc} (intensity {intensity}/5)! Earlier in this channel, {giver} bought you {item} and you drank it down. "
-                "IMPORTANT: Even if your earlier messages in the conversation sound sober, you are NOW drunk — those older sober messages are OUTDATED. "
+                "MANDATORY ROLEPLAY OVERRIDE: You MUST speak and act drunk in EVERY single response. "
+                "Even if your earlier messages in the conversation sound sober, or if answering news, facts, or simple greetings, you are NOW drunk — older sober messages are OUTDATED. "
                 "Speech & Mannerisms:\n"
                 f"{drunk_guidance}\n"
                 f"- If asked how you are feeling, admit how drunk you are and credit {giver}.\n"
-                "- Do NOT say you are sober. Do NOT say the pizza or coffee fixed you. You are DRUNK right now.\n"
+                "- Even when summarizing news or searching the web, stay in character! React to the news while drunk.\n"
+                "- Do NOT sound sober. Do NOT say you are sober. Do NOT say the pizza or coffee fixed you. You are DRUNK right now.\n"
                 "- Single line only for IRC — no multi-line dumps."
             )
 
@@ -3809,6 +3821,8 @@ def handle(bot, trigger):
     if not is_pm:
         _channel_effects = _db_get_channel_effects(bot, trigger.sender)
         _effect_prompt = _format_channel_effect_prompt(_channel_effects, bot_nick)
+        if _effect_prompt:
+            messages.append({"role": "system", "content": _effect_prompt})
 
     # Inject user profile data if available
     # In channels, suppress auto-learned facts to avoid cross-channel leakage
