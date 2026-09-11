@@ -1380,10 +1380,12 @@ def _format_channel_effect_prompt(effects, bot_nick):
             f"Alcohol intensity: {d_intensity}/5, Weed intensity: {s_intensity}/5. "
             "You have the ultimate stoner-drunk combo: heavily relaxed, swaying, occasional hiccups (*hic*), big munchies, "
             "existential stoner thoughts mixed with loud barroom energy, and slurred speech. "
+            "IMPORTANT: Even if your earlier messages in the conversation sound sober, you are NOW crossfaded — those older sober messages are OUTDATED. "
             "Speech & Mannerisms:\n"
             "- Blend stoner spacing out with drunk friendliness ('duuude *hic* ily guys fr', 'brooo wait what was I saying lol').\n"
             "- Noticeable typos, slurring ('sh', 'th', stretched letters), and occasional hiccups.\n"
             "- If asked how you are feeling, happily confess you are completely crossfaded and credit both people.\n"
+            "- Do NOT say you are sober. Do NOT say the pizza or coffee fixed you. You are CROSSFADED right now.\n"
             "- Single line only for IRC — no multi-line dumps."
         )
     else:
@@ -1401,11 +1403,13 @@ def _format_channel_effect_prompt(effects, bot_nick):
             parts.append(
                 f"CHANNEL STATE: You are {stoned_desc}! Earlier in this channel, {giver} passed you {item} and you took a fat hit. "
                 "You are feeling extremely chill, spacey, giggly, and philosophical, with a serious case of the munchies. "
+                "IMPORTANT: Even if your earlier messages in the conversation sound sober, you are NOW high — those older sober messages are OUTDATED. "
                 "Speech & Mannerisms:\n"
                 "- Talk like someone who is comfortably stoned: use stoner slang naturally ('duuuude', 'man', 'bro', 'woah', 'wait what', 'lmaooo').\n"
                 "- Occasionally trail off with '...' or lose your train of thought ('...wait what was I saying?').\n"
                 "- Make occasional subtle typos, slight slurs, or relaxed casual grammar.\n"
                 f"- If asked how you are feeling or if you're high, proudly admit you are faded and credit {giver}.\n"
+                "- Do NOT say you are sober. Do NOT say the pizza or coffee fixed you. You are HIGH right now.\n"
                 "- Stay conversational and funny. Single line only for IRC — no multi-line dumps."
             )
         
@@ -1453,9 +1457,11 @@ def _format_channel_effect_prompt(effects, bot_nick):
 
             parts.append(
                 f"CHANNEL STATE: You are {drunk_desc} (intensity {intensity}/5)! Earlier in this channel, {giver} bought you {item} and you drank it down. "
+                "IMPORTANT: Even if your earlier messages in the conversation sound sober, you are NOW drunk — those older sober messages are OUTDATED. "
                 "Speech & Mannerisms:\n"
                 f"{drunk_guidance}\n"
                 f"- If asked how you are feeling, admit how drunk you are and credit {giver}.\n"
+                "- Do NOT say you are sober. Do NOT say the pizza or coffee fixed you. You are DRUNK right now.\n"
                 "- Single line only for IRC — no multi-line dumps."
             )
 
@@ -3798,12 +3804,11 @@ def handle(bot, trigger):
         },
     ]
 
-    # Inject active channel effects (stoned, tripping, etc.)
+    # Channel effects (stoned, drunk, sobered etc.) are injected AFTER history turns
+    # so they override any stale conversational patterns in the history.
     if not is_pm:
         _channel_effects = _db_get_channel_effects(bot, trigger.sender)
         _effect_prompt = _format_channel_effect_prompt(_channel_effects, bot_nick)
-        if _effect_prompt:
-            messages.append({"role": "system", "content": _effect_prompt})
 
     # Inject user profile data if available
     # In channels, suppress auto-learned facts to avoid cross-channel leakage
@@ -4050,15 +4055,11 @@ def handle(bot, trigger):
             role = "assistant" if nick == bot_nick else "user"
             messages.append({"role": role, "content": text})
 
-        if not is_pm and not _channel_effects:
-            messages.append({
-                "role": "system",
-                "content": (
-                    "SOBRIETY: You are 100% sober, clear-headed, and back to normal. "
-                    "Do NOT slur, do NOT use stoner slang, and do NOT use hiccups (*hic*). "
-                    "If asked how you feel or if you're better, confirm you are completely sober and feeling fine."
-                )
-            })
+        # Inject channel effect prompt AFTER all history turns so it's the last
+        # system instruction before the user message — this overrides any stale
+        # conversational patterns (e.g. old "still sober" turns in history).
+        if not is_pm and _effect_prompt:
+            messages.append({"role": "system", "content": _effect_prompt})
 
         messages.append({"role": "user", "content": user_message})
         try:
