@@ -1241,8 +1241,11 @@ def _db_get_channel_effects(bot, channel):
     chan_cache = cache.get(chan_key)
     if chan_cache is not None:
         active = {eff: data for eff, data in chan_cache.items() if data.get('expires_at', 0) > now}
-        cache[chan_key] = active
-        return active
+        if active:
+            cache[chan_key] = active
+            return active
+        # Cache is empty/expired — fall through to DB in case another plugin
+        # (weed.py, beer.py) wrote effects via a different memory reference.
 
     active = {}
     try:
