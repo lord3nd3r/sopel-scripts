@@ -1122,21 +1122,6 @@ def sober_command(bot, trigger):
         return
 
     _clear_bot_intoxication(bot, channel)
-
-    # Wipe channel history in DB so drunken messages don't bleed through
-    chan_key = str(channel).lower()
-    db_path = _get_grok_db_path(bot)
-    try:
-        if os.path.exists(db_path):
-            with sqlite3.connect(db_path, timeout=10.0) as conn:
-                try:
-                    conn.execute('DELETE FROM grok_user_history WHERE source = ?', (chan_key,))
-                    conn.commit()
-                except sqlite3.OperationalError:
-                    pass
-    except Exception:
-        pass
-
     bot.action("splashes cold water on its face, shakes its head... 😳 Whew! 100% sober and back to earth.")
 
 
