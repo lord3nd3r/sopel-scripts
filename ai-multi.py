@@ -1230,22 +1230,12 @@ def _db_get_channel_settings(bot, channel):
 
 def _db_get_channel_effects(bot, channel):
     """Return active unexpired effects for a channel as a dict: effect -> {expires_at, giver, item_name, intensity}.
-    Also cleans up expired rows.
+    Always queries the DB as the source of truth to avoid cross-plugin cache sync issues.
     """
     if not channel or not channel.startswith('#'):
         return {}
     chan_key = channel.lower()
     now = time.time()
-    
-    cache = bot.memory.setdefault('grok_channel_effects', {})
-    chan_cache = cache.get(chan_key)
-    if chan_cache is not None:
-        active = {eff: data for eff, data in chan_cache.items() if data.get('expires_at', 0) > now}
-        if active:
-            cache[chan_key] = active
-            return active
-        # Cache is empty/expired — fall through to DB in case another plugin
-        # (weed.py, beer.py) wrote effects via a different memory reference.
 
     active = {}
     try:
@@ -1275,6 +1265,8 @@ def _db_get_channel_effects(bot, channel):
     except Exception:
         _log(bot).exception('Failed to query grok_channel_effects')
 
+    # Update in-memory cache for other code paths that read it directly
+    cache = bot.memory.setdefault('grok_channel_effects', {})
     cache[chan_key] = active
     return active
 
