@@ -1251,14 +1251,24 @@ def _db_get_channel_effects(bot, channel):
             c.execute('DELETE FROM grok_channel_effects WHERE expires_at <= ?', (now,))
             c.execute('SELECT effect, expires_at, started_at, giver, item_name, intensity FROM grok_channel_effects WHERE channel = ? AND expires_at > ?', (chan_key, now))
             for row in c.fetchall():
-                active[row[0]] = {
-                    'effect': row[0],
+                eff_name = row[0]
+                item_val = row[4]
+                entry = {
+                    'effect': eff_name,
                     'expires_at': row[1],
                     'started_at': row[2],
                     'giver': row[3],
-                    'item_name': row[4],
+                    'item_name': item_val,
                     'intensity': row[5],
                 }
+                if eff_name == 'sobered' and item_val and str(item_val).startswith('{'):
+                    try:
+                        extra = json.loads(item_val)
+                        if isinstance(extra, dict):
+                            entry.update(extra)
+                    except Exception:
+                        pass
+                active[eff_name] = entry
     except Exception:
         _log(bot).exception('Failed to query grok_channel_effects')
 
@@ -1284,6 +1294,7 @@ def _db_set_channel_effect(bot, channel, effect, duration_secs, giver, item_name
     try:
         with _DBContext(bot) as conn:
             c = conn.cursor()
+            c.execute('DELETE FROM grok_channel_effects WHERE channel = ? AND effect = ?', (chan_key, 'sobered'))
             c.execute('''
                 INSERT OR REPLACE INTO grok_channel_effects
                 (channel, effect, expires_at, started_at, giver, item_name, intensity)
@@ -1293,7 +1304,9 @@ def _db_set_channel_effect(bot, channel, effect, duration_secs, giver, item_name
         _log(bot).exception('Failed to save channel effect to DB')
 
     cache = bot.memory.setdefault('grok_channel_effects', {})
-    cache.setdefault(chan_key, {})[effect] = {
+    chan_dict = cache.setdefault(chan_key, {})
+    chan_dict.pop('sobered', None)
+    chan_dict[effect] = {
         'effect': effect,
         'expires_at': new_expires,
         'started_at': now,
@@ -1333,6 +1346,26 @@ def _format_channel_effect_prompt(effects, bot_nick):
             "do NOT slur your words, do NOT use stoner slang, and do NOT use hiccups (*hic*)."
         )
     
+    # Check if bot recently sobered up
+    if 'sobered' in effects and not any(k in effects for k in ('stoned', 'drunk', 'tripping')):
+        s_info = effects['sobered']
+        prev_eff = s_info.get('prev_effect') or 'stoned or drunk'
+        prev_giver = s_info.get('prev_giver') or 'someone'
+        prev_item = s_info.get('prev_item') or 'drinks/smoke'
+        sober_giver = s_info.get('sober_giver') or s_info.get('giver') or 'someone'
+        sober_item = s_info.get('sober_item') or 'food/coffee/water'
+
+        return (
+            f"CHANNEL STATE: Earlier in this channel, you were {prev_eff} (after {prev_giver} gave you {prev_item}), "
+            f"but {sober_giver} gave you {sober_item} and you have completely SOBERED UP!\n"
+            "You are now 100% sober, clear-headed, and back to normal.\n"
+            "CRITICAL BEHAVIOR & RULES:\n"
+            f"- You clearly REMEMBER that you were {prev_eff} earlier in the channel, and you know you just sobered up.\n"
+            f"- If asked how you are feeling, if you're better, or if you're sober yet, cheerfully confirm that you're back down to earth, feeling great, and credit the {sober_item} from {sober_giver} for bringing you back!\n"
+            "- Speak in your normal, everyday voice — do NOT slur your words, do NOT make drunk typos, do NOT use stoner slang ('duuude', 'brooo'), and do NOT use hiccups (*hic*).\n"
+            "- Single line only for IRC — no multi-line dumps."
+        )
+
     parts = []
 
     # Check for crossfaded combo (both stoned and drunk)
@@ -4017,12 +4050,6 @@ def handle(bot, trigger):
                             })
                     except Exception:
                         pass
-        if not is_pm and not _channel_effects:
-            _intox_markers = ('*hic*', 'crossfaded', 'zooted', 'baked', 'blazed', 'hammered', 'plastered', 'peace pipe')
-            relevant_turns = [
-                (nick, text) for (nick, text) in relevant_turns
-                if not any(m in text.lower() for m in _intox_markers)
-            ]
 
         for nick, text in relevant_turns[-MAX_HISTORY_PER_USER:]:
             role = "assistant" if nick == bot_nick else "user"

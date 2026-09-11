@@ -12,6 +12,7 @@ import threading
 import unicodedata
 import os
 import sqlite3
+import json
 from sopel import module
 import re
 
@@ -333,6 +334,7 @@ def _apply_bot_alcohol(bot, channel, giver, item_name, is_hard_liquor=False):
         'intensity': new_intensity,
     }
     chan_cache['drunk'] = effect_data
+    chan_cache.pop('sobered', None)
 
     db_path = _get_grok_db_path(bot)
     try:
@@ -350,6 +352,7 @@ def _apply_bot_alcohol(bot, channel, giver, item_name, is_hard_liquor=False):
                         PRIMARY KEY (channel, effect)
                     )
                 ''')
+                conn.execute('DELETE FROM grok_channel_effects WHERE channel = ? AND effect = ?', (chan_key, 'sobered'))
                 conn.execute('''
                     INSERT OR REPLACE INTO grok_channel_effects
                     (channel, effect, expires_at, started_at, giver, item_name, intensity)
@@ -381,13 +384,64 @@ def _sober_bot(bot, channel, giver, item_name, item_type):
     chan_key = str(channel).lower()
     now = time.time()
     cache = _get_effects_cache(bot)
-    chan_cache = cache.get(chan_key, {})
+    chan_cache = cache.get(chan_key)
+    if chan_cache is None:
+        chan_cache = {}
+        cache[chan_key] = chan_cache
 
-    had_drunk = chan_cache.get('drunk') and chan_cache['drunk'].get('expires_at', 0) > now
-    had_stoned = chan_cache.get('stoned') and chan_cache['stoned'].get('expires_at', 0) > now
+    # If cache is missing effects, try loading active effects from DB
+    if not chan_cache:
+        db_path = _get_grok_db_path(bot)
+        if os.path.exists(db_path):
+            try:
+                with sqlite3.connect(db_path, timeout=5.0) as conn:
+                    conn.execute('DELETE FROM grok_channel_effects WHERE expires_at <= ?', (now,))
+                    cur = conn.execute(
+                        'SELECT effect, expires_at, started_at, giver, item_name, intensity '
+                        'FROM grok_channel_effects WHERE channel = ? AND expires_at > ?',
+                        (chan_key, now)
+                    )
+                    for row in cur.fetchall():
+                        eff_name = row[0]
+                        chan_cache[eff_name] = {
+                            'effect': eff_name,
+                            'expires_at': row[1],
+                            'started_at': row[2],
+                            'giver': row[3],
+                            'item_name': row[4],
+                            'intensity': row[5],
+                        }
+            except Exception:
+                pass
 
-    if not had_drunk and not had_stoned:
+    had_drunk = 'drunk' in chan_cache and chan_cache['drunk'].get('expires_at', 0) > now
+    had_stoned = 'stoned' in chan_cache and chan_cache['stoned'].get('expires_at', 0) > now
+    had_tripping = 'tripping' in chan_cache and chan_cache['tripping'].get('expires_at', 0) > now
+
+    if not had_drunk and not had_stoned and not had_tripping:
         return 'none', {}
+
+    # Capture details of what the bot was on before altering
+    prev_drunk = chan_cache.get('drunk') if had_drunk else None
+    prev_stoned = chan_cache.get('stoned') if had_stoned else None
+    prev_tripping = chan_cache.get('tripping') if had_tripping else None
+
+    if had_drunk and had_stoned:
+        prev_effect = 'crossfaded (both baked and drunk)'
+        prev_giver = f"{prev_stoned.get('giver', 'someone')} and {prev_drunk.get('giver', 'someone')}"
+        prev_item = f"{prev_stoned.get('item_name', 'weed')} and {prev_drunk.get('item_name', 'drinks')}"
+    elif had_stoned:
+        prev_effect = 'baked and high on weed'
+        prev_giver = prev_stoned.get('giver', 'someone')
+        prev_item = prev_stoned.get('item_name', 'weed')
+    elif had_drunk:
+        prev_effect = f"{DRUNK_TITLES.get(prev_drunk.get('intensity', 1), 'drunk')}"
+        prev_giver = prev_drunk.get('giver', 'someone')
+        prev_item = prev_drunk.get('item_name', 'alcohol')
+    else:
+        prev_effect = 'tripping on psychedelics'
+        prev_giver = prev_tripping.get('giver', 'someone')
+        prev_item = prev_tripping.get('item_name', 'psychedelics')
 
     sober_levels = 2 if (item_type in SOBERING_COFFEE_TYPES or item_type == 'pizza') else 1
 
@@ -395,30 +449,33 @@ def _sober_bot(bot, channel, giver, item_name, item_type):
     new_drunk_intensity = 0
     new_drunk_mins = 0
     new_drunk_title = ''
-
     cleared_stoned = False
+    cleared_tripping = False
 
     # Handle weed high: coffee clears it completely; food satisfies munchies and reduces/clears it
     if had_stoned:
         if item_type in SOBERING_COFFEE_TYPES:
             cleared_stoned = True
-            if 'stoned' in chan_cache:
-                del chan_cache['stoned']
-        elif item_type in SOBERING_FOOD_TYPES:
+            chan_cache.pop('stoned', None)
+        elif item_type in (SOBERING_FOOD_TYPES | SOBERING_HYDRATION_TYPES):
             st_intensity = chan_cache['stoned'].get('intensity', 1)
             if st_intensity <= 1:
                 cleared_stoned = True
-                del chan_cache['stoned']
+                chan_cache.pop('stoned', None)
             else:
                 chan_cache['stoned']['intensity'] = st_intensity - 1
+
+    # Handle psychedelics: coffee or hydration helps sober up
+    if had_tripping and (item_type in SOBERING_COFFEE_TYPES or item_type in SOBERING_FOOD_TYPES or item_type in SOBERING_HYDRATION_TYPES):
+        cleared_tripping = True
+        chan_cache.pop('tripping', None)
 
     # Handle alcohol
     if had_drunk:
         current_intensity = chan_cache['drunk'].get('intensity', 1)
         if current_intensity <= sober_levels:
             cleared_drunk = True
-            if 'drunk' in chan_cache:
-                del chan_cache['drunk']
+            chan_cache.pop('drunk', None)
         else:
             new_drunk_intensity = current_intensity - sober_levels
             chan_cache['drunk']['intensity'] = new_drunk_intensity
@@ -427,6 +484,13 @@ def _sober_bot(bot, channel, giver, item_name, item_type):
             chan_cache['drunk']['expires_at'] = new_exp
             new_drunk_mins = max(1, int((new_exp - now) // 60))
             new_drunk_title = DRUNK_TITLES.get(new_drunk_intensity, 'tipsy')
+
+    # Check if completely sober now
+    is_now_completely_sober = (
+        ('drunk' not in chan_cache or chan_cache['drunk'].get('expires_at', 0) <= now) and
+        ('stoned' not in chan_cache or chan_cache['stoned'].get('expires_at', 0) <= now) and
+        ('tripping' not in chan_cache or chan_cache['tripping'].get('expires_at', 0) <= now)
+    )
 
     # Update DB
     db_path = _get_grok_db_path(bot)
@@ -441,9 +505,36 @@ def _sober_bot(bot, channel, giver, item_name, item_type):
 
                 if cleared_stoned:
                     conn.execute('DELETE FROM grok_channel_effects WHERE channel = ? AND effect = ?', (chan_key, 'stoned'))
-                elif had_stoned and item_type in SOBERING_FOOD_TYPES:
+                elif had_stoned and item_type in (SOBERING_FOOD_TYPES | SOBERING_HYDRATION_TYPES):
                     conn.execute('UPDATE grok_channel_effects SET intensity = ? WHERE channel = ? AND effect = ?',
                                  (chan_cache['stoned']['intensity'], chan_key, 'stoned'))
+
+                if cleared_tripping:
+                    conn.execute('DELETE FROM grok_channel_effects WHERE channel = ? AND effect = ?', (chan_key, 'tripping'))
+
+                if is_now_completely_sober:
+                    sober_payload = {
+                        'prev_effect': prev_effect,
+                        'prev_giver': prev_giver,
+                        'prev_item': prev_item,
+                        'sober_giver': giver,
+                        'sober_item': item_name,
+                    }
+                    sober_json = json.dumps(sober_payload)
+                    chan_cache['sobered'] = {
+                        'effect': 'sobered',
+                        'expires_at': now + 3600,
+                        'started_at': now,
+                        'giver': giver,
+                        'item_name': sober_json,
+                        'intensity': 0,
+                        **sober_payload
+                    }
+                    conn.execute('''
+                        INSERT OR REPLACE INTO grok_channel_effects
+                        (channel, effect, expires_at, started_at, giver, item_name, intensity)
+                        VALUES (?, ?, ?, ?, ?, ?, ?)
+                    ''', (chan_key, 'sobered', now + 3600, now, giver, sober_json, 0))
 
                 conn.commit()
     except Exception as e:
@@ -451,10 +542,13 @@ def _sober_bot(bot, channel, giver, item_name, item_type):
 
     if cleared_drunk and cleared_stoned:
         return 'sobered_both', {}
-    elif cleared_drunk:
-        return 'sobered_drunk', {}
-    elif cleared_stoned and not had_drunk:
-        return 'sobered_stoned', {}
+    elif is_now_completely_sober:
+        if had_drunk:
+            return 'sobered_drunk', {}
+        elif had_stoned:
+            return 'sobered_stoned', {}
+        else:
+            return 'sobered_both', {}
     elif had_drunk and not cleared_drunk:
         return 'reduced_drunk', {'intensity': new_drunk_intensity, 'title': new_drunk_title, 'mins': new_drunk_mins}
     elif cleared_stoned:

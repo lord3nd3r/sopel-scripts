@@ -1,6 +1,7 @@
 import time
 import os
 import sqlite3
+import json
 import random
 import threading
 import logging
@@ -853,6 +854,7 @@ def _apply_bot_intoxication(bot, channel, effect, giver, item_name):
         'intensity': intensity,
     }
     chan_cache[effect] = effect_data
+    chan_cache.pop('sobered', None)
 
     db_path = _get_grok_db_path(bot)
     try:
@@ -870,6 +872,7 @@ def _apply_bot_intoxication(bot, channel, effect, giver, item_name):
                         PRIMARY KEY (channel, effect)
                     )
                 ''')
+                conn.execute('DELETE FROM grok_channel_effects WHERE channel = ? AND effect = ?', (chan_key, 'sobered'))
                 conn.execute('''
                     INSERT OR REPLACE INTO grok_channel_effects
                     (channel, effect, expires_at, started_at, giver, item_name, intensity)
@@ -883,39 +886,109 @@ def _apply_bot_intoxication(bot, channel, effect, giver, item_name):
     return remaining_secs, intensity
 
 
-def _clear_bot_intoxication(bot, channel, effect=None):
-    """Clear active bot intoxication effects for the channel."""
+def _clear_bot_intoxication(bot, channel, effect=None, giver=None, item_name='splashing cold water on its face'):
+    """Clear active bot intoxication effects for the channel and record sobering transition."""
     if not channel:
         return False
     chan_key = str(channel).lower()
+    now = time.time()
+    giver = giver or 'someone'
     cleared = False
     
     cache = _get_effects_cache(bot)
-    if chan_key in cache:
-        if effect:
-            if effect in cache[chan_key]:
-                del cache[chan_key][effect]
-                cleared = True
-        else:
-            if cache[chan_key]:
-                cache[chan_key] = {}
-                cleared = True
+    chan_cache = cache.get(chan_key)
+    if chan_cache is None:
+        chan_cache = {}
+        cache[chan_key] = chan_cache
+
+    # If cache is missing effects, try loading active effects from DB
+    if not chan_cache:
+        db_path = _get_grok_db_path(bot)
+        if os.path.exists(db_path):
+            try:
+                with sqlite3.connect(db_path, timeout=5.0) as conn:
+                    conn.execute('DELETE FROM grok_channel_effects WHERE expires_at <= ?', (now,))
+                    cur = conn.execute(
+                        'SELECT effect, expires_at, started_at, giver, item_name, intensity '
+                        'FROM grok_channel_effects WHERE channel = ? AND expires_at > ?',
+                        (chan_key, now)
+                    )
+                    for row in cur.fetchall():
+                        eff_name = row[0]
+                        chan_cache[eff_name] = {
+                            'effect': eff_name,
+                            'expires_at': row[1],
+                            'started_at': row[2],
+                            'giver': row[3],
+                            'item_name': row[4],
+                            'intensity': row[5],
+                        }
+            except Exception:
+                pass
+
+    active_effects = [e for e in ('stoned', 'drunk', 'tripping') if e in chan_cache and chan_cache[e].get('expires_at', 0) > now]
+    if not active_effects:
+        return False
+
+    prev_drunk = chan_cache.get('drunk')
+    prev_stoned = chan_cache.get('stoned')
+    prev_tripping = chan_cache.get('tripping')
+
+    if 'drunk' in active_effects and 'stoned' in active_effects:
+        prev_effect = 'crossfaded (both baked and drunk)'
+        prev_giver = f"{prev_stoned.get('giver', 'someone')} and {prev_drunk.get('giver', 'someone')}"
+        prev_item = f"{prev_stoned.get('item_name', 'weed')} and {prev_drunk.get('item_name', 'drinks')}"
+    elif 'stoned' in active_effects:
+        prev_effect = 'baked and high on weed'
+        prev_giver = prev_stoned.get('giver', 'someone')
+        prev_item = prev_stoned.get('item_name', 'weed')
+    elif 'drunk' in active_effects:
+        prev_effect = 'drunk'
+        prev_giver = prev_drunk.get('giver', 'someone')
+        prev_item = prev_drunk.get('item_name', 'alcohol')
+    else:
+        prev_effect = 'tripping on psychedelics'
+        prev_giver = prev_tripping.get('giver', 'someone')
+        prev_item = prev_tripping.get('item_name', 'psychedelics')
+
+    # Remove active effects from cache
+    for eff in ('stoned', 'drunk', 'tripping'):
+        chan_cache.pop(eff, None)
+
+    sober_payload = {
+        'prev_effect': prev_effect,
+        'prev_giver': prev_giver,
+        'prev_item': prev_item,
+        'sober_giver': giver,
+        'sober_item': item_name,
+    }
+    sober_json = json.dumps(sober_payload)
+    chan_cache['sobered'] = {
+        'effect': 'sobered',
+        'expires_at': now + 3600,
+        'started_at': now,
+        'giver': giver,
+        'item_name': sober_json,
+        'intensity': 0,
+        **sober_payload
+    }
 
     db_path = _get_grok_db_path(bot)
     try:
         if os.path.exists(db_path):
             with sqlite3.connect(db_path, timeout=10.0) as conn:
-                if effect:
-                    cur = conn.execute('DELETE FROM grok_channel_effects WHERE channel = ? AND effect = ?', (chan_key, effect))
-                else:
-                    cur = conn.execute('DELETE FROM grok_channel_effects WHERE channel = ?', (chan_key,))
-                if cur.rowcount > 0:
-                    cleared = True
+                conn.execute('DELETE FROM grok_channel_effects WHERE channel = ? AND effect IN ("stoned", "drunk", "tripping")', (chan_key,))
+                conn.execute('''
+                    INSERT OR REPLACE INTO grok_channel_effects
+                    (channel, effect, expires_at, started_at, giver, item_name, intensity)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                ''', (chan_key, 'sobered', now + 3600, now, giver, sober_json, 0))
                 conn.commit()
+                cleared = True
     except Exception as e:
         LOG.exception("Failed to clear intoxication effect from DB: %s", e)
 
-    return cleared
+    return True
 
 
 BOT_RECEPTION_ACTIONS = [
@@ -1121,8 +1194,11 @@ def sober_command(bot, trigger):
         bot.action(f"hands a fresh hot cup of coffee ☕ to {target} to help them sober up!")
         return
 
-    _clear_bot_intoxication(bot, channel)
-    bot.action("splashes cold water on its face, shakes its head... 😳 Whew! 100% sober and back to earth.")
+    cleared = _clear_bot_intoxication(bot, channel, giver=trigger.nick, item_name='splashing cold water on its face')
+    if cleared:
+        bot.action(f"splashes cold water on its face, shakes its head... 😳 Whew! 100% sober and back to earth thanks to {trigger.nick}.")
+    else:
+        bot.action(f"splashes cold water on its face... wasn't high or drunk anyway, but thanks {trigger.nick}!")
 
 
 # =======================
