@@ -4017,9 +4017,27 @@ def handle(bot, trigger):
                             })
                     except Exception:
                         pass
+        if not is_pm and not _channel_effects:
+            _intox_markers = ('*hic*', 'crossfaded', 'zooted', 'baked', 'blazed', 'hammered', 'plastered', 'peace pipe')
+            relevant_turns = [
+                (nick, text) for (nick, text) in relevant_turns
+                if not any(m in text.lower() for m in _intox_markers)
+            ]
+
         for nick, text in relevant_turns[-MAX_HISTORY_PER_USER:]:
             role = "assistant" if nick == bot_nick else "user"
             messages.append({"role": role, "content": text})
+
+        if not is_pm and not _channel_effects:
+            messages.append({
+                "role": "system",
+                "content": (
+                    "SOBRIETY: You are 100% sober, clear-headed, and back to normal. "
+                    "Do NOT slur, do NOT use stoner slang, and do NOT use hiccups (*hic*). "
+                    "If asked how you feel or if you're better, confirm you are completely sober and feeling fine."
+                )
+            })
+
         messages.append({"role": "user", "content": user_message})
         try:
             _db_add_turn(bot, trigger.nick, 'user', user_message, 'PM' if is_pm else trigger.sender)

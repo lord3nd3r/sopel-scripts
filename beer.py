@@ -444,6 +444,14 @@ def _sober_bot(bot, channel, giver, item_name, item_type):
                 elif had_stoned and item_type in SOBERING_FOOD_TYPES:
                     conn.execute('UPDATE grok_channel_effects SET intensity = ? WHERE channel = ? AND effect = ?',
                                  (chan_cache['stoned']['intensity'], chan_key, 'stoned'))
+
+                # When fully sobered, wipe recent channel history so intoxicated turns don't linger
+                if ('drunk' not in chan_cache) and ('stoned' not in chan_cache):
+                    try:
+                        conn.execute('DELETE FROM grok_user_history WHERE source = ?', (chan_key,))
+                    except sqlite3.OperationalError:
+                        pass
+
                 conn.commit()
     except Exception as e:
         LOG.exception("Failed to update DB while sobering bot: %s", e)

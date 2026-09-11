@@ -1110,18 +1110,34 @@ def sober_command(bot, trigger):
         bot.notice("This command only works in channels.", trigger.nick)
         return
 
-    target = (trigger.group(2) or '').strip()
+    try:
+        raw_target = trigger.group(2)
+    except (IndexError, AttributeError):
+        raw_target = None
+    target = (raw_target or '').strip()
     bot_nick = (getattr(bot, 'nick', '') or '').lower()
 
     if target and target.lower() != bot_nick:
         bot.action(f"hands a fresh hot cup of coffee ☕ to {target} to help them sober up!")
         return
 
-    cleared = _clear_bot_intoxication(bot, channel)
-    if cleared:
-        bot.action(f"chugs a mug of hot black coffee ☕, splashes cold water on its face... 😳 Whew! Sobered up and locked in.")
-    else:
-        bot.action(f"splashes cold water on its face... wasn't high anyway, but thanks {trigger.nick}!")
+    _clear_bot_intoxication(bot, channel)
+
+    # Wipe channel history in DB so drunken messages don't bleed through
+    chan_key = str(channel).lower()
+    db_path = _get_grok_db_path(bot)
+    try:
+        if os.path.exists(db_path):
+            with sqlite3.connect(db_path, timeout=10.0) as conn:
+                try:
+                    conn.execute('DELETE FROM grok_user_history WHERE source = ?', (chan_key,))
+                    conn.commit()
+                except sqlite3.OperationalError:
+                    pass
+    except Exception:
+        pass
+
+    bot.action("splashes cold water on its face, shakes its head... 😳 Whew! 100% sober and back to earth.")
 
 
 # =======================
