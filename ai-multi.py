@@ -161,8 +161,9 @@ _TIME_INTENT_RE = re.compile(
 )
 
 _SUMMARY_INTENT_RE = re.compile(
-    r"\b(tldr|tl;dr|tl-dr|recap|summarize|summary|"
-    r"catch me up|fill me in|what(?: did|'d)? i miss|what(?:'s| has)? happened|"
+    r"\b(tldr|tl;dr|tl-dr|recap|(?<!the\s)(?<!that\s)(?<!this\s)(?<!your\s)summar(?:ize|y)\b|"
+    # bare "what happened" only — "what happened to building 7" is a factual question
+    r"catch me up|fill me in|what(?: did|'d)? i miss|what(?:'s| has)? happened(?!\s+(?:to|with|about|between|after|before|during)\b)|"
     r"what(?:'s| is| has)?(?: been)? (?:being |going )?(?:talked about|discussed|happening|going on)|"
     r"what(?:'s| was| is) (?:being )?said|"
     r"what(?:'s| are) (?:they|people|everyone|you(?: guys)?) (?:talking|saying|discussing)(?: about)?|"
@@ -170,10 +171,18 @@ _SUMMARY_INTENT_RE = re.compile(
     re.IGNORECASE,
 )
 
+# "revise/fix/redo/change/rewrite the summary" is a correction request, not a
+# catch-up request — if one of these verbs appears near "summary", don't treat
+# it as review mode.
+_SUMMARY_CORRECTION_RE = re.compile(
+    r'\b(?:revise|fix|redo|rewrite|change|correct|update|amend|adjust|edit)\b.{0,30}\bsummar(?:y|ize)\b',
+    re.IGNORECASE,
+)
+
 _REVIEW_INTENT_RE = re.compile(
     r"\b(thoughts?|opinion|what do you think|give (me )?(your )?(take|opinion)|opine|"
-    r"tldr|tl;dr|tl-dr|recap|summarize|summary|"
-    r"catch me up|fill me in|what(?: did|'d)? i miss|what(?:'s| has)? happened|"
+    r"tldr|tl;dr|tl-dr|recap|(?<!the\s)(?<!that\s)(?<!this\s)(?<!your\s)summar(?:ize|y)\b|"
+    r"catch me up|fill me in|what(?: did|'d)? i miss|what(?:'s| has)? happened(?!\s+(?:to|with|about|between|after|before|during)\b)|"
     r"what(?:'s| is| has)?(?: been)? (?:being |going )?(?:talked about|discussed|happening|going on)|"
     r"what(?:'s| was| is) (?:being )?said|what(?:'s| is) up|"
     r"what(?:'s| are) (?:they|people|everyone|you(?: guys)?) (?:talking|saying|discussing)(?: about)?|"
@@ -3686,6 +3695,10 @@ def handle(bot, trigger):
     # ========== END INSTANT CONFIG COMMANDS ==========
 
     review_mode = bool(_REVIEW_INTENT_RE.search(user_message)) or (user_message.strip() == '^^')
+    # "revise/fix/redo the summary" is a correction of the bot's last answer,
+    # not a request for a new one — handle it as a normal chat message.
+    if review_mode and _SUMMARY_CORRECTION_RE.search(user_message):
+        review_mode = False
     is_summary_request = review_mode and bool(_SUMMARY_INTENT_RE.search(user_message))
 
     if not user_message:
