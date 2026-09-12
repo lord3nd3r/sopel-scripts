@@ -247,23 +247,22 @@ def vote_help(bot, trigger):
     bot.say("", nick)
     bot.say("🎯 CREATING A VOTE (Halfop+ only)", nick)
     bot.say("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━", nick)
-    bot.say("Command: .vote Q:question A1:option1 A2:option2 T:duration", nick)
+    bot.say("Command: .vote <question> [A1:option1 A2:option2...] [T:duration]", nick)
+    bot.say("Aliases: .voting, .poll", nick)
     bot.say("", nick)
-    bot.say("📝 Format:", nick)
-    bot.say("  Q: = Your question", nick)
-    bot.say("  A1: = First option", nick)
-    bot.say("  A2: = Second option", nick)
-    bot.say("  A3: = Third option (optional)", nick)
-    bot.say("  T: = Time duration", nick)
+    bot.say("📝 Formats:", nick)
+    bot.say("  Simple: .vote <question>           (defaults to Yes/No options, 24h)", nick)
+    bot.say("  Custom: .vote Q:question A1:opt1 A2:opt2 T:duration", nick)
     bot.say("", nick)
     bot.say("⏰ Time formats:", nick)
     bot.say("  30s = 30 seconds", nick)
     bot.say("  15m = 15 minutes", nick)
-    bot.say("  24h = 24 hours", nick)
+    bot.say("  24h = 24 hours (default)", nick)
     bot.say("  7d = 7 days", nick)
     bot.say("", nick)
-    bot.say("💡 Example:", nick)
-    bot.say("  .vote Q:Best pizza? A1:Pepperoni A2:Cheese A3:Veggie T:1h", nick)
+    bot.say("💡 Examples:", nick)
+    bot.say("  .vote Should we order pizza?", nick)
+    bot.say("  .vote Best pizza? A1:Pepperoni A2:Cheese A3:Veggie T:1h", nick)
     bot.say("", nick)
     bot.say("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━", nick)
     bot.say("🗳️  CASTING YOUR VOTE", nick)
@@ -283,6 +282,7 @@ def vote_help(bot, trigger):
     bot.say("  .votestats   - Show current results", nick)
     bot.say("  .vstats      - Same as above", nick)
     bot.say("  .voteresults - Same as above", nick)
+    bot.say("  .voting      - View current poll status", nick)
     bot.say("", nick)
     bot.say("Shows: vote counts, percentages, progress bars, time left", nick)
     bot.say("", nick)
@@ -308,67 +308,80 @@ def vote_help(bot, trigger):
     bot.reply("📬 Help information sent via PM!")
 
 
-@plugin.command('vote')
+@plugin.command('vote', 'voting', 'poll')
+@plugin.example('.vote Should we add a new feature?')
 @plugin.example('.vote Q:Should we add a new feature? A1:Yes A2:No A3:Maybe T:24h')
 def create_vote(bot, trigger):
     """
-    Create a new vote/poll in the channel.
-    Usage: .vote Q:question A1:option1 A2:option2 [A3:option3...] T:duration
-    Duration format: 30m, 24h, 2d (minutes, hours, days)
-    Requires halfop or above.
-    Use .vote help for detailed instructions.
+    Create a new vote/poll in the channel or view status of an active vote.
+    Usage: .vote <question> [A1:option1 A2:option2...] [T:duration]
+    Default options: Yes / No | Default duration: 24h
+    Requires halfop or above to create.
     """
-    # Check for help command
-    if trigger.group(2) and trigger.group(2).strip().lower() == 'help':
-        vote_help(bot, trigger)
-        return
-    
     # Check if user has required privileges
     if not is_halfop_or_above(bot, trigger.sender, trigger.nick):
         bot.reply("❌ You need to be at least halfop to create a vote!")
         return
     
+    raw_args = trigger.group(2)
+    
+    # If no arguments provided, or user asks for status/help:
+    if not raw_args or raw_args.strip().lower() in ('status', 'stats', 'results'):
+        if trigger.sender in active_votes:
+            show_vote_stats(bot, trigger)
+            return
+        bot.reply("Usage: .vote <question> [A1:opt1 A2:opt2...] [T:duration] (e.g. .vote Should we order pizza? or .vote help)")
+        return
+    
+    if raw_args.strip().lower() in ('help', 'votehelp'):
+        vote_help(bot, trigger)
+        return
+    
     # Check if there is already an active vote in this channel
     if trigger.sender in active_votes:
-        bot.reply("❌ There is already an active vote in this channel! End it with .endvote first.")
+        bot.reply("❌ There is already an active vote in this channel! End it with .endvote first or view results with .votestats")
         return
     
-    if not trigger.group(2):
-        bot.reply("Usage: .vote Q:question A1:option1 A2:option2 T:duration (or .vote help)")
-        return
+    args = raw_args.strip()
     
-    # Parse the vote command
-    args = trigger.group(2)
+    # Extract optional time duration T:<duration>
+    t_match = re.search(r'\bT:(\d+[smhd])\b', args, re.IGNORECASE)
+    if t_match:
+        duration_str = t_match.group(1)
+        args_clean = (args[:t_match.start()] + " " + args[t_match.end():]).strip()
+    else:
+        duration_str = '24h'
+        args_clean = args
     
-    # Extract question
-    q_match = re.search(r'Q:([^A]+?)(?=A\d+:|$)', args, re.IGNORECASE)
-    if not q_match:
-        bot.reply("❌ Missing question! Use Q:your question here")
-        return
-    
-    question = q_match.group(1).strip()
-    
-    # Extract options
-    options = {}
-    option_matches = re.finditer(r'A(\d+):([^AT]+?)(?=A\d+:|T:|$)', args, re.IGNORECASE)
-    for match in option_matches:
-        opt_num = int(match.group(1))
-        opt_text = match.group(2).strip()
-        options[opt_num] = opt_text
-    
-    if len(options) < 2:
-        bot.reply("❌ You need at least 2 options! Use A1:option1 A2:option2")
-        return
-    
-    # Extract time duration
-    t_match = re.search(r'T:(\d+[smhd])', args, re.IGNORECASE)
-    if not t_match:
-        bot.reply("❌ Missing time duration! Use T:24h (or 30m, 2d, etc.)")
-        return
-    
-    duration_seconds = parse_time_duration(t_match.group(1))
+    duration_seconds = parse_time_duration(duration_str)
     if not duration_seconds:
         bot.reply("❌ Invalid time format! Use format like: 30m, 24h, 2d")
+        return
+    
+    # Extract options A1:..., A2:..., etc.
+    options = {}
+    option_matches = list(re.finditer(r'A(\d+):([^AT]+?)(?=A\d+:|T:|$)', args_clean, re.IGNORECASE))
+    
+    if option_matches:
+        # Question is whatever text comes before the first option match
+        first_opt_start = option_matches[0].start()
+        q_text = args_clean[:first_opt_start].strip()
+        q_text = re.sub(r'^Q:\s*', '', q_text, flags=re.IGNORECASE).strip()
+        question = q_text if q_text else "Vote"
+        
+        for match in option_matches:
+            opt_num = int(match.group(1))
+            opt_text = match.group(2).strip()
+            if opt_text:
+                options[opt_num] = opt_text
+    else:
+        # No explicit option matches: treat entire cleaned text as question, default to Yes/No
+        q_text = re.sub(r'^Q:\s*', '', args_clean, flags=re.IGNORECASE).strip()
+        question = q_text if q_text else "Vote"
+        options = {1: "Yes", 2: "No"}
+    
+    if len(options) < 2:
+        bot.reply("❌ You need at least 2 options! Example: A1:option1 A2:option2")
         return
     
     # Create vote in database

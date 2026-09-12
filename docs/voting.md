@@ -29,13 +29,15 @@ message_delay = 0.5
 
 | Command | Description |
 |---------|-------------|
-| `$vote Q:<question> A1:<opt> A2:<opt> [A3:...] T:<duration>` | Create a poll (Halfop+ only) |
+| `$vote <question>` | Create a Yes/No poll with 24h default duration (Halfop+ only) |
+| `$vote Q:<question> A1:<opt> A2:<opt> [A3:...] [T:<duration>]` | Create a poll with custom options and duration (Halfop+ only) |
 | `$v <number>` / `$castvote` | Cast or change your vote |
-| `$votestats` / `$vstats` / `$voteresults` | Show current poll results |
+| `$voting` / `$votestats` / `$vstats` / `$voteresults` | Show current poll results / status |
 | `$endvote` | End the poll early (creator or halfop+) |
 | `$votehelp` | Full help guide (sent via PM) |
 
-> **Duration formats:** `30s` (seconds), `15m` (minutes), `24h` (hours), `7d` (days).
+> **Aliases:** `$vote`, `$voting`, `$poll`.
+> **Duration formats:** `30s` (seconds), `15m` (minutes), `24h` (hours), `7d` (days). Default duration is `24h`. Options default to `1: Yes, 2: No` if none are specified.
 
 ---
 
