@@ -4170,6 +4170,16 @@ def handle(bot, trigger):
             # Sunrise/sunset/dawn/dusk queries need a web lookup
             if _time_needs_lookup:
                 search_mode = True
+        if search_mode and not is_pm and _effect_prompt:
+            messages.append({
+                "role": "system",
+                "content": (
+                    "CRITICAL SEARCH & NEWS TONE: You are currently intoxicated in this channel! "
+                    "When presenting news or search findings, you MUST deliver them in full character — "
+                    "use stoner slang ('duuude', 'bro'), slurring, typos, and hiccups ('*hic*'). "
+                    "React to the news like an intoxicated person. Do NOT give a dry, sober summary!"
+                )
+            })
         # If responding to a /me action, tell Grok to reply in /me style
         if action_bot_mentioned:
             messages.append({"role": "system", "content":
