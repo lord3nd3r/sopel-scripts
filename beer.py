@@ -578,7 +578,7 @@ def _serve_item(bot, trigger, item_type, item_list, message_list, placeholder_ke
         if not raw_target:
             target_user = trigger.nick
         else:
-            target_user = raw_target.strip()
+            target_user = raw_target.strip().split()[0]
         
         # Deduct price
         sender = trigger.account or trigger.nick
@@ -1882,7 +1882,7 @@ def surprise(bot, trigger):
     if not raw_target:
         target_user = trigger.nick
     else:
-        target_user = raw_target.strip()
+        target_user = raw_target.strip().split()[0]
     
     # Combine all drink lists
     all_drinks = BEERS + SHOTS + MAGNERS + WHISKEYS + SCOTCHES + IRISH_WHISKEYS + VODKAS + RUMS + TEQUILAS + GINS + BRANDIES + MARGARITAS + SAKES + LIQUEURS + MEADS + MIXED_DRINKS + WINES + CAVAS + MOCKTAILS + COFFEES + DECAFS + TEAS + WATERS

@@ -89,6 +89,17 @@ class ChannelTrivia:
         self.server = bot.config.core.host if hasattr(bot.config.core, 'host') else 'default'
         self.game = TriviaGame.load_from_file(questions_file, category=category)
         self.game.shuffle()
+        # Push questions asked in recent games to the back of the deck so
+        # consecutive games don't keep repeating the same questions.
+        try:
+            recent = _get_db().get_recent_questions(self.channel, self.server)
+            if recent:
+                fresh = [q for q in self.game.questions if q.get('question', '') not in recent]
+                stale = [q for q in self.game.questions if q.get('question', '') in recent]
+                if fresh:
+                    self.game.questions = fresh + stale
+        except Exception:
+            pass
         self.max_questions = min(num_questions, len(self.game.questions))
         self.current_question = None
         self.question_start_time = None

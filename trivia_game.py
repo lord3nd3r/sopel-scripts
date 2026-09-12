@@ -204,6 +204,39 @@ class TriviaGame:
         clean = re.sub(r'[^\w\s]', ' ', clean)
         clean = clean.replace('DECPT', '.')
         words = clean.split()
+
+        # Purely numeric answers (years, counts) can't reveal digits without
+        # giving the answer away — give escalating meta-hints instead.
+        if words and all(w.isdigit() or re.match(r'^\d+\.\d+$', w) for w in words):
+            hints = []
+            try:
+                val = float(''.join(words)) if len(words) == 1 else None
+            except ValueError:
+                val = None
+            for hint_num in range(1, num_hints + 1):
+                masked = ' '.join('*' * len(w) for w in words)
+                if val is None:
+                    hints.append(masked)
+                    continue
+                if hint_num == 1:
+                    hints.append(f"{masked} (it's a number)")
+                elif hint_num == 2:
+                    lo = 10 ** (len(str(int(val))) - 1)
+                    hints.append(f"{masked} (between {lo} and {lo * 10 - 1})")
+                else:
+                    if val >= 1000:  # year-like: narrow to the decade
+                        decade = int(val) // 10 * 10
+                        hints.append(f"{masked} (in the {decade}s)")
+                    else:
+                        half = 10 ** (len(str(int(val))) - 1) * 5
+                        lo = 10 ** (len(str(int(val))) - 1)
+                        side = f"under {half}" if val < half else f"{half} or higher"
+                        hints.append(f"{masked} ({side})")
+            return hints
+
+        # Single-character answers can't be progressively revealed.
+        if len(words) == 1 and len(words[0]) == 1:
+            return ['* (single letter)', '* (single letter)', '* (single letter)']
         
         hints = []
         

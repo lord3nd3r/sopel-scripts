@@ -230,6 +230,27 @@ class TriviaDB:
             ''', (channel, server, limit))
             return cursor.fetchall()
 
+    def get_recent_questions(self, channel: str, server: str, game_limit: int = 3) -> set:
+        """Return question texts asked in the channel's most recent games.
+
+        Used to deprioritize repeats when a new game starts. Only correct
+        answers are recorded in game_answers, so unanswered questions are
+        naturally eligible for reuse.
+        """
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.execute('''
+                SELECT DISTINCT ga.question_text
+                FROM game_answers ga
+                JOIN games g ON g.game_id = ga.game_id
+                WHERE g.channel = ? AND g.server = ?
+                  AND g.game_id IN (
+                      SELECT game_id FROM games
+                      WHERE channel = ? AND server = ? AND ended_at IS NOT NULL
+                      ORDER BY ended_at DESC LIMIT ?
+                  )
+            ''', (channel, server, channel, server, game_limit))
+            return {row[0] for row in cursor.fetchall() if row[0]}
+
 
 if __name__ == "__main__":
     # Quick test - disabled by default due to SFTP slowness
