@@ -3980,7 +3980,16 @@ def handle(bot, trigger):
                 BG_MAX_LINES = 150
                 bg_collected = []
                 bg_chars = 0
+                _sober_markers = (
+                    'sober', 'back to earth', 'back down to earth', 'pizza fixed', 'coffee fixed',
+                    'pizza got me', 'coffee got me', 'sobered up', 'clear-headed', 'feeling great now',
+                    'pizza brought me', 'coffee brought me', 'not high', 'not drunk', "wasn't high",
+                    'feeling solid', 'feeling good', 'pretty good', 'solid, you', 'feeling fine'
+                )
                 for n, t in reversed(unique_bg):
+                    if not is_pm and _channel_effects and any(k in _channel_effects for k in ('stoned', 'drunk', 'tripping')):
+                        if n.lower() == bot_nick.lower() and any(m in t.lower() for m in _sober_markers):
+                            continue
                     l = len(n) + len(t) + 3
                     if bg_chars + l > BG_CHAR_BUDGET and bg_collected:
                         break
@@ -4070,14 +4079,20 @@ def handle(bot, trigger):
         # This prevents the LLM from mimicking its own old sober responses.
         # NOTE: This is in-flight filtering only — the DB records are preserved intact.
         if not is_pm and _channel_effects and any(k in _channel_effects for k in ('stoned', 'drunk', 'tripping')):
-            _sober_markers = ('sober', 'back to earth', 'back down to earth', 'pizza fixed', 'coffee fixed',
-                              'pizza got me', 'coffee got me', 'sobered up', 'clear-headed', 'feeling great now',
-                              'pizza brought me', 'coffee brought me', 'not high', 'not drunk', "wasn't high",
-                              'feeling solid', 'feeling good', 'pretty good')
-            relevant_turns = [
-                (r, text) for (r, text) in relevant_turns
-                if r != 'assistant' or not any(m in text.lower() for m in _sober_markers)
-            ]
+            _sober_markers = (
+                'sober', 'back to earth', 'back down to earth', 'pizza fixed', 'coffee fixed',
+                'pizza got me', 'coffee got me', 'sobered up', 'clear-headed', 'feeling great now',
+                'pizza brought me', 'coffee brought me', 'not high', 'not drunk', "wasn't high",
+                'feeling solid', 'feeling good', 'pretty good', 'solid, you', 'feeling fine'
+            )
+            new_turns = []
+            for r, text in relevant_turns:
+                if (r == 'assistant' or r == bot_nick) and any(m in text.lower() for m in _sober_markers):
+                    if new_turns and new_turns[-1][0] == 'user':
+                        new_turns.pop()
+                    continue
+                new_turns.append((r, text))
+            relevant_turns = new_turns
 
         for r, text in relevant_turns[-MAX_HISTORY_PER_USER:]:
             role = "assistant" if r == "assistant" or r == bot_nick else "user"
