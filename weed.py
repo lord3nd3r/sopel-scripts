@@ -237,6 +237,43 @@ DOOBIE_COUNTDOWN = [
 
 
 # =======================
+# SPLIFF Content
+# =======================
+SPLIFF_GIFTS = [
+    "a European-style spliff (weed + tobacco) 🚬",
+    "a fat spliff with Dutch tobacco 🇳🇱🚬",
+    "a hash & tobacco spliff 🟤🚬",
+    "a cone spliff with menthol tobacco 🍃🚬",
+    "a cone spliff wrapped in tobacco leaf 🍂🚬",
+    "a custom-rolled spliff with golden Virginia 🍂🌿",
+    "a pinner spliff 📍🚬",
+    "a cross spliff ✖️🚬",
+]
+
+SPLIFF_ACTION_MESSAGES = [
+    "passes {gift} to {target} 🚬",
+    "lights {gift} and hands it to {target} 🔥",
+    "sparks up {gift} for {target} ✨",
+    "rolls a fresh {gift} for {target} 📜",
+    "tosses {gift} (lit) to {target} 🌿",
+]
+
+SPLIFF_FINAL_MESSAGES = [
+    formatting.bold(formatting.color("Spliff session — tobacco buzz meets green chill! 🚬🌿🔥", formatting.colors.LIGHT_GREEN)),
+    formatting.color("That tobacco spin + weed high hit just right 🍂☁️", formatting.colors.LIGHT_GREEN),
+    formatting.color("Euro-style smoking: roll the spliff and pass it around 🇪🇺🚬", formatting.colors.LIGHT_GREEN),
+    formatting.color("Perfect ratio: 70% green, 30% tobacco ⚖️🌿", formatting.colors.LIGHT_GREEN),
+    formatting.color("Smooth burn on this spliff. Puff puff pass! 📜🤌", formatting.colors.LIGHT_GREEN),
+]
+
+SPLIFF_COUNTDOWN = [
+    formatting.color("🍂 3... Mixing weed & tobacco...", formatting.colors.GREEN),
+    formatting.color("👅 2... Rolling the spliff...", formatting.colors.YELLOW),
+    formatting.color("🔥 1... Sparking up...", formatting.colors.RED),
+]
+
+
+# =======================
 # KEEF Content
 # =======================
 KEEF_GIFTS = [
@@ -671,6 +708,7 @@ DATA = {
     'joint': (JOINT_GIFTS, JOINT_ACTION_MESSAGES, JOINT_FINAL_MESSAGES, JOINT_COUNTDOWN),
     'jay': (JAY_GIFTS, JAY_ACTION_MESSAGES, JAY_FINAL_MESSAGES, JAY_COUNTDOWN),
     'doobie': (DOOBIE_GIFTS, DOOBIE_ACTION_MESSAGES, DOOBIE_FINAL_MESSAGES, DOOBIE_COUNTDOWN),
+    'spliff': (SPLIFF_GIFTS, SPLIFF_ACTION_MESSAGES, SPLIFF_FINAL_MESSAGES, SPLIFF_COUNTDOWN),
     'keef': (KEEF_GIFTS, KEEF_ACTION_MESSAGES, KEEF_FINAL_MESSAGES, KEEF_COUNTDOWN),
     'kief': (KEEF_GIFTS, KEEF_ACTION_MESSAGES, KEEF_FINAL_MESSAGES, KEEF_COUNTDOWN),
     'trip': (DMT_GIFTS, DMT_ACTION_MESSAGES, DMT_FINAL_MESSAGES, DMT_COUNTDOWN),
@@ -1000,7 +1038,7 @@ BOT_RECEPTION_ACTIONS = [
 ]
 
 
-@module.commands('weed', 'bong', 'joint', 'jay', 'doobie', 'keef', 'kief', 'trip', 'shrooms', 'mushrooms',
+@module.commands('weed', 'bong', 'joint', 'jay', 'doobie', 'spliff', 'keef', 'kief', 'trip', 'shrooms', 'mushrooms',
                  'acid', 'lsd', 'peyote', 'mescaline', 'toke', 'edibles', 'edible',
                  'dab', 'dabs', 'blunt', 'vape', 'hash', 'munchies')
 @module.example('$weed username', 'Give a user a random weed item/message')
@@ -1218,6 +1256,7 @@ def weedhelp_command(bot, trigger):
         "  $joint <nick>       — Give someone a joint",
         "  $jay <nick>         — Give someone a jay",
         "  $doobie <nick>      — Give someone a doobie",
+        "  $spliff <nick>      — Give someone a spliff",
         "  $blunt <nick>       — Give someone a blunt",
         "  $toke <nick>        — Give someone a bowl/pipe toke",
         "  $vape <nick>        — Give someone a vape hit",

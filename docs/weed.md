@@ -28,6 +28,8 @@ All commands support an optional target `<nick>` argument. If the target is pres
 | `$weed` | — | Weed session / gift 🌿 |
 | `$bong` | — | Bong rip with water bubbling countdown 🫧 |
 | `$joint` | — | Roll up and spark a joint 📜 |
+| `$jay` | `$doobie` | Joint aliases 📜 |
+| `$spliff` | — | Roll and spark a spliff (weed + tobacco) 🚬 |
 | `$keef` | `$kief` | Sprinkle some keef ✨ |
 | `$trip` | — | DMT breakthrough experience 👽🌀 |
 | `$shrooms` | `$mushrooms` | Mushroom trip 🍄 |
@@ -102,6 +104,7 @@ Countdown commands can be triggered **mid-sentence**:
 | Weed | 30 | joint, bong rip, edible, vape hit, moon rock, rosin press |
 | Bong | 10 | ice-catch bong, gravity bong, percolator, beaker |
 | Joint | 11 | cross joint, spliff, cone, pinner, kief-dusted |
+| Spliff | 8 | Euro-style spliff, Dutch tobacco spliff, hash & tobacco spliff, menthol cone |
 | Keef | 8 | bowl topped with keef, keef puck, moonrock, pure keef bowl |
 | DMT (trip) | 14 | glass vapor genie, breakthrough, changa joint, ayahuasca brew |
 | Shrooms | 14 | golden teachers, penis envy chocolate, blue meanies, lemon tek |
