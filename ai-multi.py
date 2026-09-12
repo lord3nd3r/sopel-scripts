@@ -1598,6 +1598,13 @@ def _call_responses_api(bot, messages, model, temp, max_toks, search_mode=False,
     if not isinstance(data, dict):
         raise ValueError('API response is not a dict')
 
+    _resp_status = data.get('status')
+    if _resp_status and _resp_status != 'completed':
+        _log(bot).warning(
+            'Responses API returned status=%s (reason=%s)',
+            _resp_status, (data.get('incomplete_details') or {}).get('reason'),
+        )
+
     reply = ''
     citations = []  # List of {"url": str, "title": str}
     output_items = data.get('output')
@@ -1688,7 +1695,7 @@ def _url_to_title(url):
 
 def _record_api_failure(bot, channel):
     """Bump the circuit-breaker failure state for a channel."""
-    api_failures = bot.memory.get('grok_api_failures', {})
+    api_failures = bot.memory.setdefault('grok_api_failures', {})
     state = api_failures.setdefault(channel, {'count': 0, 'last': 0.0, 'announced': 0.0})
     state['count'] += 1
     state['last'] = time.time()
@@ -1814,6 +1821,7 @@ def _api_worker(*, bot, trigger, messages, review_mode, is_pm, bot_nick, chan_lo
                     backoff *= 2
                 else:
                     _log(bot).exception('AI API final attempt failed (backend=%s)', _chat_backend)
+                    _record_api_failure(bot, channel)
                     if not is_chimein:
                         try:
                             bot.say("AI is timing out right now; please try again later.", trigger.sender)
@@ -1835,7 +1843,7 @@ def _api_worker(*, bot, trigger, messages, review_mode, is_pm, bot_nick, chan_lo
                 _log(bot).info('Retrying with search_mode=True after raw function_call was stripped')
                 try:
                     reply, citations = _call_responses_api(
-                        bot, messages, model, temp, max_toks,
+                        bot, messages, _api_model, temp, max_toks,
                         search_mode=True,
                     )
                     reply = sanitize_reply(bot, trigger, reply)
@@ -1968,6 +1976,7 @@ def _api_worker(*, bot, trigger, messages, review_mode, is_pm, bot_nick, chan_lo
         _typing_delay = random.uniform(TYPING_DELAY_MIN, TYPING_DELAY_MAX)
         time.sleep(_typing_delay)
 
+        _log(bot).info('Grok reply -> %s (len=%d, review=%s, chimein=%s)', dest_channel, len(final_reply), review_mode, is_chimein)
         send(bot, dest_channel, final_reply)
 
         if target_channel and admin_pm_nick:
@@ -2923,6 +2932,10 @@ def _heuristic_intent_check(bot, trigger, line, bot_nick):
             return False
 
     if '?' in s and re.search(rf'\b{re.escape(bot_nick)}\b', s, re.IGNORECASE):
+        return True
+    # Message starts with the bot nick (no punctuation) — clearly addressed to it.
+    # e.g. "glitchy what do u think about communists"
+    if re.match(rf'^\s*{re.escape(nick)}\s+\w', lower):
         return True
     words = s.split()
     if len(words) <= 6 and re.search(rf'\b{re.escape(bot_nick)}\b', s, re.IGNORECASE):
@@ -4153,10 +4166,20 @@ def handle(bot, trigger):
             for nick, text in relevant_turns[-REVIEW_MAX_ENTRIES:]:
                 bg_lines.append(f"{nick}: {text}")
             background = "\n".join(bg_lines)
-            combined = (
-                "Channel conversation so far (chronological):\n" + background + "\n\n"
-                + (f"{trigger.nick} is asking you to weigh in. User said: {user_message}" if user_message.strip() != '^^' else f"{trigger.nick} wants you to jump into the conversation.")
-            )
+            if background.strip():
+                combined = (
+                    "Channel conversation so far (chronological):\n" + background + "\n\n"
+                    + (f"{trigger.nick} is asking you to weigh in. User said: {user_message}" if user_message.strip() != '^^' else f"{trigger.nick} wants you to jump into the conversation.")
+                )
+            else:
+                # Backlog is empty (e.g. right after a restart) — answer as a
+                # plain opinion question instead of refusing to reply.
+                combined = (
+                    f"{trigger.nick} asked: {user_message}\n"
+                    "You have no recent channel backlog to reference (the log is empty). "
+                    "Answer their question directly with your own take — be funny or thoughtful, whatever fits. "
+                    "Do NOT mention that the log is empty."
+                )
         if not is_pm:
             _channel_effects = _db_get_channel_effects(bot, trigger.sender)
             _effect_prompt = _format_channel_effect_prompt(_channel_effects, bot_nick)
