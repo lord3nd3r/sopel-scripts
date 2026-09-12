@@ -13,13 +13,13 @@ A lighthearted party/sesh module for Sopel with countdown animations (solo mode)
 ~/.sopel/scripts/weed.py
 ```
 
-**Data Persistence:** None (cooldowns are tracked in memory).
+**Data Persistence:** Bot intoxication states and sobering records are stored in SQLite (`grok_channel_effects` table in `grok.sqlite3`) for seamless cross-plugin integration with `ai-multi.py`. Cooldowns are tracked in memory.
 
 ---
 
 ## Commands
 
-All commands support an optional target `<nick>` argument. If the target is present in the channel, it sends a gift action. Otherwise, it triggers the channel-wide countdown animation.
+All commands support an optional target `<nick>` argument. If the target is present in the channel, it sends a gift action. Otherwise, it triggers the channel-wide countdown animation. Target nick arguments take the first word only, ignoring trailing text.
 
 ### Substance Commands
 
@@ -46,9 +46,11 @@ All commands support an optional target `<nick>` argument. If the target is pres
 | Command | Arguments | Description | Example |
 |---------|-----------|-------------|---------|
 | `$pass` | `<nick>` | Take a hit and pass the rotation to someone else (requires target in channel) | `$pass Friend` |
-| `$coffee` | `[nick]` | Offer hot coffee or cold water to sober up the bot (or another user) | `$coffee Glitchy` |
-| `$sober` | — | Alias for `$coffee` to sober up the bot in this channel | `$sober` |
+| `$sober` | `[nick]` | Sober up the bot in this channel, or splash cold water/coffee on another user | `$sober`, `$sober Glitchy` |
+| `$unhigh` | `[nick]` | Alias for `$sober` | `$unhigh` |
 | `$weedhelp` | — | PM a complete command reference card to the user | `$weedhelp` |
+
+> **Note:** Serving hot coffee or food to sober up the bot is also available via the bartender plugin (`beer.py`) with `$coffee <botnick>` or `$pizza <botnick>`.
 
 ---
 

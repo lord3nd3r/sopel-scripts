@@ -20,7 +20,7 @@ All coin balances are stored in `bot.db` under the `mug_game` plugin. Bartender 
 
 ## Menu & Prices
 
-All prices are in **coins** (🪙).
+All prices are in **coins** (🪙). When specifying a target user or the bot (`[nick]`), only the first word is used as the nickname so extra words (e.g. `$beer user again`) are ignored.
 
 | Command | Aliases | Cost | Description |
 |---------|---------|------|-------------|

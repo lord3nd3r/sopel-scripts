@@ -22,11 +22,25 @@ Multi-player trivia with categories, progressive hints, streaks, and stats.
 
 | Command | Aliases | Description |
 |---------|---------|-------------|
-| `$trivia [N]` | — | Start a game with N questions (default 100) |
+| `$trivia [category] [N]` | — | Start a game with N questions (default 100, max 500), optionally filtered by category |
+| `$trivia categories` | — | List all available trivia categories |
 | `$strivia` | — | Stop the current game |
 | `$triviastats [nick]` | `$tstats` | View stats for yourself or another player |
 | `$triviatop` | `$ttop` | Top 10 in this channel |
 | `$triviatopserver` | `$ttopserver` | Top 10 across the server |
+
+---
+
+## Features
+
+- **465 questions** across 18+ categories (Geography, Science, History, Movies, Sports, etc.)
+- **Anti-repeat rotation**: Questions answered in the channel's last 3 finished games are automatically deprioritized to the back of the deck on game start so consecutive games stay fresh.
+- **Progressive hints**:
+  - Text answers reveal letters progressively at 10-second intervals.
+  - Purely numeric answers (years, counts) receive progressive meta-hints (number indicator $\to$ magnitude range $\to$ decade or upper/lower half) rather than bare asterisks.
+  - Single-character answers are explicitly identified as single letters.
+- **Streaks & scoring**: Fast answers award bonus points, and consecutive correct answers build player streaks.
+- **Inactivity protection**: Warns after 3 unanswered questions and automatically stops after 5.
 
 ---
 

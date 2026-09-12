@@ -661,7 +661,8 @@ A full-featured multi-player trivia game with categories, progressive hints, sco
 
 | Command | Description | Example |
 |---------|-------------|---------|
-| `$trivia [N]` | Start a trivia game with N questions (default 100) | `$trivia 20` |
+| `$trivia [category] [N]` | Start a trivia game with N questions (default 100, max 500), optionally by category | `$trivia 20`, `$trivia Geography 15` |
+| `$trivia categories` | List all available question categories | `$trivia categories` |
 | `$strivia` | Stop the current trivia game | `$strivia` |
 | `$triviastats [nick]` / `$tstats` | View trivia stats for yourself or another player | `$triviastats m0n` |
 | `$triviatop` / `$ttop` | Top 10 players in this channel | `$triviatop` |
@@ -669,13 +670,14 @@ A full-featured multi-player trivia game with categories, progressive hints, sco
 
 ### How It Works
 1. Bot asks a question with optional category
-2. Progressive hints are revealed over time (letters gradually unmasked)
-3. Type the answer in chat — first correct answer wins!
-4. Points awarded with streak bonuses for consecutive correct answers
-5. After N questions or inactivity, final scoreboard is displayed
+2. Anti-repeat rotation pushes recently asked questions from the last 3 games to the back of the deck
+3. Progressive hints are revealed over time (letters unmasked, numeric range/decade hints, single-letter markers)
+4. Type the answer in chat — first correct answer wins!
+5. Points awarded with streak bonuses for consecutive correct answers
+6. After N questions or inactivity (5 unanswered), final scoreboard is displayed
 
 ### Supporting Files
-- `questions.json` — Question bank with categories
+- `questions.json` — Question bank with 465 categorized questions
 - `trivia_game.py` — Core game logic and hint generation engine
 - `trivia_db.py` — SQLite persistence for stats and game history
 

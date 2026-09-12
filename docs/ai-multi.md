@@ -78,7 +78,7 @@ Channel-wide (`in this channel` / `for everyone`) requires **op or bot admin**.
 
 | Command | Who | Description |
 |---------|-----|-------------|
-| `BotNick: <message>` | Anyone | Talk to the bot |
+| `BotNick: <message>` or `BotNick <message>` | Anyone | Talk to the bot (addressed at start with or without punctuation) |
 | `/me pets BotNick` | Anyone | Emote interaction |
 | `BotNick: remember <fact>` | Anyone | Save a fact permanently to SQLite |
 | `BotNick: forget <fact>` | Anyone | Remove a saved fact (fuzzy match) |
@@ -104,7 +104,7 @@ Channel-wide (`in this channel` / `for everyone`) requires **op or bot admin**.
 | `$unignore <nick>` | Remove nick from ignore list |
 | `$say #channel <msg>` | Make bot say something in a target channel |
 | `$act #channel <action>` | Make bot do a /me action in a target channel |
-| `$tell #channel <directive>` | Send an AI directive into a target channel |
+| `$tell #channel <directive>` | Send an AI directive into a target channel (inherits channel intoxication/sober state) |
 
 ### 🔍 Moderation: Schizo Check
 
@@ -305,7 +305,7 @@ Grok: catch me up, what did I miss?
 Grok: tldr
 ```
 
-> **Cooldown:** Review mode has a 30-second cooldown per channel to prevent spam.
+> **Cooldown:** Review mode has a 30-second cooldown per user (with a notice if triggered during cooldown) to prevent one user's requests from blocking others. If the recent channel backlog is empty (such as immediately after a bot restart), the bot automatically falls back to answering the question directly with its own opinion instead of staying silent.
 
 ---
 

@@ -4,8 +4,11 @@ IRC-style trivia game with categories, progressive hints, and inactivity detecti
 
 ## Features
 
-- **187 questions** across 18 categories (Geography, Science, History, Movies, Sports, etc.)
-- **Progressive masked hints** (e.g., `isra** *** ******` → `israel a** ******` → `israel a** ***dan`)
+- **465 questions** across 18+ categories (Geography, Science, History, Movies, Sports, Tech, etc.)
+- **Category filtering & listing** (`$trivia [category] [number]`, `$trivia categories`)
+- **Anti-repeat rotation** - answers from recent games are deprioritized so consecutive games draw fresh questions
+- **Progressive masked hints** (letters gradually unmasked, numeric range/decade hints, single-letter markers)
+- **Persistent SQLite stats & leaderboards** (`trivia_stats.db`) for channels and server-wide
 - **Per-channel game state** - multiple channels can play simultaneously
 - **Streak tracking** and scoring with point bonuses for fast answers
 - **Inactivity detection** - warns after 3 unanswered, stops after 5
@@ -15,8 +18,12 @@ IRC-style trivia game with categories, progressive hints, and inactivity detecti
 
 ### In IRC Channel
 ```
-$trivia [number]  - Start trivia (default 100 questions, max 500)
-$strivia          - Stop current trivia game
+$trivia [category] [number]  - Start trivia (default 100 questions, max 500)
+$trivia categories           - List all available question categories
+$strivia                     - Stop current trivia game
+$triviastats [nick]          - View stats for yourself or another player ($tstats)
+$triviatop                   - Channel top 10 leaderboard ($ttop)
+$triviatopserver             - Server-wide top 10 leaderboard ($ttopserver)
 ```
 
 Just type your answer in the channel - the bot will check all messages automatically!
@@ -77,7 +84,8 @@ If you need to reload:
 
 - **`trivia.py`** — Sopel IRC bot plugin (main module)
 - **`trivia_game.py`** — Core game engine with hint generation
-- **`questions.json`** — 187 categorized questions
+- **`trivia_db.py`** — SQLite database layer for stats, leaderboards, and game history
+- **`questions.json`** — 465 categorized questions
 - **`cli_trivia.py`** — Standalone CLI runner for testing
 - **`tests/test_trivia_game.py`** — Unit tests
 - **`demo_trivia.py`** — Demo script showing features
