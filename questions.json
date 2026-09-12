@@ -1018,11 +1018,6 @@
     "answer": "Bangkok"
   },
   {
-    "category": "History",
-    "question": "In what year did the Titanic sink?",
-    "answer": "1912"
-  },
-  {
     "category": "Movies",
     "question": "Who directed the movie 'Jaws'?",
     "answer": "Steven Spielberg"
@@ -1043,26 +1038,6 @@
     "answer": "Queen"
   },
   {
-    "category": "Technology",
-    "question": "What does CPU stand for?",
-    "answer": "Central Processing Unit"
-  },
-  {
-    "category": "Food",
-    "question": "What is the primary ingredient in hummus?",
-    "answer": "Chickpeas"
-  },
-  {
-    "category": "Science",
-    "question": "What planet is known as the Red Planet?",
-    "answer": "Mars"
-  },
-  {
-    "category": "History",
-    "question": "Who was the first person to step on the Moon?",
-    "answer": "Neil Armstrong"
-  },
-  {
     "category": "Geography",
     "question": "Which river flows through London?",
     "answer": "Thames"
@@ -1076,16 +1051,6 @@
     "category": "Sports",
     "question": "How many players are on a baseball team?",
     "answer": "9"
-  },
-  {
-    "category": "Music",
-    "question": "Who is the 'King of Pop'?",
-    "answer": "Michael Jackson"
-  },
-  {
-    "category": "Technology",
-    "question": "What does RAM stand for?",
-    "answer": "Random Access Memory"
   },
   {
     "category": "Animals",
@@ -1123,16 +1088,6 @@
     "answer": "Bruce Springsteen"
   },
   {
-    "category": "Technology",
-    "question": "Who co-founded Microsoft?",
-    "answer": "Bill Gates"
-  },
-  {
-    "category": "Animals",
-    "question": "What is the largest mammal in the world?",
-    "answer": "Blue Whale"
-  },
-  {
     "category": "Science",
     "question": "What represents 'H2O'?",
     "answer": "Water"
@@ -1163,11 +1118,6 @@
     "answer": "The Beatles"
   },
   {
-    "category": "Technology",
-    "question": "What does HTTP stand for?",
-    "answer": "HyperText Transfer Protocol"
-  },
-  {
     "category": "Food",
     "question": "What is the main ingredient in tofu?",
     "answer": "Soybeans"
@@ -1178,29 +1128,14 @@
     "answer": "Nucleus"
   },
   {
-    "category": "History",
-    "question": "Who painted the Mona Lisa?",
-    "answer": "Leonardo da Vinci"
-  },
-  {
     "category": "Movies",
     "question": "Who played the Joker in 'The Dark Knight'?",
     "answer": "Heath Ledger"
   },
   {
-    "category": "Sports",
-    "question": "How many rings are in the Olympic symbol?",
-    "answer": "5"
-  },
-  {
     "category": "Music",
     "question": "Who is known as the 'Queen of Soul'?",
     "answer": "Aretha Franklin"
-  },
-  {
-    "category": "Technology",
-    "question": "What does URL stand for?",
-    "answer": "Uniform Resource Locator"
   },
   {
     "category": "Animals",
@@ -1223,19 +1158,9 @@
     "answer": "Christopher Columbus"
   },
   {
-    "category": "Movies",
-    "question": "Which movie features a character named Luke Skywalker?",
-    "answer": "Star Wars"
-  },
-  {
     "category": "Sports",
     "question": "In golf, what is one stroke under par called?",
     "answer": "Birdie"
-  },
-  {
-    "category": "Music",
-    "question": "Which instrument has 88 keys?",
-    "answer": "Piano"
   },
   {
     "category": "Technology",
@@ -1288,16 +1213,6 @@
     "answer": "Whale Shark"
   },
   {
-    "category": "Food",
-    "question": "What is the most consumed drink in the world after water?",
-    "answer": "Tea"
-  },
-  {
-    "category": "Science",
-    "question": "What is the hardest natural substance?",
-    "answer": "Diamond"
-  },
-  {
     "category": "History",
     "question": "Who was the British Prime Minister during WWII?",
     "answer": "Winston Churchill"
@@ -1311,11 +1226,6 @@
     "category": "Music",
     "question": "Which band released 'Dark Side of the Moon'?",
     "answer": "Pink Floyd"
-  },
-  {
-    "category": "Technology",
-    "question": "What does USB stand for?",
-    "answer": "Universal Serial Bus"
   },
   {
     "category": "Animals",
@@ -1351,11 +1261,6 @@
     "category": "Music",
     "question": "Who is known as the 'King of Rock and Roll'?",
     "answer": "Elvis Presley"
-  },
-  {
-    "category": "Technology",
-    "question": "What does GPS stand for?",
-    "answer": "Global Positioning System"
   },
   {
     "category": "Animals",
@@ -1408,11 +1313,6 @@
     "answer": "Rice"
   },
   {
-    "category": "Geography",
-    "question": "What is the capital of Canada?",
-    "answer": "Ottawa"
-  },
-  {
     "category": "Movies",
     "question": "Which movie features the character 'Indiana Jones'?",
     "answer": "Raiders of the Lost Ark"
@@ -1431,11 +1331,6 @@
     "category": "Technology",
     "question": "What does HTML stand for?",
     "answer": "HyperText Markup Language"
-  },
-  {
-    "category": "Food",
-    "question": "What is the main ingredient in traditional paella?",
-    "answer": "Rice"
   },
   {
     "category": "Movies",
@@ -1503,16 +1398,6 @@
     "answer": "Virtual Private Network"
   },
   {
-    "category": "Animals",
-    "question": "What is the largest reptile?",
-    "answer": "Saltwater Crocodile"
-  },
-  {
-    "category": "Food",
-    "question": "What is the main ingredient in falafel?",
-    "answer": "Chickpeas"
-  },
-  {
     "category": "Science",
     "question": "What element makes up most of the air we breathe?",
     "answer": "Nitrogen"
@@ -1546,11 +1431,6 @@
     "category": "Animals",
     "question": "Which animal represents the symbol of the WWF?",
     "answer": "Panda"
-  },
-  {
-    "category": "Food",
-    "question": "What is the main ingredient in risotto?",
-    "answer": "Rice"
   },
   {
     "category": "Science",
@@ -1678,11 +1558,6 @@
     "answer": "Virtual Reality"
   },
   {
-    "category": "Animals",
-    "question": "What animal is known as the 'King of the Jungle'?",
-    "answer": "Lion"
-  },
-  {
     "category": "Food",
     "question": "What is the main ingredient in sauerkraut?",
     "answer": "Cabbage"
@@ -1758,11 +1633,6 @@
     "answer": "Michael Phelps"
   },
   {
-    "category": "Literature",
-    "question": "Who wrote 'The Iliad'?",
-    "answer": "Homer"
-  },
-  {
     "category": "Music",
     "question": "Which band released 'Stairway to Heaven'?",
     "answer": "Led Zeppelin"
@@ -1823,11 +1693,6 @@
     "answer": "Mare"
   },
   {
-    "category": "Food",
-    "question": "What is the main ingredient in yogurt?",
-    "answer": "Milk"
-  },
-  {
     "category": "Science",
     "question": "What is the hardest mineral?",
     "answer": "Diamond"
@@ -1873,11 +1738,6 @@
     "answer": "Kid"
   },
   {
-    "category": "Food",
-    "question": "What is the main ingredient in kimchi?",
-    "answer": "Cabbage"
-  },
-  {
     "category": "Science",
     "question": "What is the closest planet to Earth?",
     "answer": "Venus"
@@ -1916,11 +1776,6 @@
     "category": "Technology",
     "question": "What does GUI stand for?",
     "answer": "Graphical User Interface"
-  },
-  {
-    "category": "Animals",
-    "question": "What is the fastest marine animal?",
-    "answer": "Sailfish"
   },
   {
     "category": "Food",
@@ -2068,11 +1923,6 @@
     "answer": "kitten or kit"
   },
   {
-    "category": "Food",
-    "question": "What is the main ingredient in fudge?",
-    "answer": "Sugar"
-  },
-  {
     "category": "Science",
     "question": "What is the chemical symbol for Lead?",
     "answer": "Pb"
@@ -2116,11 +1966,6 @@
     "category": "Animals",
     "question": "What is a male bee called?",
     "answer": "Drone"
-  },
-  {
-    "category": "Food",
-    "question": "What is the main ingredient in caramel?",
-    "answer": "Sugar"
   },
   {
     "category": "Science",
@@ -2186,11 +2031,6 @@
     "category": "Geography",
     "question": "What is the capital of Norway?",
     "answer": "Oslo"
-  },
-  {
-    "category": "Movies",
-    "question": "Which movie features the character 'Han Solo'?",
-    "answer": "Star Wars"
   },
   {
     "category": "Sports",
@@ -2376,16 +2216,6 @@
     "category": "Geography",
     "question": "What is the capital of Denmark?",
     "answer": "Copenhagen"
-  },
-  {
-    "category": "Movies",
-    "question": "Which movie features the character 'Vito Corleone'?",
-    "answer": "The Godfather"
-  },
-  {
-    "category": "Sports",
-    "question": "Which country won the 1998 FIFA World Cup?",
-    "answer": "France"
   },
   {
     "category": "Literature",
