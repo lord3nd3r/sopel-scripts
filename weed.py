@@ -1054,7 +1054,7 @@ def weed_commands(bot, trigger):
                 tag = f"🍄✨ (Tripping in {channel} for ~{mins}m)"
             else:
                 baked_tag = "baked" if intensity == 1 else ("blazed" if intensity == 2 else "zooted to another dimension")
-                tag = f"🌿😵💨 (Glitchy is {baked_tag} in {channel} for ~{mins}m)"
+                tag = f"🌿😵💨 ({bot.nick} is {baked_tag} in {channel} for ~{mins}m)"
             bot.action(f"{base_act} {tag}")
         else:
             template = random.choice(action_msgs)
@@ -1169,7 +1169,7 @@ def pass_command(bot, trigger):
         mins = max(1, int(round(rem_secs / 60)))
         base_act = random.choice(BOT_PASS_ACTIONS).format(sender=trigger.nick)
         baked_tag = "baked" if intensity == 1 else ("blazed" if intensity == 2 else "zooted to another dimension")
-        bot.action(f"{base_act} 🌿😵💨 (Glitchy is {baked_tag} in {channel} for ~{mins}m)")
+        bot.action(f"{base_act} 🌿😵💨 ({bot.nick} is {baked_tag} in {channel} for ~{mins}m)")
     else:
         bot.action(random.choice(PASS_ACTIONS).format(target=target))
 

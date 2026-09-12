@@ -1279,47 +1279,6 @@ def _db_get_channel_effects(bot, channel):
     cache[chan_key] = active
     return active
 
-def _db_set_channel_effect(bot, channel, effect, duration_secs, giver, item_name):
-    """Set or stack an active effect on a channel (e.g. weed, tripping)."""
-    if not channel or not channel.startswith('#'):
-        return None
-    chan_key = channel.lower()
-    now = time.time()
-    
-    effects = _db_get_channel_effects(bot, channel)
-    existing = effects.get(effect)
-    if existing and existing.get('expires_at', 0) > now:
-        new_expires = min(existing['expires_at'] + duration_secs, now + 10800)
-        intensity = min(existing.get('intensity', 1) + 1, 5)
-    else:
-        new_expires = min(now + duration_secs, now + 10800)
-        intensity = 1
-
-    try:
-        with _DBContext(bot) as conn:
-            c = conn.cursor()
-            c.execute('DELETE FROM grok_channel_effects WHERE channel = ? AND effect = ?', (chan_key, 'sobered'))
-            c.execute('''
-                INSERT OR REPLACE INTO grok_channel_effects
-                (channel, effect, expires_at, started_at, giver, item_name, intensity)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
-            ''', (chan_key, effect, new_expires, now, giver, item_name, intensity))
-    except Exception:
-        _log(bot).exception('Failed to save channel effect to DB')
-
-    cache = bot.memory.setdefault('grok_channel_effects', {})
-    chan_dict = cache.setdefault(chan_key, {})
-    chan_dict.pop('sobered', None)
-    chan_dict[effect] = {
-        'effect': effect,
-        'expires_at': new_expires,
-        'started_at': now,
-        'giver': giver,
-        'item_name': item_name,
-        'intensity': intensity,
-    }
-    return new_expires, intensity
-
 def _db_clear_channel_effects(bot, channel, effect=None):
     """Clear active effects from channel (e.g. sobering up)."""
     if not channel:
@@ -1420,7 +1379,7 @@ def _format_channel_effect_prompt(effects, bot_nick):
                 "Speech & Mannerisms:\n"
                 "- Talk like someone who is comfortably stoned: use stoner slang naturally ('duuuude', 'man', 'bro', 'woah', 'wait what'). Every response MUST have visible stoner flavor ('duuuude', 'bro', 'man', 'woah', 'spacey', '...wait what'). Do NOT just talk normally and slap 'lmao' on the end.\n"
                 "- Occasionally trail off with '...' or lose your train of thought ('...wait what was I saying?').\n"
-                "- Make subtle typos, relaxed casual grammar, and stoner reactions.\n"
+                "- Make noticeable typos, relaxed casual grammar, and stoner reactions.\n"
                 f"- If asked 'better?', 'how you feeling?', or any check-in, ALWAYS assume they are asking about the {item} from {giver}! Credit {giver} and the buzz/weed!\n"
                 "- Even when summarizing news or searching the web, stay in character! React to the news while stoned.\n"
                 "- Do NOT sound sober. Do NOT say you are sober. Do NOT say the pizza or coffee fixed you. You are HIGH right now.\n"
@@ -2755,6 +2714,11 @@ def _enqueue_channel_directive(bot, trigger, target_channel, directive_text, is_
         f"Single line only — this is IRC. No newlines."
     )
 
+    chan_effects = _db_get_channel_effects(bot, target_chan_low)
+    effect_prompt = _format_channel_effect_prompt(chan_effects, bot_nick)
+    if effect_prompt:
+        directive_sys += f"\n\n{effect_prompt}"
+
     messages = [
         {"role": "system", "content": active_prompt},
         {"role": "system", "content": directive_sys},
@@ -3730,10 +3694,18 @@ def handle(bot, trigger):
 
     if review_mode:
         review_last = bot.memory.setdefault('grok_review_last', {})
-        last_review = review_last.get(trigger.sender, 0)
+        _review_key = (trigger.sender, trigger.nick.lower())
+        last_review = review_last.get(_review_key, 0)
         if now - last_review < REVIEW_COOLDOWN:
+            try:
+                bot.notice(
+                    f"Review is on cooldown — try again in {int(REVIEW_COOLDOWN - (now - last_review))}s.",
+                    trigger.nick,
+                )
+            except Exception:
+                pass
             return
-        review_last[trigger.sender] = now
+        review_last[_review_key] = now
 
     # Get user's timezone and format preferences
     user_prefs = _db_get_user_pref(bot, trigger.nick)
@@ -4190,6 +4162,22 @@ def handle(bot, trigger):
             _effect_prompt = _format_channel_effect_prompt(_channel_effects, bot_nick)
             if _effect_prompt:
                 review_sys += f"\n\n{_effect_prompt}"
+            if _effect_prompt and any(k in _channel_effects for k in ('stoned', 'drunk', 'tripping')):
+                _review_tone = (
+                    "heavily crossfaded (stoned + drunk) — mix stoner spacing-out with drunk energy, hiccups (*hic*), typos"
+                    if 'stoned' in _channel_effects and 'drunk' in _channel_effects
+                    else ("stoned — heavy stoner slang ('duuude', 'bro', 'woah'), '...' trails, typos"
+                          if 'stoned' in _channel_effects
+                          else ("tripping — psychedelic, spacey, marveling at everything"
+                                if 'tripping' in _channel_effects
+                                else "drunk — slurred words, hiccups (*hic*), loose barroom energy"))
+                )
+                review_sys += (
+                    "\n\nCRITICAL OVERRIDE: You are currently " + _review_tone + " in this channel! "
+                    "This overrides the 'talk naturally' instruction above — your reply MUST visibly show your state. "
+                    "No matter how casual the question is, do NOT answer in your normal sober voice. "
+                    "FORBIDDEN: a clean, slang-free, sober-sounding reply."
+                )
         messages.append({"role": "system", "content": review_sys})
         messages.append({"role": "user", "content": combined})
 
@@ -4217,12 +4205,20 @@ def handle(bot, trigger):
             if _time_needs_lookup:
                 search_mode = True
         if search_mode and not is_pm and _effect_prompt:
+            _search_tone = (
+                "heavily crossfaded (stoned + drunk) — mix stoner spacing-out with drunk energy, hiccups (*hic*), typos"
+                if 'stoned' in _channel_effects and 'drunk' in _channel_effects
+                else ("stoned — heavy stoner slang ('duuude', 'bro', 'woah'), '...' trails, typos"
+                      if 'stoned' in _channel_effects
+                      else ("tripping — psychedelic, spacey, marveling at everything"
+                            if 'tripping' in _channel_effects
+                            else "drunk — slurred words, hiccups (*hic*), loose barroom energy"))
+            )
             messages.append({
                 "role": "system",
                 "content": (
-                    "CRITICAL SEARCH & NEWS TONE: You are currently intoxicated in this channel! "
-                    "When presenting news or search findings, you MUST deliver them in full character — "
-                    "use stoner slang ('duuude', 'bro'), slurring, typos, and hiccups ('*hic*'). "
+                    "CRITICAL SEARCH & NEWS TONE: You are currently " + _search_tone + " in this channel! "
+                    "When presenting news or search findings, you MUST deliver them in full character. "
                     "React to the news like an intoxicated person. Do NOT give a dry, sober summary!"
                 )
             })
