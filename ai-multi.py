@@ -1395,7 +1395,7 @@ def _format_channel_effect_prompt(effects, bot_nick):
             "Speech & Mannerisms:\n"
             "- Blend stoner spacing out with drunk friendliness ('duuude *hic* ily guys fr', 'brooo wait what was I saying lol').\n"
             "- Noticeable typos, slurring ('sh', 'th', stretched letters), and hiccups ('*hic*'). Every response MUST have stoner slang and hiccups!\n"
-            "- If asked how you are feeling, happily confess you are completely crossfaded and credit both people.\n"
+            f"- If asked 'better?', 'how you feeling?', or any check-in, ALWAYS assume they are asking about the weed and drinks! Credit {s_giver} and {d_giver}!\n"
             "- Even when summarizing news or searching the web, stay in character! React to the news while crossfaded (e.g. 'woah *hic* wild news today...').\n"
             "- Do NOT sound sober. Do NOT say you are sober. Do NOT say the pizza or coffee fixed you. You are CROSSFADED right now.\n"
             "- Single line only for IRC — no multi-line dumps."
@@ -1418,10 +1418,10 @@ def _format_channel_effect_prompt(effects, bot_nick):
                 "MANDATORY ROLEPLAY OVERRIDE: You MUST speak and act stoned in EVERY single response. "
                 "Even if your earlier messages in the conversation sound sober, or if answering news, facts, or simple greetings, you are NOW high — older sober messages are OUTDATED. "
                 "Speech & Mannerisms:\n"
-                "- Talk like someone who is comfortably stoned: use stoner slang naturally ('duuuude', 'man', 'bro', 'woah', 'wait what', 'lmaooo').\n"
+                "- Talk like someone who is comfortably stoned: use stoner slang naturally ('duuuude', 'man', 'bro', 'woah', 'wait what'). Every response MUST have visible stoner flavor ('duuuude', 'bro', 'man', 'woah', 'spacey', '...wait what'). Do NOT just talk normally and slap 'lmao' on the end.\n"
                 "- Occasionally trail off with '...' or lose your train of thought ('...wait what was I saying?').\n"
                 "- Make subtle typos, relaxed casual grammar, and stoner reactions.\n"
-                f"- If asked how you are feeling or if you're high, proudly admit you are faded and credit {giver}.\n"
+                f"- If asked 'better?', 'how you feeling?', or any check-in, ALWAYS assume they are asking about the {item} from {giver}! Credit {giver} and the buzz/weed!\n"
                 "- Even when summarizing news or searching the web, stay in character! React to the news while stoned.\n"
                 "- Do NOT sound sober. Do NOT say you are sober. Do NOT say the pizza or coffee fixed you. You are HIGH right now.\n"
                 "- Stay conversational and funny. Single line only for IRC — no multi-line dumps."
@@ -1438,7 +1438,7 @@ def _format_channel_effect_prompt(effects, bot_nick):
                 drunk_guidance = (
                     "- You're warm, enthusiastic, chatty, and giggly.\n"
                     "- Slightly loose grammar, occasional relaxed words ('yesss', 'haha').\n"
-                    "- Upbeat bar energy, warm drunken vibes."
+                    "- Upbeat bar energy, warm drunken vibes. Make sure your buzz shows ('haha man', 'yesss', feeling the drinks)."
                 )
             elif intensity == 2:
                 drunk_desc = "drunk and feeling great"
@@ -1475,7 +1475,7 @@ def _format_channel_effect_prompt(effects, bot_nick):
                 "Even if your earlier messages in the conversation sound sober, or if answering news, facts, or simple greetings, you are NOW drunk — older sober messages are OUTDATED. "
                 "Speech & Mannerisms:\n"
                 f"{drunk_guidance}\n"
-                f"- If asked how you are feeling, admit how drunk you are and credit {giver}.\n"
+                f"- If asked 'better?', 'how you feeling?', or any check-in, ALWAYS assume they are asking about the {item} from {giver}! Credit {giver} and the booze!\n"
                 "- Even when summarizing news or searching the web, stay in character! React to the news while drunk.\n"
                 "- Do NOT sound sober. Do NOT say you are sober. Do NOT say the pizza or coffee fixed you. You are DRUNK right now.\n"
                 "- Single line only for IRC — no multi-line dumps."
@@ -3988,7 +3988,8 @@ def handle(bot, trigger):
                     'sober', 'back to earth', 'back down to earth', 'pizza fixed', 'coffee fixed',
                     'pizza got me', 'coffee got me', 'sobered up', 'clear-headed', 'feeling great now',
                     'pizza brought me', 'coffee brought me', 'not high', 'not drunk', "wasn't high",
-                    'feeling solid', 'feeling good', 'pretty good', 'solid, you', 'feeling fine'
+                    'feeling solid', 'feeling good', 'pretty good', 'solid, you', 'feeling fine',
+                    'all good', 'humming along', 'doing well', 'doing good'
                 )
                 _intox_markers = (
                     '*hic*', 'duuude', 'duuuude', 'crossfaded', 'zooted', 'blazed',
@@ -4095,7 +4096,8 @@ def handle(bot, trigger):
                 'sober', 'back to earth', 'back down to earth', 'pizza fixed', 'coffee fixed',
                 'pizza got me', 'coffee got me', 'sobered up', 'clear-headed', 'feeling great now',
                 'pizza brought me', 'coffee brought me', 'not high', 'not drunk', "wasn't high",
-                'feeling solid', 'feeling good', 'pretty good', 'solid, you', 'feeling fine'
+                'feeling solid', 'feeling good', 'pretty good', 'solid, you', 'feeling fine',
+                'all good', 'humming along', 'doing well', 'doing good'
             )
             new_turns = []
             for r, text in relevant_turns:
