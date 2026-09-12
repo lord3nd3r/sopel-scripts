@@ -1354,16 +1354,20 @@ def _format_channel_effect_prompt(effects, bot_nick):
         prev_giver = s_info.get('prev_giver') or 'someone'
         prev_item = s_info.get('prev_item') or 'drinks/smoke'
         sober_giver = s_info.get('sober_giver') or s_info.get('giver') or 'someone'
-        sober_item = s_info.get('sober_item') or 'food/coffee/water'
+        sober_item = s_info.get('sober_item') or 'cold water'
+        if 'splashing' in str(sober_item).lower():
+            sober_item = 'cold water'
 
         return (
-            f"CHANNEL STATE: Earlier in this channel, you were {prev_eff} (after {prev_giver} gave you {prev_item}), "
-            f"but {sober_giver} gave you {sober_item} and you have completely SOBERED UP!\n"
-            "You are now 100% sober, clear-headed, and back to normal.\n"
+            f"CHANNEL STATE: Earlier in this channel, you were {prev_eff} from {prev_giver}'s {prev_item}. "
+            f"HOWEVER, {sober_giver} gave you {sober_item} and you have completely SOBERED UP!\n"
+            "MANDATORY SOBRIETY OVERRIDE: You are now 100% SOBER, clear-headed, and back to earth. "
+            "You are NO LONGER high, drunk, or crossfaded. Your intoxication has ENDED.\n"
             "CRITICAL BEHAVIOR & RULES:\n"
             f"- You clearly REMEMBER that you were {prev_eff} earlier in the channel, and you know you just sobered up.\n"
             f"- If asked how you are feeling, if you're better, or if you're sober yet, cheerfully confirm that you're back down to earth, feeling great, and credit the {sober_item} from {sober_giver} for bringing you back!\n"
-            "- Speak in your normal, everyday voice — do NOT slur your words, do NOT make drunk typos, do NOT use stoner slang ('duuude', 'brooo'), and do NOT use hiccups (*hic*).\n"
+            "- STRICTLY FORBIDDEN: Speak in your normal, everyday voice — do NOT slur your words, do NOT make drunk typos, do NOT use stoner slang ('duuude', 'brooo', 'spacey', 'munchies'), and do NOT use hiccups (*hic*). "
+            "Any stoner slang, slurring, or hiccups is an immediate roleplay failure.\n"
             "- Single line only for IRC — no multi-line dumps."
         )
 
@@ -3986,9 +3990,17 @@ def handle(bot, trigger):
                     'pizza brought me', 'coffee brought me', 'not high', 'not drunk', "wasn't high",
                     'feeling solid', 'feeling good', 'pretty good', 'solid, you', 'feeling fine'
                 )
+                _intox_markers = (
+                    '*hic*', 'duuude', 'duuuude', 'crossfaded', 'zooted', 'blazed',
+                    'hammered', 'plastered', 'faded as hell', 'feeling blasted', 'blasted n relaxed',
+                    'spacey w/ munchies', 'peace pipe', 'pilsner man'
+                )
                 for n, t in reversed(unique_bg):
                     if not is_pm and _channel_effects and any(k in _channel_effects for k in ('stoned', 'drunk', 'tripping')):
                         if n.lower() == bot_nick.lower() and any(m in t.lower() for m in _sober_markers):
+                            continue
+                    elif not is_pm:
+                        if n.lower() == bot_nick.lower() and any(m in t.lower() for m in _intox_markers):
                             continue
                     l = len(n) + len(t) + 3
                     if bg_chars + l > BG_CHAR_BUDGET and bg_collected:
@@ -4088,6 +4100,22 @@ def handle(bot, trigger):
             new_turns = []
             for r, text in relevant_turns:
                 if (r == 'assistant' or r == bot_nick) and any(m in text.lower() for m in _sober_markers):
+                    if new_turns and new_turns[-1][0] == 'user':
+                        new_turns.pop()
+                    continue
+                new_turns.append((r, text))
+            relevant_turns = new_turns
+        elif not is_pm:
+            # When bot is sober or sobered up, filter out stale intoxicated assistant turns
+            # so the LLM doesn't keep slurring, hiccupping, or talking like a stoner.
+            _intox_markers = (
+                '*hic*', 'duuude', 'duuuude', 'crossfaded', 'zooted', 'blazed',
+                'hammered', 'plastered', 'faded as hell', 'feeling blasted', 'blasted n relaxed',
+                'spacey w/ munchies', 'peace pipe', 'pilsner man'
+            )
+            new_turns = []
+            for r, text in relevant_turns:
+                if (r == 'assistant' or r == bot_nick) and any(m in text.lower() for m in _intox_markers):
                     if new_turns and new_turns[-1][0] == 'user':
                         new_turns.pop()
                     continue
