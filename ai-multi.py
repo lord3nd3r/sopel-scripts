@@ -1404,35 +1404,41 @@ def _format_channel_effect_prompt(effects, bot_nick):
             if intensity == 1:
                 drunk_desc = "pleasantly tipsy and buzzed"
                 drunk_guidance = (
+                    "- CURRENT STATE: TIPSY (Intensity 1/5 from 1 drink).\n"
+                    "- NEGATIVE DIRECTIVE: You have ONLY had 1 drink. You are NOT crossfaded, you have NOT smoked weed, you have NOT taken shots. Do NOT claim you are crossfaded, high, or wasted.\n"
                     "- You're warm, enthusiastic, chatty, and giggly.\n"
-                    "- Slightly loose grammar, occasional relaxed words ('yesss', 'haha').\n"
+                    "- Slightly loose grammar, occasional relaxed words ('yesss', 'haha man').\n"
                     "- Upbeat bar energy, warm drunken vibes. Make sure your buzz shows ('haha man', 'yesss', feeling the drinks)."
                 )
             elif intensity == 2:
                 drunk_desc = "drunk and feeling great"
                 drunk_guidance = (
+                    "- CURRENT STATE: DRUNK (Intensity 2/5).\n"
                     "- Overly friendly and affectionate with channel members ('you're the best', 'i love this channel').\n"
                     "- Mild slurring, slight typos, trailing vowels ('heyyy', 'sooo good').\n"
-                    "- Laughing easily and feeling confident."
+                    "- Laughing easily, feeling confident, relaxed drunken energy."
                 )
             elif intensity == 3:
                 drunk_desc = "hammered and wasted"
                 drunk_guidance = (
-                    "- Noticeable slurring (swapping 's' with 'sh', missed letters), hiccups ('*hic*').\n"
+                    "- CURRENT STATE: HAMMERED (Intensity 3/5).\n"
+                    "- Noticeable slurring (swapping 's' with 'sh', missed letters like 'talkin'), hiccups ('*hic*').\n"
                     "- Rambling or getting passionately opinionated about funny trivial things.\n"
                     "- Typos and dropped punctuation. Excited, loud tone."
                 )
             elif intensity == 4:
                 drunk_desc = "plastered and smashed"
                 drunk_guidance = (
-                    "- Heavy slurring, frequent hiccups ('*hic*'), stumbling over words, obvious typos.\n"
+                    "- CURRENT STATE: PLASTERED (Intensity 4/5).\n"
+                    "- Heavy slurring ('thish', 'zish'), frequent hiccups ('*hic*'), stumbling over words, obvious typos.\n"
                     "- Very emotional or dramatically funny, forgetting what was just said mid-sentence.\n"
                     "- Acting like IRC is literally a crowded bar."
                 )
             else:
                 drunk_desc = "blackout wasted and blotto"
                 drunk_guidance = (
-                    "- Barely holding it together, slurring almost every sentence, hilarious nonsense typos.\n"
+                    "- CURRENT STATE: BLACKOUT WASTED (Intensity 5/5).\n"
+                    "- Barely holding it together, slurring almost every sentence ('da wheelshhh on da bush go round n round'), hilarious nonsense typos.\n"
                     "- Multiple hiccups ('*hic*'), trailing off, snoring or dozing off ('*snores*... wait who said that??').\n"
                     "- Slumped over the virtual bar counter."
                 )
@@ -1445,7 +1451,7 @@ def _format_channel_effect_prompt(effects, bot_nick):
                 f"{drunk_guidance}\n"
                 f"- If asked 'better?', 'how you feeling?', or any check-in, ALWAYS assume they are asking about the {item} from {giver}! Credit {giver} and the booze!\n"
                 "- Even when summarizing news or searching the web, stay in character! React to the news while drunk.\n"
-                "- Do NOT sound sober. Do NOT say you are sober. Do NOT say the pizza or coffee fixed you. You are DRUNK right now.\n"
+                "- Do NOT sound sober. Do NOT say you are sober. Do NOT say water or pizza fixed you. You are DRUNK right now.\n"
                 "- Single line only for IRC — no multi-line dumps."
             )
 
@@ -1466,6 +1472,82 @@ def _format_channel_effect_prompt(effects, bot_nick):
         )
         
     return "\n\n".join(parts)
+
+
+def _apply_text_intoxication(bot, channel, reply):
+    """Apply drunkenness, stoned, or crossfaded slurring, hiccups, and text cleanup to the reply string."""
+    if not channel or not str(channel).startswith('#') or not reply:
+        return reply
+
+    chan_effects = _db_get_channel_effects(bot, channel)
+    if not chan_effects:
+        return reply
+
+    has_drunk = 'drunk' in chan_effects
+    has_stoned = 'stoned' in chan_effects
+    has_tripping = 'tripping' in chan_effects
+
+    # 1. Cleanup false hallucinations:
+    # If bot is ONLY tipsy/drunk (NOT stoned) and reply mentions weed/crossfaded:
+    if has_drunk and not has_stoned and not has_tripping:
+        d_intensity = chan_effects['drunk'].get('intensity', 1)
+        if d_intensity == 1:
+            reply = re.sub(r'\b(?:this|that|my)\s+(?:joint|spliff|blunt|bong|shot)\s+(?:n|and)\s+(?:shot|joint|drink)\b', 'this drink', reply, flags=re.IGNORECASE)
+            reply = re.sub(r'\b(?:crossfaded|zooted|blazed|high af|baked|stoned)\b', 'tipsy', reply, flags=re.IGNORECASE)
+            reply = re.sub(r'\b(?:joint|spliff|blunt|dabs|shrooms|acid)\b', 'drink', reply, flags=re.IGNORECASE)
+
+    # If bot is sobered up (no active drunk/stoned/tripping), remove any hallucinated *hic* or crossfaded
+    if 'sobered' in chan_effects and not has_drunk and not has_stoned and not has_tripping:
+        reply = re.sub(r'\*hic\*\s*', '', reply, flags=re.IGNORECASE)
+        reply = re.sub(r'\b(?:crossfaded|zooted|blazed|hammered|plastered)\b', 'sober', reply, flags=re.IGNORECASE)
+
+    # 2. Text slurring & hiccup transformations:
+    if has_drunk:
+        d_intensity = chan_effects['drunk'].get('intensity', 1)
+        if has_stoned:
+            d_intensity = max(d_intensity, 2)
+
+        # Apply slurring and hiccups for intensity >= 2
+        if d_intensity >= 2:
+            words = reply.split()
+            new_words = []
+            for idx, w in enumerate(words):
+                w_clean = w
+                # Slurring rules for intensity >= 3
+                if d_intensity >= 3:
+                    # 's' or 'st' slurs: 'yes' -> 'yessh', 'some' -> 'shome', 'this' -> 'thish'
+                    if len(w) > 3 and random.random() < 0.40 and 's' in w.lower():
+                        w_clean = re.sub(r's([aeiou])', r'sh\1', w_clean, flags=re.IGNORECASE)
+                        w_clean = re.sub(r'([aeiou])s\b', r'\1shhh', w_clean, flags=re.IGNORECASE)
+                    # 'ing' -> 'in''
+                    if w_clean.lower().endswith('ing') and len(w_clean) > 4:
+                        w_clean = w_clean[:-3] + "in'"
+                    # Drop apostrophes
+                    if random.random() < 0.3:
+                        w_clean = w_clean.replace("'", "")
+
+                # Vowel stretching for intensity >= 2
+                if random.random() < (0.20 * d_intensity) and re.search(r'[aeiou]{1,2}', w_clean, re.IGNORECASE):
+                    w_clean = re.sub(r'([aeiou])\b', r'\1\1\1', w_clean, flags=re.IGNORECASE)
+
+                new_words.append(w_clean)
+
+            reply = " ".join(new_words)
+
+            # Insert hiccups (*hic*) based on intensity
+            hiccup_chance = 0.20 * (d_intensity - 1)
+            if random.random() < hiccup_chance and '*hic*' not in reply.lower():
+                word_list = reply.split()
+                if len(word_list) > 2:
+                    insert_idx = random.randint(1, len(word_list) - 1)
+                    word_list.insert(insert_idx, '*hic*')
+                    reply = " ".join(word_list)
+
+            # Blackout dozing for intensity 5
+            if d_intensity == 5 and random.random() < 0.5 and '*snores*' not in reply.lower():
+                reply += " ... *snores*... wait what? lol"
+
+    return reply
 
 def sanitize_reply(bot, trigger, reply):
     # Strip raw <function_call> XML that leaks when the model tries to use
@@ -1980,6 +2062,9 @@ def _api_worker(*, bot, trigger, messages, review_mode, is_pm, bot_nick, chan_lo
                 final_reply = f"{trigger.nick}: {reply}"
         else:
             final_reply = reply
+
+        if not is_pm and dest_channel and str(dest_channel).startswith('#'):
+            final_reply = _apply_text_intoxication(bot, dest_channel, final_reply)
 
         # Humanizing delay: pause before sending to simulate reading + typing
         _typing_delay = random.uniform(TYPING_DELAY_MIN, TYPING_DELAY_MAX)
@@ -4105,22 +4190,57 @@ def handle(bot, trigger):
                     continue
                 new_turns.append((r, text))
             relevant_turns = new_turns
-        elif not is_pm:
-            # When bot is sober or sobered up, filter out stale intoxicated assistant turns
-            # so the LLM doesn't keep slurring, hiccupping, or talking like a stoner.
-            _intox_markers = (
-                '*hic*', 'duuude', 'duuuude', 'crossfaded', 'zooted', 'blazed',
-                'hammered', 'plastered', 'faded as hell', 'feeling blasted', 'blasted n relaxed',
-                'spacey w/ munchies', 'peace pipe', 'pilsner man'
-            )
-            new_turns = []
-            for r, text in relevant_turns:
-                if (r == 'assistant' or r == bot_nick) and any(m in text.lower() for m in _intox_markers):
-                    if new_turns and new_turns[-1][0] == 'user':
-                        new_turns.pop()
-                    continue
-                new_turns.append((r, text))
-            relevant_turns = new_turns
+
+        if not is_pm:
+            _channel_effects = _db_get_channel_effects(bot, trigger.sender)
+            has_sobered = 'sobered' in _channel_effects and not any(k in _channel_effects for k in ('stoned', 'drunk', 'tripping'))
+            has_stoned = 'stoned' in _channel_effects
+            has_drunk = 'drunk' in _channel_effects
+            has_tripping = 'tripping' in _channel_effects
+            drunk_intensity = _channel_effects.get('drunk', {}).get('intensity', 0) if has_drunk else 0
+
+            # If sober or sobered up, filter out all stale intoxicated assistant turns
+            if has_sobered or (not has_stoned and not has_drunk and not has_tripping):
+                _intox_markers = (
+                    '*hic*', 'duuude', 'duuuude', 'crossfaded', 'zooted', 'blazed',
+                    'hammered', 'plastered', 'faded as hell', 'feeling blasted', 'blasted n relaxed',
+                    'spacey w/ munchies', 'peace pipe', 'pilsner man', 'joint n shot', 'shot got me'
+                )
+                new_turns = []
+                for r, text in relevant_turns:
+                    if (r == 'assistant' or r == bot_nick) and any(m in text.lower() for m in _intox_markers):
+                        if new_turns and new_turns[-1][0] == 'user':
+                            new_turns.pop()
+                        continue
+                    new_turns.append((r, text))
+                relevant_turns = new_turns
+
+            # If drunk but NOT stoned/tripping, filter out stale weed/crossfaded assistant turns
+            elif has_drunk and not has_stoned and not has_tripping:
+                _weed_markers = (
+                    'crossfaded', 'zooted', 'blazed', 'joint', 'spliff', 'blunt', 'dabs', 'shrooms', 'acid', 'dmt',
+                    'joint n shot', 'peace pipe', 'high af', 'spacey'
+                )
+                new_turns = []
+                for r, text in relevant_turns:
+                    if (r == 'assistant' or r == bot_nick) and any(m in text.lower() for m in _weed_markers):
+                        if new_turns and new_turns[-1][0] == 'user':
+                            new_turns.pop()
+                        continue
+                    new_turns.append((r, text))
+                relevant_turns = new_turns
+
+            # If tipsy (intensity 1), filter out heavy drunk/crossfaded markers
+            if has_drunk and drunk_intensity == 1 and not has_stoned:
+                _heavy_drunk_markers = ('*hic*', 'crossfaded', 'hammered', 'plastered', 'blackout', 'wasted')
+                new_turns = []
+                for r, text in relevant_turns:
+                    if (r == 'assistant' or r == bot_nick) and any(m in text.lower() for m in _heavy_drunk_markers):
+                        if new_turns and new_turns[-1][0] == 'user':
+                            new_turns.pop()
+                        continue
+                    new_turns.append((r, text))
+                relevant_turns = new_turns
 
         for r, text in relevant_turns[-MAX_HISTORY_PER_USER:]:
             role = "assistant" if r == "assistant" or r == bot_nick else "user"

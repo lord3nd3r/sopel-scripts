@@ -244,7 +244,7 @@ BOT_DRINK_RECEPTION_MESSAGES = [
     "thanks {sender}, takes a nice big sip of {drink} 🍺 and smiles!",
     "catches {drink} slid down the bar by {sender}, takes a gulp 🍻 and nods in thanks!",
     "sparks up a smile, toasts {sender} with {drink} 🥃 and takes a smooth sip!",
-    "pours a little {drink} out for the channel, thanks {sender}, and drinks up! 🍻",
+    "pours a bit of {drink} out for the channel, thanks {sender}, and drinks up! 🍻",
 ]
 
 BOT_FOOD_RECEPTION_MESSAGES = [
