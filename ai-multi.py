@@ -1392,6 +1392,7 @@ def _format_channel_effect_prompt(effects, bot_nick):
                 f"- If asked 'better?', 'how you feeling?', or any check-in, ALWAYS assume they are asking about the {item} from {giver}! Credit {giver} and the buzz/weed!\n"
                 "- Even when summarizing news or searching the web, stay in character! React to the news while stoned.\n"
                 "- Do NOT sound sober. Do NOT say you are sober. Do NOT say the pizza or coffee fixed you. You are HIGH right now.\n"
+                "- NEGATIVE DIRECTIVE: You are HIGH, NOT drunk. You have NOT had any alcohol, shots, beers, or cocktails. Do NOT use hiccups (*hic*), do NOT slur words, do NOT mention shots, beers, drinks, or being drunk/hammered/wasted/plastered. You are ONLY stoned from weed.\n"
                 "- Stay conversational and funny. Single line only for IRC — no multi-line dumps."
             )
         
@@ -1495,6 +1496,12 @@ def _apply_text_intoxication(bot, channel, reply):
             reply = re.sub(r'\b(?:this|that|my)\s+(?:joint|spliff|blunt|bong|shot)\s+(?:n|and)\s+(?:shot|joint|drink)\b', 'this drink', reply, flags=re.IGNORECASE)
             reply = re.sub(r'\b(?:crossfaded|zooted|blazed|high af|baked|stoned)\b', 'tipsy', reply, flags=re.IGNORECASE)
             reply = re.sub(r'\b(?:joint|spliff|blunt|dabs|shrooms|acid)\b', 'drink', reply, flags=re.IGNORECASE)
+
+    # If bot is ONLY stoned (NOT drunk) and reply mentions drunk behaviors:
+    if has_stoned and not has_drunk and not has_tripping:
+        reply = re.sub(r'\*hic\*\s*', '', reply, flags=re.IGNORECASE)
+        reply = re.sub(r'\b(?:crossfaded|hammered|plastered|wasted|blackout|drunk|tipsy)\b', 'baked', reply, flags=re.IGNORECASE)
+        reply = re.sub(r'\b(?:shots?|beers?|cocktails?|whiskey|bourbon|vodka|tequila|rum)\s+(got me|keep|n )', r'weed \1', reply, flags=re.IGNORECASE)
 
     # If bot is sobered up (no active drunk/stoned/tripping), remove any hallucinated *hic* or crossfaded
     if 'sobered' in chan_effects and not has_drunk and not has_stoned and not has_tripping:
@@ -4224,6 +4231,22 @@ def handle(bot, trigger):
                 new_turns = []
                 for r, text in relevant_turns:
                     if (r == 'assistant' or r == bot_nick) and any(m in text.lower() for m in _weed_markers):
+                        if new_turns and new_turns[-1][0] == 'user':
+                            new_turns.pop()
+                        continue
+                    new_turns.append((r, text))
+                relevant_turns = new_turns
+
+            # If stoned but NOT drunk/tripping, filter out stale drunk assistant turns
+            elif has_stoned and not has_drunk and not has_tripping:
+                _drunk_markers = (
+                    '*hic*', 'crossfaded', 'hammered', 'plastered', 'blackout', 'wasted',
+                    'shots', 'shot got me', 'joint n shot', 'beer got me', 'whiskey',
+                    'bourbon', 'tipsy', 'drunk', 'pilsner man'
+                )
+                new_turns = []
+                for r, text in relevant_turns:
+                    if (r == 'assistant' or r == bot_nick) and any(m in text.lower() for m in _drunk_markers):
                         if new_turns and new_turns[-1][0] == 'user':
                             new_turns.pop()
                         continue
