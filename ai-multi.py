@@ -154,9 +154,22 @@ _WANTS_SOURCES_RE = re.compile(
 )
 
 _TIME_INTENT_RE = re.compile(
-    r'\b(what(?:\s+is|s|\u2019s)?\s+(the\s+)?(time|date|day)|'
-    r'current\s+(time|date)|what\s+time|what\s+day|today(?:\s+is|\s+the\s+date|s\s+date)|'
-    r'whats?\s+today|day\s+is\s+it|time\s+is\s+it|date\s+is\s+it)\b',
+    r'\b(?:'
+    r'what(?:\s+is|\u2019s|\'s)?\s+(?:the\s+)?(?:current\s+)?(?:time|date|day)(?:\s+(?:is\s+it|right\s+now|today))?'
+    r'|current\s+(?:time|date)'
+    r'|what\s+time\s+is\s+it'
+    r'|what\s+day\s+is\s+it'
+    r'|what\s+date\s+is\s+it'
+    r'|what(?:\s+is|\u2019s|\'s)?\s+today(?:\s+s\s+date|\'s\s+date|\s+date)?'
+    r'|today(?:\u2019s|\'s|\s+is|\s+the)?\s+date'
+    r'|day\s+is\s+it|time\s+is\s+it|date\s+is\s+it'
+    r')\b',
+    re.IGNORECASE,
+)
+
+_TIME_NON_CURRENT_RE = re.compile(
+    r'\b(?:was|were|did|does|do|will|would|happened?|occurs?|occurred|released?|born|died|started?|ended?|takes?\s+place|took\s+place|disaster|event|history|anniversary|birthday|holiday|release|launch|flight|war|game|movie|search|look\s+up|find)\b'
+    r'|\b(?:date|time|day)\s+(?:of|for|on|about)\b',
     re.IGNORECASE,
 )
 
@@ -3799,7 +3812,7 @@ def handle(bot, trigger):
     if re.match(r'^[.!/]', user_message):
         return
 
-    time_mode = bool(_TIME_INTENT_RE.search(user_message))
+    time_mode = bool(_TIME_INTENT_RE.search(user_message)) and not bool(_TIME_NON_CURRENT_RE.search(user_message))
 
     now = time.time()
     # Rate limit per-user-per-channel so one user's question doesn't block others.
