@@ -6,6 +6,7 @@ import random
 import threading
 import logging
 import atexit
+import re
 from sopel import module, formatting
 
 """weed.py — Sopel command to share lighthearted "weed" messages.
@@ -727,7 +728,37 @@ DATA = {
     'vape': (VAPE_GIFTS, VAPE_ACTION_MESSAGES, VAPE_FINAL_MESSAGES, VAPE_COUNTDOWN),
     'hash': (HASH_GIFTS, HASH_ACTION_MESSAGES, HASH_FINAL_MESSAGES, HASH_COUNTDOWN),
     'munchies': (MUNCHIES_GIFTS, MUNCHIES_ACTION_MESSAGES, MUNCHIES_FINAL_MESSAGES, MUNCHIES_COUNTDOWN),
+    'w33d': (WEED_GIFTS, WEED_ACTION_MESSAGES, WEED_FINAL_MESSAGES, WEED_COUNTDOWN),
 }
+
+
+def _to_1337(text):
+    """Convert text to 1337 speak while preserving IRC formatting codes and emojis."""
+    if not text:
+        return text
+    table = {
+        'a': '4', 'A': '4',
+        'b': '8', 'B': '8',
+        'e': '3', 'E': '3',
+        'g': '9', 'G': '9',
+        'i': '1', 'I': '1',
+        'l': '1', 'L': '1',
+        'o': '0', 'O': '0',
+        's': '5', 'S': '5',
+        't': '7', 'T': '7',
+        'z': '2', 'Z': '2',
+    }
+    pattern = r'(\x03\d{0,2}(?:,\d{1,2})?|\x02|\x0f|\x16|\x1d|\x1f)'
+    parts = re.split(pattern, text)
+    res = []
+    for part in parts:
+        if not part:
+            continue
+        if part.startswith('\x03') or part in ('\x02', '\x0f', '\x16', '\x1d', '\x1f'):
+            res.append(part)
+        else:
+            res.append(''.join(table.get(c, c) for c in part))
+    return ''.join(res)
 
 
 def _format_remaining(seconds):
@@ -790,6 +821,10 @@ def _countdown_and_final(bot, channel, cmd, countdown_msgs, final_messages):
         # Register this thread
         with _THREAD_LOCK:
             _ACTIVE_THREADS.add(current_thread)
+
+        if cmd == 'w33d':
+            countdown_msgs = [_to_1337(m) for m in countdown_msgs]
+            final_messages = [_to_1337(m) for m in final_messages]
 
         # Run countdown with shutdown signal checking
         if len(countdown_msgs) == 3:
@@ -1040,7 +1075,7 @@ BOT_RECEPTION_ACTIONS = [
 
 @module.commands('weed', 'bong', 'joint', 'jay', 'doobie', 'spliff', 'keef', 'kief', 'trip', 'shrooms', 'mushrooms',
                  'acid', 'lsd', 'peyote', 'mescaline', 'toke', 'edibles', 'edible',
-                 'dab', 'dabs', 'blunt', 'vape', 'hash', 'munchies')
+                 'dab', 'dabs', 'blunt', 'vape', 'hash', 'munchies', 'w33d')
 @module.example('$weed username', 'Give a user a random weed item/message')
 def weed_commands(bot, trigger):
     """Send a lighthearted smoking message with cooldowns.
@@ -1071,13 +1106,19 @@ def weed_commands(bot, trigger):
             channel_users = [u.lower() for u in chan_obj.users.keys()]
             if target_user.lower() not in channel_users:
                 # Tell them instead of silently burning the channel countdown cooldown
-                bot.notice(f"{target_user} isn't in the channel.", trigger.nick)
+                notice_msg = f"{target_user} isn't in the channel."
+                if cmd == 'w33d':
+                    notice_msg = _to_1337(notice_msg)
+                bot.notice(notice_msg, trigger.nick)
                 return
 
         # Per-user cooldown (atomic check-and-claim)
         remaining = _cooldown_check_and_set(PER_USER_LAST, key, PER_USER_COOLDOWN, now)
         if remaining > 0:
-            bot.notice(f"You must wait {_format_remaining(remaining)} before giving {cmd} again in {channel}.", trigger.nick)
+            notice_msg = f"You must wait {_format_remaining(remaining)} before giving {cmd} again in {channel}."
+            if cmd == 'w33d':
+                notice_msg = _to_1337(notice_msg)
+            bot.notice(notice_msg, trigger.nick)
             return
 
         gift = random.choice(gifts)
@@ -1093,10 +1134,16 @@ def weed_commands(bot, trigger):
             else:
                 baked_tag = "baked" if intensity == 1 else ("blazed" if intensity == 2 else "zooted to another dimension")
                 tag = f"🌿😵💨 ({bot.nick} is {baked_tag} in {channel} for ~{mins}m)"
-            bot.action(f"{base_act} {tag}")
+            full_act = f"{base_act} {tag}"
+            if cmd == 'w33d':
+                full_act = _to_1337(full_act)
+            bot.action(full_act)
         else:
             template = random.choice(action_msgs)
-            bot.action(template.format(target=target_user, gift=gift))
+            act_text = template.format(target=target_user, gift=gift)
+            if cmd == 'w33d':
+                act_text = _to_1337(act_text)
+            bot.action(act_text)
         LOG.debug(f"${cmd} gift to {target_user} in {channel} by {user_id}")
         return
 
@@ -1252,6 +1299,7 @@ def weedhelp_command(bot, trigger):
         " ",
         formatting.bold("— Smoke Sesh Commands —"),
         "  $weed <nick>        — Give someone a random weed item",
+        "  $w33d <nick>        — Give someone a random weed item (1337 speak)",
         "  $bong <nick>        — Give someone a bong rip",
         "  $joint <nick>       — Give someone a joint",
         "  $jay <nick>         — Give someone a jay",
