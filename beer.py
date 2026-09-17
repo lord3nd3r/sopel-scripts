@@ -587,7 +587,7 @@ def _sober_bot(bot, channel, giver, item_name, item_type):
     return 'none', {}
 
 
-def _serve_item(bot, trigger, item_type, item_list, message_list, placeholder_key='drink', target_override=None):
+def _serve_item(bot, trigger, item_type, item_list, message_list, placeholder_key='drink', target_override=None, is_1337=False):
     """Generic handler for serving any drink or food item.
     
     Args:
