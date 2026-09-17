@@ -557,7 +557,7 @@ def _sober_bot(bot, channel, giver, item_name, item_type):
     return 'none', {}
 
 
-def _serve_item(bot, trigger, item_type, item_list, message_list, placeholder_key='drink'):
+def _serve_item(bot, trigger, item_type, item_list, message_list, placeholder_key='drink', target_override=None):
     """Generic handler for serving any drink or food item.
     
     Args:
@@ -567,18 +567,22 @@ def _serve_item(bot, trigger, item_type, item_list, message_list, placeholder_ke
         item_list: List of drink/food options
         message_list: List of message templates
         placeholder_key: 'drink' or 'food' for message formatting
+        target_override: Optional explicit target user
     """
     try:
         # Parse target user (may be empty) - ibot safe
-        try:
-            raw_target = trigger.group(2)
-        except (IndexError, AttributeError):
-            raw_target = None
-
-        if not raw_target:
-            target_user = trigger.nick
+        if target_override:
+            target_user = target_override
         else:
-            target_user = raw_target.strip().split()[0]
+            try:
+                raw_target = trigger.group(2)
+            except (IndexError, AttributeError):
+                raw_target = None
+
+            if not raw_target:
+                target_user = trigger.nick
+            else:
+                target_user = raw_target.strip().split()[0]
         
         # Deduct price
         sender = trigger.account or trigger.nick
@@ -1870,19 +1874,22 @@ def appetizer(bot, trigger):
 @module.commands('surprise', 'random')
 @module.example('$surprise', 'Give yourself something random from the entire menu!')
 @module.example('$surprise username', 'Give a user something random')
-def surprise(bot, trigger):
+def surprise(bot, trigger, target_override=None):
     """Give someone a random surprise from everything available! 🎉"""
     
     # Use sender's nick if no user specified - ibot safe
-    try:
-        raw_target = trigger.group(2)
-    except (IndexError, AttributeError):
-        raw_target = None
-
-    if not raw_target:
-        target_user = trigger.nick
+    if target_override:
+        target_user = target_override
     else:
-        target_user = raw_target.strip().split()[0]
+        try:
+            raw_target = trigger.group(2)
+        except (IndexError, AttributeError):
+            raw_target = None
+
+        if not raw_target:
+            target_user = trigger.nick
+        else:
+            target_user = raw_target.strip().split()[0]
     
     # Combine all drink lists
     all_drinks = BEERS + SHOTS + MAGNERS + WHISKEYS + SCOTCHES + IRISH_WHISKEYS + VODKAS + RUMS + TEQUILAS + GINS + BRANDIES + MARGARITAS + SAKES + LIQUEURS + MEADS + MIXED_DRINKS + WINES + CAVAS + MOCKTAILS + COFFEES + DECAFS + TEAS + WATERS
@@ -2002,6 +2009,100 @@ def surprise(bot, trigger):
     bot.action(message)
 
 
+# =======================
+# INLINE DRINK TRIGGERS
+# =======================
+_INLINE_DRINK_MAP = {
+    'beer': ('beer', BEERS, BEER_MESSAGES, 'drink'),
+    'shot': ('shot', SHOTS, SHOT_MESSAGES, 'drink'),
+    'magners': ('magners', MAGNERS, BEER_MESSAGES, 'drink'),
+    'whiskey': ('whiskey', WHISKEYS, WHISKEY_MESSAGES, 'drink'),
+    'whisky': ('whiskey', WHISKEYS, WHISKEY_MESSAGES, 'drink'),
+    'scotch': ('scotch', SCOTCHES, SCOTCH_MESSAGES, 'drink'),
+    'irish': ('irish', IRISH_WHISKEYS, IRISH_MESSAGES, 'drink'),
+    'irishwhiskey': ('irish', IRISH_WHISKEYS, IRISH_MESSAGES, 'drink'),
+    'vodka': ('vodka', VODKAS, VODKA_MESSAGES, 'drink'),
+    'rum': ('rum', RUMS, RUM_MESSAGES, 'drink'),
+    'tequila': ('tequila', TEQUILAS, TEQUILA_MESSAGES, 'drink'),
+    'gin': ('gin', GINS, GIN_MESSAGES, 'drink'),
+    'brandy': ('brandy', BRANDIES, BRANDY_MESSAGES, 'drink'),
+    'cognac': ('brandy', BRANDIES, BRANDY_MESSAGES, 'drink'),
+    'margarita': ('margarita', MARGARITAS, MARGARITA_MESSAGES, 'drink'),
+    'marg': ('margarita', MARGARITAS, MARGARITA_MESSAGES, 'drink'),
+    'sake': ('sake', SAKES, SAKE_MESSAGES, 'drink'),
+    'liqueur': ('liqueur', LIQUEURS, LIQUEUR_MESSAGES, 'drink'),
+    'cordial': ('liqueur', LIQUEURS, LIQUEUR_MESSAGES, 'drink'),
+    'mead': ('mead', MEADS, MEAD_MESSAGES, 'drink'),
+    'pizza': ('pizza', PIZZAS, PIZZA_MESSAGES, 'food'),
+    'drink': ('mixed_drink', MIXED_DRINKS, COCKTAIL_MESSAGES, 'drink'),
+    'wine': ('wine', WINES, WINE_MESSAGES, 'drink'),
+    'cava': ('cava', CAVAS, CAVA_MESSAGES, 'drink'),
+    'prosecco': ('cava', CAVAS, CAVA_MESSAGES, 'drink'),
+    'mocktail': ('mocktail', MOCKTAILS, COCKTAIL_MESSAGES, 'drink'),
+    'virgin': ('mocktail', MOCKTAILS, COCKTAIL_MESSAGES, 'drink'),
+    'coffee': ('coffee', COFFEES, COFFEE_MESSAGES, 'drink'),
+    'caffeine': ('coffee', COFFEES, COFFEE_MESSAGES, 'drink'),
+    'decaf': ('decaf', DECAFS, COFFEE_MESSAGES, 'drink'),
+    'decaffeinated': ('decaf', DECAFS, COFFEE_MESSAGES, 'drink'),
+    'tea': ('tea', TEAS, TEA_MESSAGES, 'drink'),
+    'cuppa': ('tea', TEAS, TEA_MESSAGES, 'drink'),
+    'water': ('water', WATERS, WATER_MESSAGES, 'drink'),
+    'hydrate': ('water', WATERS, WATER_MESSAGES, 'drink'),
+    'appetizer': ('appetizer', APPETIZERS, FOOD_MESSAGES, 'food'),
+    'snack': ('appetizer', APPETIZERS, FOOD_MESSAGES, 'food'),
+    'food': ('appetizer', APPETIZERS, FOOD_MESSAGES, 'food'),
+}
+
+_INLINE_CMDS_SORTED = sorted(list(_INLINE_DRINK_MAP.keys()) + ['surprise', 'random'], key=len, reverse=True)
+_INLINE_BEER_PATTERN = (
+    r'^(?!\$).+\$(?P<incmd>'
+    + '|'.join(_INLINE_CMDS_SORTED)
+    + r')\b(?:\s+(?P<intarget>[a-zA-Z0-9_\[\]\\`^{}|-]+))?'
+)
+
+_INLINE_BEER_LAST = {}
+_INLINE_BEER_LOCK = threading.Lock()
+
+
+@module.rule(_INLINE_BEER_PATTERN)
+def beer_inline(bot, trigger):
+    """Serve a drink or food item when $command appears mid-sentence."""
+    if not str(trigger.sender).startswith('#'):
+        return
+
+    cmd = trigger.match.group('incmd').lower()
+    channel = str(trigger.sender).lower()
+    sender = trigger.nick
+
+    # Debounce check (2 seconds per channel & user)
+    now = time.time()
+    key = (channel, sender.lower(), cmd)
+    with _INLINE_BEER_LOCK:
+        last = _INLINE_BEER_LAST.get(key, 0)
+        if now - last < 2.0:
+            return
+        _INLINE_BEER_LAST[key] = now
+
+    # Determine target if valid channel member
+    raw_target = trigger.match.group('intarget')
+    target = None
+    if raw_target:
+        chan_obj = bot.channels.get(str(trigger.sender))
+        if chan_obj is not None:
+            chan_users = [u.lower() for u in chan_obj.users.keys()]
+            if raw_target.lower() in chan_users:
+                target = raw_target
+
+    if not target:
+        target = sender
+
+    if cmd in ('surprise', 'random'):
+        surprise(bot, trigger, target_override=target)
+    elif cmd in _INLINE_DRINK_MAP:
+        item_type, item_list, message_list, placeholder_key = _INLINE_DRINK_MAP[cmd]
+        _serve_item(bot, trigger, item_type, item_list, message_list, placeholder_key=placeholder_key, target_override=target)
+
+
 @module.commands('barhelp')
 @module.example('$barhelp', 'Get a list of all bartender commands')
 def barhelp(bot, trigger):
@@ -2062,6 +2163,7 @@ def barhelp(bot, trigger):
         "",
         "SPECIAL:",
         "  $surprise [user] ........ (Random Price)",
+        "  Inline $command mid-sentence also orders items (e.g. 'time for $beer')",
         "",
         "COMMANDS:",
         "  $tip <user> <amount> - Tip another user (comes from your coins)",
