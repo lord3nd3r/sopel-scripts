@@ -46,6 +46,35 @@ def _user_key(user):
     return _normalize_nick(user).lower()
 
 
+def _to_1337(text):
+    """Convert text to 1337 speak while preserving IRC formatting codes and emojis."""
+    if not text:
+        return text
+    table = {
+        'a': '4', 'A': '4',
+        'b': '8', 'B': '8',
+        'e': '3', 'E': '3',
+        'g': '9', 'G': '9',
+        'i': '1', 'I': '1',
+        'l': '1', 'L': '1',
+        'o': '0', 'O': '0',
+        's': '5', 'S': '5',
+        't': '7', 'T': '7',
+        'z': '2', 'Z': '2',
+    }
+    pattern = r'(\x03\d{0,2}(?:,\d{1,2})?|\x02|\x0f|\x16|\x1d|\x1f)'
+    parts = re.split(pattern, text)
+    res = []
+    for part in parts:
+        if not part:
+            continue
+        if part.startswith('\x03') or part in ('\x02', '\x0f', '\x16', '\x1d', '\x1f'):
+            res.append(part)
+        else:
+            res.append(''.join(table.get(c, c) for c in part))
+    return ''.join(res)
+
+
 
 def _load_mug_data(bot):
     """Load mug game data from bot.db."""
@@ -177,6 +206,7 @@ def _deduct_mug_coins(bot, user, amount):
 PRICES = {
     'scotch': 15,
     'beer': 5,
+    'b33r': 5,
     'shot': 7,
     'whiskey': 12,
     'irish': 10,
@@ -630,6 +660,9 @@ def _serve_item(bot, trigger, item_type, item_list, message_list, placeholder_ke
             giving_message = random.choice(message_list)
             message = giving_message.format(**{placeholder_key: chosen_item, 'user': target_user, 'sender': trigger.nick})
         
+        if is_1337 or item_type == 'b33r':
+            message = _to_1337(message)
+
         bot.action(message)
         
         # Send balance update via PM
@@ -1693,6 +1726,13 @@ def beer(bot, trigger):
     _serve_item(bot, trigger, 'beer', BEERS, BEER_MESSAGES)
 
 
+@module.commands('b33r')
+@module.example('$b33r username', 'Give a user a random beer in 1337 speak')
+def b33r(bot, trigger):
+    """Give someone a beer in 1337 speak! 🍺"""
+    _serve_item(bot, trigger, 'beer', BEERS, BEER_MESSAGES, is_1337=True)
+
+
 @module.commands('shot')
 @module.example('$shot username', 'Give a user a random shot')
 def shot(bot, trigger):
@@ -2014,6 +2054,7 @@ def surprise(bot, trigger, target_override=None):
 # =======================
 _INLINE_DRINK_MAP = {
     'beer': ('beer', BEERS, BEER_MESSAGES, 'drink'),
+    'b33r': ('beer', BEERS, BEER_MESSAGES, 'drink'),
     'shot': ('shot', SHOTS, SHOT_MESSAGES, 'drink'),
     'magners': ('magners', MAGNERS, BEER_MESSAGES, 'drink'),
     'whiskey': ('whiskey', WHISKEYS, WHISKEY_MESSAGES, 'drink'),
@@ -2100,7 +2141,8 @@ def beer_inline(bot, trigger):
         surprise(bot, trigger, target_override=target)
     elif cmd in _INLINE_DRINK_MAP:
         item_type, item_list, message_list, placeholder_key = _INLINE_DRINK_MAP[cmd]
-        _serve_item(bot, trigger, item_type, item_list, message_list, placeholder_key=placeholder_key, target_override=target)
+        is_1337 = (cmd == 'b33r')
+        _serve_item(bot, trigger, item_type, item_list, message_list, placeholder_key=placeholder_key, target_override=target, is_1337=is_1337)
 
 
 @module.commands('barhelp')
@@ -2135,6 +2177,7 @@ def barhelp(bot, trigger):
         "  $whiskey [user] ......... 12 coins",
         "  $irish [user] ........... 10 coins",
         "  $beer [user] ............ 5 coins",
+        "  $b33r [user] ............ 5 coins (1337 speak)",
         "  $shot [user] ............ 7 coins",
         "  $vodka [user] ........... 10 coins",
         "  $rum [user] ............. 10 coins",
