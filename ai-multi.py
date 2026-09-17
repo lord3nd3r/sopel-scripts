@@ -2122,19 +2122,21 @@ def _api_worker(*, bot, trigger, messages, review_mode, is_pm, bot_nick, chan_lo
     finally:
         pass
 
-def _db_get_recent(bot, nick, channel=None, limit=MAX_HISTORY_PER_USER):
+def _db_get_recent(bot, nick, channel=None, limit=MAX_HISTORY_PER_USER, max_age_hours=6):
     try:
         with _DBContext(bot) as conn:
             c = conn.cursor()
+            cutoff_dt = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(hours=max_age_hours)
+            cutoff_iso = cutoff_dt.replace(tzinfo=None).isoformat()
             if channel:
                 c.execute(
-                    'SELECT role, text FROM grok_user_history WHERE nick = ? AND source = ? ORDER BY id DESC LIMIT ?',
-                    (nick.lower(), channel, limit),
+                    'SELECT role, text FROM grok_user_history WHERE nick = ? AND source = ? AND ts >= ? ORDER BY id DESC LIMIT ?',
+                    (nick.lower(), channel, cutoff_iso, limit),
                 )
             else:
                 c.execute(
-                    'SELECT role, text FROM grok_user_history WHERE nick = ? ORDER BY id DESC LIMIT ?',
-                    (nick.lower(), limit),
+                    'SELECT role, text FROM grok_user_history WHERE nick = ? AND ts >= ? ORDER BY id DESC LIMIT ?',
+                    (nick.lower(), cutoff_iso, limit),
                 )
             rows = c.fetchall()
             return list(reversed([(r[0], r[1]) for r in rows]))
@@ -4076,13 +4078,13 @@ def handle(bot, trigger):
     if not review_mode:
         if not is_pm:
             try:
-                channel_bg = []
+                now_ts = time.time()
                 with chan_lock:
                     chan_log_dq = bot.memory.get('grok_channel_log', {}).get(
                         trigger.sender.lower()
                     )
                     if chan_log_dq:
-                        channel_bg = [(n, t) for n, t, _ in chan_log_dq]
+                        channel_bg = [(n, t, ts) for n, t, ts in chan_log_dq if now_ts - ts <= 10800]
                 unique_bg = channel_bg  # already in chronological order
                 BG_MAX_LINES = 150
                 bg_collected = []
@@ -4099,7 +4101,7 @@ def handle(bot, trigger):
                     'hammered', 'plastered', 'faded as hell', 'feeling blasted', 'blasted n relaxed',
                     'spacey w/ munchies', 'peace pipe', 'pilsner man'
                 )
-                for n, t in reversed(unique_bg):
+                for n, t, _ in reversed(unique_bg):
                     if not is_pm and _channel_effects and any(k in _channel_effects for k in ('stoned', 'drunk', 'tripping')):
                         if n.lower() == bot_nick.lower() and any(m in t.lower() for m in _sober_markers):
                             continue
@@ -4130,7 +4132,9 @@ def handle(bot, trigger):
                             "When asked 'who is [nick]?' or about a user's identity, "
                             "prioritize recent statements from the log (e.g., name changes, "
                             "preferences stated in conversation) over older stored facts. "
-                            "Do not invent or attribute statements to yourself or the wrong person.\n\n"
+                            "Do not invent or attribute statements to yourself or the wrong person. "
+                            "CRITICAL: Answer ONLY the user's current message/question. Do NOT repeat, acknowledge, "
+                            "or summarize previous topics from the channel log unless explicitly asked for a summary/recap.\n\n"
                             + bg_text
                         ),
                     })
