@@ -1442,7 +1442,7 @@ WHISKEY_MESSAGES = [
     "ceremoniously presents {user} with {drink} 🎊",
     "teleports {drink} directly into {user}'s hand 🚀✨",
     "carefully measures out {drink} for {user} 🥃",
-    "pours a generous serving of {drink} for {user} 🥃",
+    "pours {drink} for {user} 🥃",
 ]
 
 # Scotch giving messages
@@ -1455,7 +1455,7 @@ SCOTCH_MESSAGES = [
     "ceremoniously presents {user} with {drink} 🎊",
     "teleports {drink} directly into {user}'s hand 🚀✨",
     "carefully measures out {drink} for {user} 🥃",
-    "pours a fine single malt measure of {drink} for {user} 🥃🏴󠁧󠁢󠁳󠁣󠁴󠁿",
+    "pours {drink} for {user} 🥃🏴󠁧󠁢󠁳󠁣󠁴󠁿",
 ]
 
 # Irish whiskey giving messages
@@ -1464,10 +1464,10 @@ IRISH_MESSAGES = [
     "pours {drink} for {user} - Sláinte! 🇮🇪🥃",
     "serves {user} {drink} with a touch of Irish warmth! ☘️🥃",
     "conjures {drink} out of thin air for {user} ✨🎩",
-    "pours a measure of {drink} for {user} 🇮🇪🥃",
+    "pours {drink} for {user} 🇮🇪🥃",
     "ceremoniously presents {user} with {drink} 🎊",
     "teleports {drink} directly into {user}'s hand 🚀✨",
-    "hands {user} a glass of fine {drink} ☘️🥃",
+    "hands {user} {drink} ☘️🥃",
 ]
 
 # Vodka giving messages
@@ -1479,7 +1479,7 @@ VODKA_MESSAGES = [
     "chills {drink} to perfection and hands it to {user} 🧊",
     "ceremoniously presents {user} with {drink} 🎊",
     "teleports {drink} directly into {user}'s hand 🚀✨",
-    "pours a crisp {drink} for {user} 🥃",
+    "pours {drink} for {user} 🥃",
     "pulls {drink} from the freezer for {user} 🧊🥃",
     "serves {user} {drink} chilled to perfection 🥶🥃",
 ]
@@ -1493,7 +1493,7 @@ RUM_MESSAGES = [
     "pours {drink} neat for {user} 🥃",
     "ceremoniously presents {user} with {drink} 🎊",
     "teleports {drink} directly into {user}'s hand 🚀✨",
-    "pours a generous measure of {drink} for {user} 🥃",
+    "pours {drink} for {user} 🥃",
     "serves {user} {drink} island style 🌴🥃",
     "sets sail with {drink} for {user} ⛵🥃",
 ]
@@ -1535,7 +1535,7 @@ BRANDY_MESSAGES = [
     "warms {drink} gently and hands it to {user} 🥃🔥",
     "ceremoniously presents {user} with {drink} 🎊",
     "teleports {drink} directly into {user}'s hand 🚀✨",
-    "pours a generous snifter of {drink} for {user} 🥃",
+    "pours {drink} into a snifter for {user} 🥃",
     "serves {user} {drink} in fine style 🎩🥃",
     "presents {drink} to {user} with a knowing nod 🥃😌",
 ]
@@ -1572,7 +1572,7 @@ LIQUEUR_MESSAGES = [
     "pours {drink} over ice for {user} 🧊🥃",
     "serves {user} {drink} - sip slowly! 🥃",
     "conjures {drink} out of thin air for {user} ✨🎩",
-    "pours a sweet measure of {drink} for {user} 🍯🥃",
+    "pours {drink} for {user} 🍯🥃",
     "ceremoniously presents {user} with {drink} 🎊",
     "teleports {drink} directly into {user}'s hand 🚀✨",
     "serves {user} {drink} as a nightcap 🌙🥃",
@@ -1627,7 +1627,7 @@ WINE_MESSAGES = [
     "uncorks and pours {drink} for {user} 🍷",
     "ceremoniously presents {user} with {drink} 🎊",
     "teleports {drink} directly into {user}'s hand 🚀✨",
-    "pours a glass of {drink} for {user} 🍷",
+    "pours {drink} for {user} 🍷",
     "decants {drink} and serves it to {user} 🍷",
     "swirls and serves {drink} to {user} 🍷✨",
 ]
@@ -1636,13 +1636,13 @@ WINE_MESSAGES = [
 CAVA_MESSAGES = [
     "slides {drink} across the bar to {user} ✨",
     "pops the cork on {drink} for {user} *POP!* 🍾🥂",
-    "pours a bubbly glass of {drink} for {user} - ¡Salud! 🥂🇪🇸",
+    "pours {drink} for {user} - ¡Salud! 🥂🇪🇸",
     "serves {user} {drink} - cheers! 🥂",
     "conjures {drink} out of thin air for {user} ✨🎩",
     "uncorks {drink} with a loud pop for {user} 🍾✨",
     "ceremoniously presents {user} with {drink} 🎊",
     "teleports {drink} directly into {user}'s hand 🚀✨",
-    "pours a sparkling glass of {drink} for {user} 🥂✨",
+    "pours {drink} for {user} 🥂✨",
     "chills and pours {drink} for {user} 🧊🥂",
 ]
 
@@ -1669,8 +1669,8 @@ TEA_MESSAGES = [
     "carefully pours {drink} for {user} 🫖",
     "ceremoniously presents {user} with {drink} 🎊",
     "teleports {drink} directly into {user}'s hand 🚀✨",
-    "brews a perfect cup of {drink} for {user} 🫖✨",
-    "hands {user} a warm cup of {drink} 🍵",
+    "brews {drink} for {user} 🫖✨",
+    "hands {user} {drink} 🍵",
     "sets {drink} down in front of {user} with a smile 🫖😊",
 ]
 
@@ -1683,7 +1683,7 @@ WATER_MESSAGES = [
     "pours {drink} and passes it to {user} 💧",
     "teleports {drink} directly into {user}'s hand 🚀✨",
     "responsibly serves {user} {drink} 💧😇",
-    "fills a glass with {drink} for {user} 💧",
+    "serves {drink} to {user} 💧",
     "cracks open {drink} for {user} 💧",
     "reminds {user} to hydrate and hands them {drink} 💧❤️",
 ]
