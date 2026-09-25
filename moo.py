@@ -21,6 +21,7 @@ from sopel import plugin
 import random
 import logging
 import time
+import threading
 from sqlalchemy import text
 
 logger = logging.getLogger(__name__)
@@ -46,6 +47,10 @@ _time = time.monotonic
 LAST_MOO = {}
 LAST_SUDO = {}
 
+# Channel settings cache: channel_lower -> bool (True = enabled, False = disabled)
+CHANNEL_SETTINGS = {}
+SETTING_LOCK = threading.Lock()
+
 
 def _is_channel(name):
     """Return True if this looks like a real channel name."""
@@ -58,6 +63,125 @@ def _prune_cooldowns(store, max_age):
     to_delete = [k for k, t in store.items() if now - t > max_age]
     for k in to_delete:
         del store[k]
+
+
+def _load_channel_settings(bot):
+    global CHANNEL_SETTINGS
+    settings = {}
+    try:
+        if hasattr(bot.db, "session"):
+            with bot.db.session() as s:
+                rows = s.execute(text("SELECT channel, enabled FROM moo_channel_settings")).fetchall()
+                settings = {r[0].lower(): bool(r[1]) for r in rows if r and r[0]}
+        else:
+            conn = bot.db.connect()
+            cur = conn.cursor()
+            cur.execute("SELECT channel, enabled FROM moo_channel_settings")
+            rows = cur.fetchall()
+            conn.close()
+            settings = {r[0].lower(): bool(r[1]) for r in rows if r and r[0]}
+    except Exception:
+        pass
+    with SETTING_LOCK:
+        CHANNEL_SETTINGS = settings
+
+
+def _is_moo_enabled(bot, channel):
+    if not channel or not _is_channel(channel):
+        return True
+    chan_low = channel.lower()
+    with SETTING_LOCK:
+        if chan_low in CHANNEL_SETTINGS:
+            return CHANNEL_SETTINGS[chan_low]
+    try:
+        val = bot.db.get_channel_value(chan_low, "moo_enabled")
+        if val is not None:
+            enabled = bool(val)
+            with SETTING_LOCK:
+                CHANNEL_SETTINGS[chan_low] = enabled
+            return enabled
+    except Exception:
+        pass
+    return True
+
+
+def _set_moo_enabled(bot, channel, enabled):
+    if not channel or not _is_channel(channel):
+        return False
+    chan_low = channel.lower()
+    val = 1 if enabled else 0
+
+    try:
+        if hasattr(bot.db, "session"):
+            with bot.db.session() as s:
+                s.execute(
+                    text("""
+                        INSERT INTO moo_channel_settings (channel, enabled)
+                        VALUES (:c, :e)
+                        ON CONFLICT(channel) DO UPDATE SET enabled = excluded.enabled
+                    """),
+                    {"c": chan_low, "e": val}
+                )
+                s.commit()
+        else:
+            conn = bot.db.connect()
+            cur = conn.cursor()
+            cur.execute(
+                "INSERT OR REPLACE INTO moo_channel_settings (channel, enabled) VALUES (?, ?)",
+                (chan_low, val)
+            )
+            conn.commit()
+            conn.close()
+    except Exception:
+        logger.exception("Failed to write moo_channel_settings to DB")
+
+    try:
+        bot.db.set_channel_value(chan_low, "moo_enabled", bool(enabled))
+    except Exception:
+        pass
+
+    with SETTING_LOCK:
+        CHANNEL_SETTINGS[chan_low] = bool(enabled)
+    return True
+
+
+def _is_op_or_admin(bot, trigger):
+    """Check if nick is a bot admin/owner or channel op/admin/owner."""
+    if getattr(trigger, 'admin', False) or getattr(trigger, 'owner', False):
+        return True
+    try:
+        cfg_admins = getattr(bot.config.core, 'admins', None)
+        if isinstance(cfg_admins, (list, tuple, set)):
+            if trigger.nick.lower() in {a.lower() for a in cfg_admins}:
+                return True
+        elif isinstance(cfg_admins, str) and cfg_admins.strip():
+            if trigger.nick.lower() in {a.strip().lower() for a in cfg_admins.split(',') if a.strip()}:
+                return True
+    except Exception:
+        pass
+
+    chan_name = trigger.sender
+    if _is_channel(chan_name):
+        try:
+            chan_obj = getattr(bot, 'channels', {}).get(chan_name)
+            if chan_obj:
+                if hasattr(chan_obj, 'is_op') and chan_obj.is_op(trigger.nick):
+                    return True
+                if hasattr(chan_obj, 'is_admin') and chan_obj.is_admin(trigger.nick):
+                    return True
+                if hasattr(chan_obj, 'is_owner') and chan_obj.is_owner(trigger.nick):
+                    return True
+                privs = getattr(chan_obj, 'privileges', None) or getattr(chan_obj, 'privs', None)
+                if isinstance(privs, dict):
+                    v = privs.get(trigger.nick) or privs.get(trigger.nick.lower())
+                    if isinstance(v, int):
+                        return bool(v & 4) or bool(v & 8) or bool(v & 16)
+                    if isinstance(v, (set, list, tuple)):
+                        markers = {str(x).lower() for x in v}
+                        return bool(markers & {'o', 'op', '@', 'a', 'admin', 'q', 'owner', '~', '&'})
+        except Exception:
+            pass
+    return False
 
 
 # --------------------------------------------------------------
@@ -143,6 +267,14 @@ def setup(bot):
                     )
                 """))
 
+                # Per-channel enabled/disabled settings
+                s.execute(text("""
+                    CREATE TABLE IF NOT EXISTS moo_channel_settings (
+                        channel TEXT PRIMARY KEY,
+                        enabled INTEGER DEFAULT 1
+                    )
+                """))
+
                 s.commit()
         else:
             conn = bot.db.connect()
@@ -162,8 +294,17 @@ def setup(bot):
                     PRIMARY KEY (nick, channel)
                 )
             """)
+            # Per-channel enabled/disabled settings
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS moo_channel_settings (
+                    channel TEXT PRIMARY KEY,
+                    enabled INTEGER DEFAULT 1
+                )
+            """)
             conn.commit()
             conn.close()
+
+        _load_channel_settings(bot)
     except Exception:
         logger.exception("Moo setup error")
 
@@ -461,6 +602,8 @@ def _handle_moo_increment(bot, nick, chan, legendary=None, say_response=True, in
 def moo_response(bot, trigger):
     if not trigger.nick or trigger.nick.lower() == bot.nick.lower():
         return
+    if not _is_moo_enabled(bot, trigger.sender):
+        return
 
     # CTCP ACTIONs (e.g. /me moos) are handled by moo_action().
     # Sopel can run @rule handlers for ACTION events too; avoid double-firing.
@@ -506,6 +649,8 @@ def moo_action(bot, trigger):
     """
     if not trigger.nick or trigger.nick.lower() == bot.nick.lower():
         return
+    if not _is_moo_enabled(bot, trigger.sender):
+        return
 
     chan = (trigger.sender or "").lower()
     nick = trigger.nick
@@ -520,6 +665,8 @@ def moo_action(bot, trigger):
 @plugin.rule(r"(?i)^\s*sudo\s+moo\s*$")
 def sudo_moo(bot, trigger):
     if not trigger.nick or trigger.nick.lower() == bot.nick.lower():
+        return
+    if not _is_moo_enabled(bot, trigger.sender):
         return
 
     chan = (trigger.sender or "").lower()
@@ -559,6 +706,78 @@ def sudo_moo(bot, trigger):
     else:
         bot.say("🐄⚡ Super Cow Powers activated! (+10 moos!)")
         _handle_moo_increment(bot, nick, chan, legendary=False, say_response=False, inc_override=10)
+
+
+# --------------------------------------------------------------
+# .moo / $moo command (on/off/status/toggle per channel)
+# --------------------------------------------------------------
+@plugin.commands("moo", "mooon", "moooff")
+def moo_command(bot, trigger):
+    """Channel command to turn moo on or off per channel or check status.
+
+    Usage:
+        .moo on        -> Enable moo in this channel (op/admin only)
+        .moo off       -> Disable moo in this channel (op/admin only)
+        .moo status    -> Check if moo is enabled in this channel
+        .moo toggle    -> Toggle moo on/off (op/admin only)
+        .moo           -> Trigger a moo (if enabled)
+    """
+    cmd = (trigger.group(1) or "").strip().lower()
+    arg = (trigger.group(2) or "").strip().lower()
+    chan = trigger.sender
+
+    if not _is_channel(chan):
+        bot.notice("Moo channel settings only work inside a channel.", trigger.nick)
+        return
+
+    if cmd == "mooon":
+        arg = "on"
+    elif cmd == "moooff":
+        arg = "off"
+
+    if arg in ("off", "disable", "stop"):
+        if not _is_op_or_admin(bot, trigger):
+            bot.reply("Only channel operators or admins can disable moo in this channel.")
+            return
+        _set_moo_enabled(bot, chan, False)
+        bot.say(f"🔇 Moo has been DISABLED in {chan}.")
+        return
+
+    elif arg in ("on", "enable", "start"):
+        if not _is_op_or_admin(bot, trigger):
+            bot.reply("Only channel operators or admins can enable moo in this channel.")
+            return
+        _set_moo_enabled(bot, chan, True)
+        bot.say(f"🔔 Moo has been ENABLED in {chan}! 🐄")
+        return
+
+    elif arg in ("toggle",):
+        if not _is_op_or_admin(bot, trigger):
+            bot.reply("Only channel operators or admins can toggle moo in this channel.")
+            return
+        current = _is_moo_enabled(bot, chan)
+        new_state = not current
+        _set_moo_enabled(bot, chan, new_state)
+        if new_state:
+            bot.say(f"🔔 Moo has been ENABLED in {chan}! 🐄")
+        else:
+            bot.say(f"🔇 Moo has been DISABLED in {chan}.")
+        return
+
+    elif arg in ("status", "check"):
+        enabled = _is_moo_enabled(bot, chan)
+        status_str = "ENABLED 🔔" if enabled else "DISABLED 🔇"
+        bot.say(f"🐄 Moo status in {chan}: {status_str}")
+        return
+
+    elif not arg:
+        # Bare .moo / $moo command
+        if not _is_moo_enabled(bot, chan):
+            bot.notice(f"Moo is currently disabled in {chan}.", trigger.nick)
+            return
+        _handle_moo_increment(bot, trigger.nick, chan, legendary=None, say_response=True)
+    else:
+        bot.reply("Usage: .moo [on|off|status|toggle]")
 
 
 # --------------------------------------------------------------
@@ -830,6 +1049,8 @@ def moohelp(bot, trigger):
         f"   • sudo moo → {SUDO_COOLDOWN // 3600} hour per user per channel",
         "",
         "📊 Stats & Commands:",
+        "   • .moo [on|off|status|toggle]",
+        "       → 🔔 Enable, disable, or check moo status in this channel (op/admin)",
         "   • .moocount /.mymoo [nick]",
         "       → Show moo count 🎯 in this channel + 🌐 total",
         "   • .mootop /.topmoo [N]",
