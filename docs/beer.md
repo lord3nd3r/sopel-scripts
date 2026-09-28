@@ -35,7 +35,7 @@ All prices are in **coins** (🪙). When specifying a target user or the bot (`[
 | `$gin [nick]` | — | 10 🪙 | Botanical gin 🌿🥃 |
 | `$brandy [nick]` | `$cognac` | 12 🪙 | Brandy / Cognac 🥃 |
 | `$margarita [nick]` | `$marg` | 9 🪙 | Margarita Salt rim! 🧂🍹 |
-| `$sake [nick]` | — | 9 🪙 | Sake 🍶 |
+| `$sake [hot\|cold] [nick]` | — | 9 🪙 | Sake, bartender's choice, hot, or cold 🍶. `warm` counts as hot, `chilled` as cold. Word order does not matter (`$sake Nick hot`) |
 | `$liqueur [nick]` | `$cordial` | 8 🪙 | Liqueur 🍯🥃 |
 | `$wine [nick]` | — | 8 🪙 | Glass of wine 🍷 |
 | `$cava [nick]` | `$prosecco` | 8 🪙 | Sparkling Cava 🍾🥂 |
@@ -43,7 +43,7 @@ All prices are in **coins** (🪙). When specifying a target user or the bot (`[
 | `$magners [nick]` | — | 6 🪙 | Magners cider 🍎🍺 |
 | `$drink [nick]` | — | 10 🪙 | Mixed drink 🍹 |
 | `$mocktail [nick]` | `$virgin` | 4 🪙 | Mocktail (non-alcoholic) 🍹 |
-| `$coffee [nick]` | `$caffeine` | 3 🪙 | Coffee ☕ |
+| `$coffee [iced\|hot\|irish\|mine] [nick]` | `$caffeine` | 3 🪙 | Coffee ☕. `cold` counts as iced, `warm` as hot. `irish` is a hot whiskey coffee. `mine` is a hot dark roast with a shot of Tullamore Dew. Word order does not matter (`$coffee Nick iced`) |
 | `$decaf [nick]` | `$decaffeinated` | 3 🪙 | Decaf coffee ☕😴 |
 | `$tea [nick]` | `$cuppa` | 3 🪙 | Tea 🍵 |
 | `$water [nick]` | `$hydrate` | Free | Water (Responsible hydration!) 💧 |
@@ -122,9 +122,11 @@ When users buy drinks or food for the bot (e.g. `$beer <botnick>`, `$shot <botni
 * **Duration**: Stacks up to a maximum of 3 hours per channel.
 
 ### Sobering Up the Bot
-* **Coffee & Decaf** (`$coffee <botnick>`, `$decaf <botnick>`):
+* **Coffee & Decaf** (`$coffee <botnick>`, `$coffee hot`, `$coffee iced`, `$decaf <botnick>`):
   * Lowers drunkenness by **2 levels** (sobers up completely if level $\le$ 2).
   * Also completely clears active weed high from `weed.py`!
+* **Spiked coffee** (`$coffee irish`, `$coffee mine`):
+  * These have whiskey in them, so they count as a spirit (+2), not a sober-up.
 * **Food** (`$pizza <botnick>`, `$appetizer <botnick>`):
   * Greasy pizza & snacks soak up the booze! Lowers drunkenness by **1–2 levels**.
   * Satisfies munchies and eases active weed highs.

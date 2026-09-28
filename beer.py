@@ -286,7 +286,8 @@ BOT_FOOD_RECEPTION_MESSAGES = [
 
 HARD_ALCOHOL_TYPES = {
     'shot', 'whiskey', 'scotch', 'irish', 'vodka', 'rum',
-    'tequila', 'gin', 'brandy', 'margarita', 'liqueur', 'mixed_drink'
+    'tequila', 'gin', 'brandy', 'margarita', 'liqueur', 'mixed_drink',
+    'irish_coffee',
 }
 LIGHT_ALCOHOL_TYPES = {
     'beer', 'magners', 'wine', 'cava', 'mead', 'sake'
@@ -587,7 +588,7 @@ def _sober_bot(bot, channel, giver, item_name, item_type):
     return 'none', {}
 
 
-def _serve_item(bot, trigger, item_type, item_list, message_list, placeholder_key='drink', target_override=None, is_1337=False):
+def _serve_item(bot, trigger, item_type, item_list, message_list, placeholder_key='drink', target_override=None, is_1337=False, effect_type=None):
     """Generic handler for serving any drink or food item.
     
     Args:
@@ -625,6 +626,12 @@ def _serve_item(bot, trigger, item_type, item_list, message_list, placeholder_ke
         
         # Select random item and message
         chosen_item = _choose_item(item_type, item_list)
+        if item_type == 'sake':
+            message_list = _sake_messages_for(chosen_item)
+        elif item_type in ('coffee', 'decaf', 'irish_coffee'):
+            message_list = _coffee_messages_for(chosen_item)
+
+        effect = effect_type or item_type
         
         # Format and send message
         bot_nick = (getattr(bot, 'nick', '') or '').lower()
@@ -638,14 +645,14 @@ def _serve_item(bot, trigger, item_type, item_list, message_list, placeholder_ke
             channel = trigger.sender
             status_tag = ""
             if channel and str(channel).startswith('#'):
-                if item_type in HARD_ALCOHOL_TYPES:
+                if effect in HARD_ALCOHOL_TYPES:
                     mins, intensity, title = _apply_bot_alcohol(bot, channel, trigger.nick, chosen_item, is_hard_liquor=True)
                     status_tag = f" ({bot.nick} is {title} in {channel} ~{_format_dur(mins)})"
-                elif item_type in LIGHT_ALCOHOL_TYPES:
+                elif effect in LIGHT_ALCOHOL_TYPES:
                     mins, intensity, title = _apply_bot_alcohol(bot, channel, trigger.nick, chosen_item, is_hard_liquor=False)
                     status_tag = f" ({bot.nick} is {title} in {channel} ~{_format_dur(mins)})"
-                elif item_type in (SOBERING_COFFEE_TYPES | SOBERING_FOOD_TYPES | SOBERING_HYDRATION_TYPES):
-                    action_type, details = _sober_bot(bot, channel, trigger.nick, chosen_item, item_type)
+                elif effect in (SOBERING_COFFEE_TYPES | SOBERING_FOOD_TYPES | SOBERING_HYDRATION_TYPES):
+                    action_type, details = _sober_bot(bot, channel, trigger.nick, chosen_item, effect)
                     if action_type == 'sobered_both':
                         status_tag = f" ({bot.nick} is completely sober and down to earth in {channel})"
                     elif action_type == 'sobered_drunk':
@@ -974,7 +981,7 @@ MARGARITAS = [
     "a Margarita flight - one of each! ✈️🍹🍹🍹",
 ]
 
-# List of sakes to give out
+# List of sakes to give out (bartender's choice — hot and cold mixed)
 SAKES = [
     "a smooth Junmai Daiginjo 🍶✨",
     "a chilled Dassai 39 🍶🧊",
@@ -988,6 +995,30 @@ SAKES = [
     "a smooth Otokoyama 🍶🗻",
     "a fruity Dewazakura Oka Ginjo 🍶🌸",
     "an aged amber Koshu sake 🍶🏺",
+]
+
+# Hot sake (atsukan / nurukan)
+HOT_SAKES = [
+    "a steaming atsukan Junmai 🍶♨️",
+    "a warm Honjozo from the tokkuri 🍶♨️",
+    "a gently warmed nurukan Ginjo 🍶🔥",
+    "a piping hot flask of house sake 🍶♨️",
+    "a hot cup of Otokoyama 🍶🗻♨️",
+    "a toasty warmed Kikusui 🍶♨️",
+    "a hot aged Koshu, amber in the cup 🍶🏺♨️",
+    "a warm cloudy Nigori 🍶☁️♨️",
+]
+
+# Cold sake (reishu / hiya)
+COLD_SAKES = [
+    "an ice-cold Junmai Daiginjo 🍶🧊✨",
+    "a frosty Dassai 39 straight from the fridge 🍶🧊",
+    "a crisp chilled Hakkaisan Junmai 🍶🏔️🧊",
+    "a cold Dewazakura Oka Ginjo 🍶🌸🧊",
+    "a chilled sparkling Mio 🍶🫧🧊",
+    "a cold cloudy Nigori over ice 🍶☁️🧊",
+    "a refrigerator-cold Kubota Manju 🍶🧊",
+    "a crisp cold Juyondai 🍶👑🧊",
 ]
 
 # List of liqueurs & cordials to give out
@@ -1267,6 +1298,47 @@ COFFEES = [
     "a Cloud Macchiato ☕☁️",
     "a Cascara Latte ☕🍒",
 ]
+
+# Hot coffee. No ice, no liquor.
+HOT_COFFEES = [
+    "a hot dark roast ☕",
+    "a steaming Americano ☕",
+    "a hot Cappuccino ☕🥛",
+    "a hot Latte ☕✨",
+    "a hot Mocha ☕🍫",
+    "a hot Flat White ☕",
+    "a hot Pour Over ☕💧",
+    "a hot Turkish Coffee ☕🇹🇷",
+    "a hot Café au Lait ☕🥛",
+    "a hot double Espresso ☕💪",
+]
+
+# Iced coffee.
+ICED_COFFEES = [
+    "an iced Cold Brew ☕🧊",
+    "a frothy Nitro Cold Brew ☕💨",
+    "an Iced Americano ☕🧊",
+    "an Iced Latte ☕🧊🥛",
+    "an Iced Mocha ☕🧊🍫",
+    "a Vietnamese Iced Coffee ☕🥛🇻🇳",
+    "a Japanese Iced Coffee ☕🇯🇵🧊",
+    "a Sweet Cream Cold Brew ☕🧊🥛",
+]
+
+# Irish coffee and the close cousins.
+IRISH_COFFEES = [
+    "a hot Irish Coffee with Tullamore Dew and cream ☕🥃☘️",
+    "a hot Irish Coffee with Jameson ☕🥃🇮🇪",
+    "a hot Irish Coffee, brown sugar and thick cream ☕🥃",
+    "a hot Baileys Coffee ☕🍫🥃",
+    "a hot Irish Coffee with Bushmills ☕🥃",
+    "a hot Irish Coffee with Redbreast ☕🥃",
+    "a hot whiskey coffee under a collar of cream ☕🥃☁️",
+    "a hot Irish Coffee with Powers Gold Label ☕🥃",
+]
+
+# End3r's coffee: hot dark roast and a shot of Tullamore Dew.
+MINE_COFFEE = "a hot dark roast coffee with a shot of Tullamore Dew ☕🥃☘️"
 
 # List of decaf & alternative coffees to give out
 DECAFS = [
@@ -1554,17 +1626,157 @@ MARGARITA_MESSAGES = [
     "cranks up the blender and pours {drink} for {user} 🎉🍹",
 ]
 
-# Sake giving messages
+# Sake giving messages. No temperature claims — a warm pour must not
+# be described as chilled, and the other way around.
 SAKE_MESSAGES = [
     "slides {drink} across the bar to {user} ✨",
     "pours {drink} into an ochoko cup for {user} - kanpai! 🍶🇯🇵",
-    "warms {drink} gently and serves it to {user} ♨️🍶",
-    "serves {user} {drink} perfectly chilled 🧊🍶",
     "conjures {drink} out of thin air for {user} ✨🎩",
     "ceremoniously presents {user} with {drink} 🎊",
     "teleports {drink} directly into {user}'s hand 🚀✨",
     "pours {drink} for {user} with both hands 🙏🍶",
 ]
+
+HOT_SAKE_MESSAGES = [
+    "warms {drink} and sets the tokkuri in front of {user} ♨️🍶",
+    "pours steaming {drink} into an ochoko for {user} - kanpai! 🍶🇯🇵",
+    "slides a hot flask of {drink} down the bar to {user} ♨️",
+    "cups {drink} until it steams, then serves {user} 🔥🍶",
+    "ceremoniously presents {user} with {drink} 🎊♨️",
+    "pours {drink} for {user} with both hands - drink it while it's hot 🙏🍶",
+    "teleports steaming {drink} into {user}'s hands 🚀♨️",
+    "sets {drink} down for {user} with a warm towel ♨️🍶",
+]
+
+COLD_SAKE_MESSAGES = [
+    "serves {user} {drink} perfectly chilled 🧊🍶",
+    "pulls {drink} from the ice well for {user} 🧊",
+    "pours {drink} into a chilled ochoko for {user} - kanpai! 🍶🇯🇵",
+    "slides frosty {drink} across the bar to {user} ✨🧊",
+    "sets {drink} over ice in front of {user} 🧊🍶",
+    "ceremoniously presents {user} with {drink} 🎊",
+    "teleports ice-cold {drink} into {user}'s hand 🚀🧊",
+    "pours {drink} for {user} with both hands 🙏🍶",
+]
+
+# hot/warm and cold/chilled. Anything else is a nickname.
+_SAKE_TEMPS = {
+    'hot': 'hot',
+    'warm': 'hot',
+    'cold': 'cold',
+    'chilled': 'cold',
+}
+
+
+def _parse_sake_args(raw):
+    """Split a sake order into (temperature or None, nick or None).
+
+    Accepts ``hot``, ``cold``, a nick, or either order of the two.
+    Only the first two words are read.
+    """
+    if not raw or not str(raw).strip():
+        return None, None
+    temp = None
+    nick = None
+    for part in str(raw).strip().split()[:2]:
+        kind = _SAKE_TEMPS.get(part.lower())
+        if kind:
+            if temp is None:
+                temp = kind
+            continue
+        if nick is None:
+            nick = part
+    return temp, nick
+
+
+def _sake_menu(temp):
+    """Return (item_list, message_list) for hot, cold, or bartender's choice."""
+    if temp == 'hot':
+        return HOT_SAKES, HOT_SAKE_MESSAGES
+    if temp == 'cold':
+        return COLD_SAKES, COLD_SAKE_MESSAGES
+    return SAKES, SAKE_MESSAGES
+
+
+_COFFEE_STYLES = {
+    'iced': 'iced',
+    'ice': 'iced',
+    'cold': 'iced',
+    'hot': 'hot',
+    'warm': 'hot',
+    'irish': 'irish',
+    'mine': 'mine',
+}
+
+
+def _parse_coffee_args(raw):
+    """Split a coffee order into (style or None, nick or None).
+
+    Styles are iced, hot, irish, and mine. A nick can sit on either side.
+    Only the first two words are read.
+    """
+    if not raw or not str(raw).strip():
+        return None, None
+    style = None
+    nick = None
+    for part in str(raw).strip().split()[:2]:
+        kind = _COFFEE_STYLES.get(part.lower())
+        if kind:
+            if style is None:
+                style = kind
+            continue
+        if nick is None:
+            nick = part
+    return style, nick
+
+
+def _coffee_menu(style):
+    """Return (item_list, message_list, effect_type or None) for a coffee style.
+
+    Irish and mine are spiked, so they count as a spirit instead of a sober-up.
+    """
+    if style == 'hot':
+        return HOT_COFFEES, HOT_COFFEE_MESSAGES, None
+    if style == 'iced':
+        return ICED_COFFEES, ICED_COFFEE_MESSAGES, None
+    if style == 'irish':
+        return IRISH_COFFEES, IRISH_COFFEE_MESSAGES, 'irish_coffee'
+    if style == 'mine':
+        return [MINE_COFFEE], MINE_COFFEE_MESSAGES, 'irish_coffee'
+    return COFFEES, COFFEE_MESSAGES, None
+
+
+def _coffee_messages_for(item):
+    """Pick a serving line that matches the cup: iced, hot, Irish, or End3r's."""
+    low = item.lower()
+    if 'tullamore' in low and 'dark roast' in low:
+        return MINE_COFFEE_MESSAGES
+    if any(mark in low for mark in ('irish', 'baileys', 'jameson', 'tullamore', 'bushmills', 'redbreast', 'powers', 'whiskey', 'whisky')):
+        return IRISH_COFFEE_MESSAGES
+    if any(mark in low for mark in ('iced', 'cold brew', 'nitro', 'freddo', 'frappuccino', '🧊')):
+        return ICED_COFFEE_MESSAGES
+    if any(mark in low for mark in ('hot', 'steam', 'warm')):
+        return HOT_COFFEE_MESSAGES
+    return COFFEE_MESSAGES
+
+
+def _coffee_is_spiked(item):
+    """True when the cup has whiskey in it, including End3r's usual."""
+    return _coffee_messages_for(item) in (IRISH_COFFEE_MESSAGES, MINE_COFFEE_MESSAGES)
+
+
+def _sake_messages_for(item):
+    """Pick serving lines that match the bottle's temperature.
+
+    Plain ``$sake`` draws from a mixed list, so the action has to follow
+    the bottle that was actually chosen.
+    """
+    text = item.lower()
+    if any(mark in text for mark in ('warm', 'hot', 'steam', 'atsukan', 'nurukan', 'toasty', '♨️', '🔥')):
+        return HOT_SAKE_MESSAGES
+    if any(mark in text for mark in ('chill', 'cold', 'frost', 'ice', '🧊')):
+        return COLD_SAKE_MESSAGES
+    return SAKE_MESSAGES
 
 # Liqueur giving messages
 LIQUEUR_MESSAGES = [
@@ -1658,6 +1870,48 @@ COFFEE_MESSAGES = [
     "carefully crafts {drink} for {user} ☕✨",
     "froths {drink} and hands it to {user} ☕🥛",
     "pulls a perfect shot for {drink} and gives it to {user} ☕",
+]
+
+HOT_COFFEE_MESSAGES = [
+    "brews {drink} fresh and slides it to {user} ☕",
+    "steams {drink} and sets it in front of {user} ☕",
+    "pours {drink} for {user} ☕",
+    "serves {user} {drink} while it's still steaming ☕",
+    "carefully crafts {drink} for {user} ☕✨",
+    "slides {drink} across the counter to {user} ✨",
+    "ceremoniously presents {user} with {drink} 🎊",
+    "hands {user} {drink} - careful, it's hot ☕",
+]
+
+ICED_COFFEE_MESSAGES = [
+    "pours {drink} over ice for {user} 🧊☕",
+    "pulls {drink} from the ice well for {user} 🧊",
+    "slides frosty {drink} across the counter to {user} ✨🧊",
+    "serves {user} {drink} perfectly cold 🧊☕",
+    "shakes {drink} with ice and hands it to {user} 🧊",
+    "sets {drink} down in front of {user} 🧊☕",
+    "ceremoniously presents {user} with {drink} 🎊",
+    "teleports ice-cold {drink} into {user}'s hand 🚀🧊",
+]
+
+IRISH_COFFEE_MESSAGES = [
+    "builds {drink} under a collar of cream for {user} ☕🥃",
+    "pours {drink} and slides it to {user} - sláinte ☘️",
+    "floats cream on {drink} and serves {user} ☕🥃☁️",
+    "sets {drink} down in front of {user} ☕🥃",
+    "ceremoniously presents {user} with {drink} 🎊",
+    "hands {user} {drink} - whiskey in the coffee 🥃☕",
+    "warms {drink} and serves it to {user} ♨️☕",
+    "slides {drink} across the counter to {user} ✨",
+]
+
+MINE_COFFEE_MESSAGES = [
+    "brews a hot dark roast, pours in a shot of Tullamore Dew, and sets it in front of {user} ☕🥃☘️",
+    "slides {drink} across the counter to {user} ☕🥃",
+    "pours {drink} for {user} - sláinte ☘️",
+    "builds {drink} and hands it to {user} ☕🥃",
+    "sets {drink} down in front of {user}, hot and spiked ☕🥃",
+    "ceremoniously presents {user} with {drink} 🎊",
 ]
 
 # Tea giving messages
@@ -1811,10 +2065,21 @@ def margarita(bot, trigger):
 
 
 @module.commands('sake')
-@module.example('$sake username', 'Give a user a random sake')
+@module.example('$sake', 'Give yourself a random sake')
+@module.example('$sake hot', 'Give yourself a hot sake')
+@module.example('$sake cold username', 'Give a user a cold sake')
 def sake(bot, trigger):
-    """Give someone a fine sake! Kanpai! 🍶"""
-    _serve_item(bot, trigger, 'sake', SAKES, SAKE_MESSAGES)
+    """Give someone sake. Hot, cold, or bartender's choice. Kanpai! 🍶"""
+    try:
+        raw_target = trigger.group(2)
+    except (IndexError, AttributeError):
+        raw_target = None
+    temp, nick = _parse_sake_args(raw_target)
+    item_list, message_list = _sake_menu(temp)
+    _serve_item(
+        bot, trigger, 'sake', item_list, message_list,
+        target_override=nick or trigger.nick,
+    )
 
 
 @module.commands('liqueur', 'cordial')
@@ -1873,10 +2138,23 @@ def mocktail(bot, trigger):
 
 @module.commands('coffee', 'caffeine')
 @module.example('$coffee', 'Give yourself a random coffee')
-@module.example('$coffee username', 'Give a user a random coffee')
+@module.example('$coffee iced', 'Give yourself an iced coffee')
+@module.example('$coffee hot username', 'Give a user a hot coffee')
+@module.example('$coffee irish', 'Give yourself an Irish coffee')
+@module.example('$coffee mine', 'Hot dark roast with a shot of Tullamore Dew')
 def coffee(bot, trigger):
-    """Give someone a energizing coffee! ☕"""
-    _serve_item(bot, trigger, 'coffee', COFFEES, COFFEE_MESSAGES)
+    """Give someone coffee: iced, hot, Irish, or End3r's usual. ☕"""
+    try:
+        raw_target = trigger.group(2)
+    except (IndexError, AttributeError):
+        raw_target = None
+    style, nick = _parse_coffee_args(raw_target)
+    item_list, message_list, effect = _coffee_menu(style)
+    _serve_item(
+        bot, trigger, 'coffee', item_list, message_list,
+        target_override=nick or trigger.nick,
+        effect_type=effect,
+    )
 
 
 @module.commands('decaf', 'decaffeinated')
@@ -1945,7 +2223,7 @@ def surprise(bot, trigger, target_override=None):
         elif any(word in chosen_item.lower() for word in ['wine']):
             giving_message = random.choice(WINE_MESSAGES)
         elif any(word in chosen_item.lower() for word in ['coffee', 'espresso', 'latte', 'cappuccino']):
-            giving_message = random.choice(COFFEE_MESSAGES)
+            giving_message = random.choice(_coffee_messages_for(chosen_item))
         elif any(word in chosen_item.lower() for word in ['tea', 'chai', 'matcha', 'herbal', 'tisane', 'rooibos', 'chamomile', 'bubble']):
             giving_message = random.choice(TEA_MESSAGES)
         elif any(word in chosen_item.lower() for word in ['water', 'h2o']):
@@ -1967,7 +2245,7 @@ def surprise(bot, trigger, target_override=None):
         elif 'margarita' in chosen_item.lower():
             giving_message = random.choice(MARGARITA_MESSAGES)
         elif any(word in chosen_item.lower() for word in ['sake', 'junmai', 'ginjo', 'nigori', 'daiginjo', 'honjozo']):
-            giving_message = random.choice(SAKE_MESSAGES)
+            giving_message = random.choice(_sake_messages_for(chosen_item))
         elif any(word in chosen_item.lower() for word in ['mead', 'melomel', 'cyser', 'metheglin', 'bochet']):
             giving_message = random.choice(MEAD_MESSAGES)
         elif any(word in chosen_item.lower() for word in ['baileys', 'disaronno', 'grand marnier', 'chartreuse', 'limoncello', 'kahlúa', 'maraschino', 'st-germain', 'drambuie', 'campari', 'frangelico', 'chambord', 'crème de menthe', 'amarula', 'goldschläger', 'fernet']):
@@ -1991,7 +2269,10 @@ def surprise(bot, trigger, target_override=None):
                 item_lower = chosen_item.lower()
                 atype = 'none'
                 d = {}
-                if any(w in item_lower for w in ['coffee', 'latte', 'espresso', 'cappuccino', 'decaf']):
+                if any(w in item_lower for w in ['coffee', 'latte', 'espresso', 'cappuccino', 'decaf']) and _coffee_is_spiked(chosen_item):
+                    mins, intensity, title = _apply_bot_alcohol(bot, channel, trigger.nick, chosen_item, is_hard_liquor=True)
+                    status_tag = f" ({bot.nick} is {title} in {channel} ~{_format_dur(mins)})"
+                elif any(w in item_lower for w in ['coffee', 'latte', 'espresso', 'cappuccino', 'decaf']):
                     atype, d = _sober_bot(bot, channel, trigger.nick, chosen_item, 'coffee')
                 elif any(w in item_lower for w in ['tea', 'chai', 'matcha', 'tisane', 'water', 'h2o', 'mocktail', 'virgin']):
                     atype, d = _sober_bot(bot, channel, trigger.nick, chosen_item, 'water')
@@ -2124,10 +2405,18 @@ def beer_inline(bot, trigger):
             return
         _INLINE_BEER_LAST[key] = now
 
-    # Determine target if valid channel member
+    # Determine target if valid channel member.
+    # "$sake hot" and "$coffee iced" mid-sentence pick a style
+    # and pour it for the speaker.
     raw_target = trigger.match.group('intarget')
+    sake_temp = None
+    coffee_style = None
     target = None
-    if raw_target:
+    if raw_target and cmd == 'sake':
+        sake_temp = _SAKE_TEMPS.get(raw_target.lower())
+    elif raw_target and cmd in ('coffee', 'caffeine'):
+        coffee_style = _COFFEE_STYLES.get(raw_target.lower())
+    if raw_target and not sake_temp and not coffee_style:
         chan_obj = bot.channels.get(str(trigger.sender))
         if chan_obj is not None:
             chan_users = [u.lower() for u in chan_obj.users.keys()]
@@ -2139,6 +2428,19 @@ def beer_inline(bot, trigger):
 
     if cmd in ('surprise', 'random'):
         surprise(bot, trigger, target_override=target)
+    elif cmd == 'sake' and sake_temp:
+        item_list, message_list = _sake_menu(sake_temp)
+        _serve_item(
+            bot, trigger, 'sake', item_list, message_list,
+            target_override=target,
+        )
+    elif cmd in ('coffee', 'caffeine') and coffee_style:
+        item_list, message_list, effect = _coffee_menu(coffee_style)
+        _serve_item(
+            bot, trigger, 'coffee', item_list, message_list,
+            target_override=target,
+            effect_type=effect,
+        )
     elif cmd in _INLINE_DRINK_MAP:
         item_type, item_list, message_list, placeholder_key = _INLINE_DRINK_MAP[cmd]
         is_1337 = (cmd == 'b33r')
@@ -2186,7 +2488,7 @@ def barhelp(bot, trigger):
         "  $brandy [user] .......... 12 coins",
         "  $drink [user] ........... 10 coins",
         "  $margarita [user] ....... 9 coins",
-        "  $sake [user] ............ 9 coins",
+        "  $sake [hot|cold] [user] . 9 coins",
         "  $liqueur [user] ......... 8 coins",
         "  $wine [user] ............ 8 coins",
         "  $cava [user] ............ 8 coins",
@@ -2195,7 +2497,8 @@ def barhelp(bot, trigger):
         "",
         "NON-ALCOHOLIC:",
         "  $mocktail [user] ........ 4 coins",
-        "  $coffee [user] .......... 3 coins",
+        "  $coffee [iced|hot|irish|mine] [user] ... 3 coins",
+        "    mine = hot dark roast + a shot of Tullamore Dew",
         "  $decaf [user] ........... 3 coins",
         "  $tea [user] ............. 3 coins",
         "  $water [user] ........... FREE",
