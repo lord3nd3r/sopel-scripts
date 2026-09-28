@@ -2,7 +2,8 @@
 antispam.py - Anti-Spam Kick Protection
 
 Detects users who paste rapid-fire multi-line spam (URL dumps, quoted text walls)
-and kicks them. No bans — just kicks.
+and kicks them. Host bans (+b *!*@host) are optional and off unless a channel
+op turns them on with $spam ban on.
 
 Four detection modes:
     1. Rate-based:      If a user sends >= `threshold` messages within `window`
@@ -16,9 +17,12 @@ Four detection modes:
                         word changes.
 
 Author: Kristopher Craig
+Permissions:
+    Channel ops (@), channel admins (&), channel owners (~), and bot admins.
 Commands:
     $spam                               - Show status for the current channel
     $spam on / off                      - Enable/disable in the current channel
+    $spam ban on / off                  - Also ban *!*@host on kick (off by default)
     $spam set <param> <val>             - Adjust window or threshold
     $spam trigger add <phrase>          - Add a trigger phrase (instant kick)
     $spam trigger del <phrase>          - Remove a trigger phrase
@@ -107,6 +111,7 @@ def _get_settings(bot, channel):
         'threshold': overrides.get('threshold', DEFAULT_THRESHOLD),
         'unicode_threshold': overrides.get('unicode_threshold', DEFAULT_UNICODE_THRESHOLD),
         'unicode_window': overrides.get('unicode_window', DEFAULT_UNICODE_WINDOW),
+        'ban': bool(overrides.get('ban', False)),
     }
 
 
@@ -153,6 +158,112 @@ def _bot_has_op(bot, channel):
         privs = bot.channels[chan].privileges.get(bot.nick, 0)
         return bool(privs & (plugin.HALFOP | plugin.OP))
     return False
+
+
+def _bot_can_ban(bot, channel):
+    """True when the bot has channel op (@) or higher. Halfop cannot set +b."""
+    privs = _lookup_privs(bot, channel, bot.nick)
+    if not isinstance(privs, int):
+        return False
+    return bool(privs & (plugin.OP | plugin.ADMIN | plugin.OWNER))
+
+
+def _ban_mask(hostmask):
+    """Build *!*@host from a user@host mask.
+
+    Returns None when the host is missing or a bare wildcard, so a ban
+    cannot be set on everyone.
+    """
+    if not hostmask or '@' not in str(hostmask):
+        return None
+    host = str(hostmask).split('@', 1)[1].strip()
+    if not host or host == '*' or any(c.isspace() for c in host):
+        return None
+    return f'*!*@{host}'
+
+
+def _maybe_ban(bot, channel, nick, hostmask):
+    """Set +b *!*@host when this channel has bans enabled.
+
+    Returns the mask that was sent, or None if no ban was set.
+    Turning bans off later does not remove bans already set.
+    """
+    if not _get_settings(bot, channel).get('ban'):
+        return None
+    mask = _ban_mask(hostmask)
+    if not mask:
+        LOGGER.warning("Antispam: Bans enabled in %s but no host for %s", channel, nick)
+        return None
+    if not _bot_can_ban(bot, channel):
+        LOGGER.warning(
+            "Antispam: Bans enabled in %s but bot is not opped — %s kicked without a ban",
+            channel, nick,
+        )
+        return None
+    bot.write(['MODE', channel, '+b', mask])
+    LOGGER.info("Antispam: Banned %s in %s (%s)", mask, channel, nick)
+    return mask
+
+
+# Channel op (@) and above may manage settings. Halfop (%) may not.
+_MANAGE_PRIVS = plugin.OP | plugin.ADMIN | plugin.OWNER
+
+
+def _lookup_privs(bot, channel, nick):
+    """Return the privilege bitmask for nick in channel, or 0 if unknown."""
+    channels = getattr(bot, 'channels', None) or {}
+    chan_obj = channels.get(channel) or channels.get(str(channel))
+    if chan_obj is None:
+        want = str(channel).lower()
+        for name, obj in channels.items():
+            if str(name).lower() == want:
+                chan_obj = obj
+                break
+    if chan_obj is None:
+        return 0
+    privs = getattr(chan_obj, 'privileges', None) or {}
+    if nick in privs:
+        return privs[nick] or 0
+    nick_l = str(nick).lower()
+    for name, val in privs.items():
+        if str(name).lower() == nick_l:
+            return val or 0
+    return 0
+
+
+def _is_bot_admin(bot, trigger):
+    """True for the bot owner or a configured bot admin."""
+    if getattr(trigger, 'owner', False) or getattr(trigger, 'admin', False):
+        return True
+    try:
+        cfg_admins = getattr(bot.config.core, 'admins', None)
+        if isinstance(cfg_admins, (list, tuple, set)):
+            if trigger.nick.lower() in {a.lower() for a in cfg_admins}:
+                return True
+        cfg_owner = getattr(bot.config.core, 'owner', None)
+        if isinstance(cfg_owner, str) and cfg_owner.strip():
+            if trigger.nick.lower() == cfg_owner.strip().lower():
+                return True
+        if isinstance(cfg_owner, (list, tuple, set)):
+            if trigger.nick.lower() in {str(o).lower() for o in cfg_owner}:
+                return True
+    except Exception:
+        pass
+    return False
+
+
+def _can_manage_spam(bot, trigger, channel):
+    """Bot admins, or channel ops (@) and above in the target channel.
+
+    Works in-channel and from PM, as long as the bot can see the nick's
+    mode in that channel. Voice and halfop are not enough.
+    """
+    if _is_bot_admin(bot, trigger):
+        return True
+    privs = _lookup_privs(bot, channel, trigger.nick)
+    if not isinstance(privs, int):
+        return False
+    return bool(privs & _MANAGE_PRIVS)
 
 
 def _get_triggers(bot, channel):
@@ -473,10 +584,12 @@ def on_message(bot, trigger):
     if matched:
         if _bot_has_op(bot, channel):
             reason = f"Matched spam trigger — kick on sight"
+            banned = _maybe_ban(bot, channel, nick, hostmask)
             bot.write(['KICK', channel, nick, f':{reason}'])
             LOGGER.info(
-                "Antispam: Kicked %s (%s) from %s — trigger match: %s",
+                "Antispam: Kicked %s (%s) from %s — trigger match: %s%s",
                 nick, hostmask, channel, matched,
+                f" (banned {banned})" if banned else "",
             )
         else:
             LOGGER.warning(
@@ -589,6 +702,7 @@ def _kick_spammer(bot, nick, channel, hostmask, settings, count, reason=None):
 
     if reason is None:
         reason = f"Spam detected ({count} msgs in {settings['window']}s) — slow down"
+    banned = _maybe_ban(bot, channel, nick, hostmask)
     bot.write(['KICK', channel, nick, f':{reason}'])
 
     # Record the kick so autovoice won't re-voice them on rejoin
@@ -604,8 +718,9 @@ def _kick_spammer(bot, nick, channel, hostmask, settings, count, reason=None):
     _revoke_autovoice(bot, channel, nick)
 
     LOGGER.info(
-        "Antispam: Kicked %s (%s) from %s — %s (autovoice revoked, copypasta learned)",
+        "Antispam: Kicked %s (%s) from %s — %s (autovoice revoked, copypasta learned%s)",
         nick, hostmask, channel, reason,
+        f", banned {banned}" if banned else "",
     )
 
 
@@ -647,10 +762,10 @@ def cleanup(bot):
 # ========================= ADMIN COMMANDS =========================
 
 @plugin.command('spam')
-@plugin.require_admin('You need to be a bot admin to manage antispam.')
 def cmd_spam(bot, trigger):
     """$spam <status|on|off|set|trigger|help> — Manage antispam protection.
 
+    Channel ops (@ or higher) and bot admins.
     In a channel:  $spam trigger add <phrase>
     In PM:         $spam #channel trigger add <phrase>
     """
@@ -667,6 +782,11 @@ def cmd_spam(bot, trigger):
     else:
         channel = str(trigger.sender).lower()
 
+    if not _can_manage_spam(bot, trigger, channel):
+        return bot.reply(
+            "⛔ You need to be a channel op (@) or a bot admin to manage antispam."
+        )
+
     subcmd = args[0].lower() if args else 'status'
 
     dispatch = {
@@ -678,6 +798,7 @@ def cmd_spam(bot, trigger):
         'exempt':    lambda: _cmd_exempt(bot, trigger, channel, args[1:]),
         'cmdexempt': lambda: _cmd_cmdexempt(bot, trigger, channel, args[1:]),
         'copypasta': lambda: _cmd_copypasta(bot, trigger, channel, args[1:]),
+        'ban':       lambda: _cmd_ban(bot, trigger, channel, args[1:]),
         'help':      lambda: _cmd_help(bot, trigger),
     }
 
@@ -710,6 +831,7 @@ def _cmd_status(bot, trigger, channel):
         f"⏱️ Window: {B}{settings['window']}s{B}{SEP}"
         f"🎯 Threshold: {B}{settings['threshold']}{B} msgs{SEP}"
         f"🎨 Unicode: {B}{settings['unicode_threshold']}{B} msgs / {B}{settings['unicode_window']}s{B}{SEP}"
+        f"🔨 Bans: {B}{'on' if settings['ban'] else 'off'}{B}{SEP}"
         f"🔑 Triggers: {B}{len(triggers)}{B}{SEP}"
         f"👤 Exempt users: {B}{len(exempt_users)}{B}{SEP}"
         f"🎮 Exempt cmds: {B}{len(exempt_cmds)}{B}{SEP}"
@@ -732,6 +854,40 @@ def _cmd_toggle(bot, trigger, channel, enable):
         bot.say(f"❌ Antispam protection {B}disabled{B} for {B}{channel}{B}")
 
     LOGGER.info("Antispam: %s in %s by %s", 'Enabled' if enable else 'Disabled', channel, trigger.nick)
+
+
+def _cmd_ban(bot, trigger, channel, args):
+    """Enable or disable host bans on kick. Usage: $spam [#chan] ban [on|off]"""
+    sub = args[0].lower() if args else 'status'
+
+    if sub in ('status', 'show'):
+        enabled = _get_settings(bot, channel)['ban']
+        state = "enabled" if enabled else "disabled"
+        bot.say(
+            f"🔨 Bans are {B}{state}{B} for {B}{channel}{B}. "
+            f"Use {B}$spam ban on{B} or {B}$spam ban off{B}."
+        )
+        return
+
+    if sub in ('on', 'enable', 'yes'):
+        _save_setting(bot, channel, 'ban', True)
+        bot.say(
+            f"🔨 Antispam bans {B}enabled{B} for {B}{channel}{B}. "
+            f"Kicks will also set {B}+b *!*@host{B}."
+        )
+        LOGGER.info("Antispam: Bans enabled in %s by %s", channel, trigger.nick)
+        return
+
+    if sub in ('off', 'disable', 'no'):
+        _save_setting(bot, channel, 'ban', False)
+        bot.say(
+            f"🔨 Antispam bans {B}disabled{B} for {B}{channel}{B}. "
+            f"Existing bans stay until someone removes them."
+        )
+        LOGGER.info("Antispam: Bans disabled in %s by %s", channel, trigger.nick)
+        return
+
+    bot.reply(f"⚠️ Usage: {B}$spam ban{B} <on|off>")
 
 
 def _cmd_set(bot, trigger, channel, args):
@@ -947,11 +1103,14 @@ def _cmd_help(bot, trigger):
     nick = trigger.nick
     bot.notice(f"🛡️ {B}Antispam Protection — Spam Detection & Auto-Kick{B}", nick)
     bot.notice(" ", nick)
+    bot.notice(f"  Channel ops (@ or higher) and bot admins can use these commands.", nick)
     bot.notice(f"  In a channel, the channel is implicit.", nick)
     bot.notice(f"  In PM, prefix with #channel:  {B}$spam #chan trigger add ...\n{B}", nick)
     bot.notice(" ", nick)
     bot.notice(f"  {B}$spam{B}                                  — Status for current channel", nick)
     bot.notice(f"  {B}$spam on{B} / {B}off{B}                          — Enable / disable in this channel", nick)
+    bot.notice(f"  {B}$spam ban{B}                              — Show whether kicks also set a ban", nick)
+    bot.notice(f"  {B}$spam ban on{B} / {B}off{B}                     — Ban *!*@host on kick (off by default)", nick)
     bot.notice(f"  {B}$spam set window <sec>{B}                  — Rate detection window (3–120s, default {DEFAULT_WINDOW})", nick)
     bot.notice(f"  {B}$spam set threshold <n>{B}                  — Message count to trigger (3–30, default {DEFAULT_THRESHOLD})", nick)
     bot.notice(f"  {B}$spam set unicode_threshold <n>{B}          — Unicode art lines to trigger (2–10, default {DEFAULT_UNICODE_THRESHOLD})", nick)
@@ -971,7 +1130,8 @@ def _cmd_help(bot, trigger):
         f"auto-kicked. (4) Grok AI — classifies long messages as copypasta spam "
         f"vs normal trolling. Users with +h or higher are exempt. "
         f"Per-user and command prefix exemptions available. "
-        f"No bans, just kicks. Off by default — use $spam on to enable.",
+        f"Kicks only, unless $spam ban on is set — then each kick also bans *!*@host. "
+        f"Off by default — use $spam on to enable.",
         nick,
     )
     bot.notice(" ", nick)

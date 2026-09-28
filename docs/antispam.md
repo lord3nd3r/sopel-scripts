@@ -1,6 +1,6 @@
 # 🛡️ Anti-Spam Protection (antispam)
 
-Anti-Spam Kick Protection for Sopel. It detects and kicks users who post rapid-fire messages, unicode art walls, or repetitive copypasta spam. This plugin issues **kicks only (no bans)**, and integrates with the **autovoice** plugin to revoke voice privileges from kicked spammers.
+Anti-Spam Kick Protection for Sopel. It detects and kicks users who post rapid-fire messages, unicode art walls, or repetitive copypasta spam. Host bans are **off by default**. When a channel op turns them on, each kick also sets `+b *!*@host`. The plugin integrates with the **autovoice** plugin to revoke voice privileges from kicked spammers.
 
 ---
 
@@ -51,12 +51,16 @@ To prevent spammers from exploiting the auto-voice system (which grants `+v` to 
 
 ## Commands
 
-All commands require **bot admin** privileges.
+All commands require a **channel op** (`@`), channel admin (`&`), channel owner (`~`), or a **bot admin**.
+
+Commands work in the channel (`$spam trigger add ...`) or in PM when the bot can see your op (`$spam #channel trigger add ...`).
 
 | Command | Subcommands / Args | Description | Example |
 |---------|-------------------|-------------|---------|
 | `$spam` | — | Show antispam status, thresholds, and tracking stats for the channel | `$spam` |
 | `$spam` | `on` / `off` | Enable/disable antispam in the current channel | `$spam on` |
+| `$spam` | `ban` | Show whether kicks also set a host ban | `$spam ban` |
+| `$spam` | `ban on` / `ban off` | Ban `*!*@host` along with each kick. Off by default. Turning it off leaves bans already set | `$spam ban on` |
 | `$spam` | `set <param> <val>` | Adjust thresholds (`window`, `threshold`, `unicode_threshold`, `unicode_window`) | `$spam set window 10` |
 | `$spam` | `trigger list` | List all channel-specific trigger phrases | `$spam trigger list` |
 | `$spam` | `trigger add <phrase>` | Add a phrase for instant-kick on sight | `$spam trigger add Buy Cheap Bitcoin` |
