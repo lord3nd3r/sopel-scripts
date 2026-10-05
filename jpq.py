@@ -23,6 +23,7 @@ Config (sopel.cfg):
 
 from sopel import plugin
 from sopel.config.types import StaticSection, ValidatedAttribute, BooleanAttribute
+import fnmatch
 import logging
 import re
 import threading
@@ -32,7 +33,8 @@ LOGGER = logging.getLogger(__name__)
 
 B = "\x02"
 COLOR_RESET = "\x03"
-SEP = "\x0314 · \x03"
+# \x0f resets color. A bare \x03 eats the next digits, so "4 events" shows up blank.
+SEP = "\x0314 · \x0f"
 
 # Maximum announcements per channel within this cooldown (seconds)
 _ANNOUNCE_COOLDOWN = 5
@@ -72,6 +74,7 @@ def setup(bot):
     bot.memory['jpq_last_announce'] = {}     # channel -> timestamp
     bot.memory['jpq_stats'] = []            # list of recent action dicts
     bot.memory['jpq_recent_kicks'] = {}     # (channel, hostmask) -> timestamp of kick
+    bot.memory['jpq_staff'] = {}            # channel_lower -> set of nicks at +h or above
     LOGGER.info("JPQ flood protection initialized")
 
 
@@ -112,10 +115,71 @@ def _is_channel_enabled(bot, channel):
     return channel.lower() not in [c.lower() for c in disabled]
 
 
-def _is_whitelisted(bot, channel, hostmask):
-    """Check if a hostmask is whitelisted in a channel."""
-    whitelist = bot.db.get_plugin_value('jpq', f'whitelist_{channel.lower()}') or []
-    return hostmask.lower() in [w.lower() for w in whitelist]
+def _whitelist_entries(bot, channel):
+    """Nick and hostmask exemptions from both flood scripts.
+
+    $jpq whitelist and $flood whitelist protect against either ban.
+    """
+    channel = str(channel).lower()
+    entries = []
+    for plugin_name in ('jpq', 'antiflood'):
+        entries.extend(bot.db.get_plugin_value(plugin_name, f'whitelist_{channel}') or [])
+    return entries
+
+
+def _entry_matches(entry, nick, hostmask):
+    """True when a whitelist entry is this nick or this user@host.
+
+    A bare nick matches the nickname. A mask matches user@host, including
+    globs such as *!*@cloak.
+    """
+    entry = str(entry).strip().lower()
+    if not entry:
+        return False
+    nick_l = str(nick or '').lower()
+    hostmask_l = str(hostmask or '').lower()
+    user, sep, host = hostmask_l.partition('@')
+    if not sep:
+        user, host = '*', hostmask_l or '*'
+    exact = {
+        nick_l,
+        hostmask_l,
+        f"{nick_l}!{user}@{host}",
+        f"*!{user}@{host}",
+        f"*!*@{host}",
+        f"*@{host}",
+    }
+    if entry in exact:
+        return True
+    if any(ch in entry for ch in '*?') or '@' in entry:
+        for candidate in (f"{nick_l}!{user}@{host}", f"*!{user}@{host}", f"*!*@{host}", hostmask_l):
+            if fnmatch.fnmatch(candidate, entry):
+                return True
+    return False
+
+
+def _is_whitelisted(bot, channel, hostmask, nick=''):
+    """Check if a nick or hostmask is whitelisted in a channel."""
+    for entry in _whitelist_entries(bot, channel):
+        if _entry_matches(entry, nick, hostmask):
+            return True
+    return False
+
+
+def _host_for_nick(bot, nick):
+    """Return the host Sopel has seen for nick, if any."""
+    users = getattr(bot, 'users', None) or {}
+    user = users.get(nick)
+    if user is None:
+        nick_l = str(nick).lower()
+        for key, obj in users.items():
+            if str(key).lower() == nick_l:
+                user = obj
+                break
+    host = getattr(user, 'host', None) if user else None
+    if host and str(host) not in ('*', ''):
+        return str(host)
+    return None
 
 
 def _is_ignored(bot, trigger):
@@ -144,32 +208,91 @@ def _is_ignored(bot, trigger):
     return False
 
 
-def _is_exempt(bot, nick, channel):
-    """Check if a user holds an exempt channel mode (+v, +h, +o, etc.)."""
-    exempt = bot.config.jpq.exempt_modes or ''
+# Halfop and everything above it. Not configurable: +h/+o/+a/+q never count.
+_STAFF_BITS = (
+    plugin.HALFOP | plugin.OP
+    | getattr(plugin, 'ADMIN', 8)
+    | getattr(plugin, 'OWNER', 16)
+)
+
+
+def _channel_obj(bot, channel):
+    channels = getattr(bot, 'channels', None) or {}
     chan = str(channel)
+    entry = channels.get(chan)
+    if entry is not None:
+        return entry
+    want = chan.lower()
+    for name, obj in channels.items():
+        if str(name).lower() == want:
+            return obj
+    return None
 
-    if chan not in bot.channels:
+
+def _privs(bot, nick, channel):
+    """Privilege bitmask for nick in channel, or 0."""
+    entry = _channel_obj(bot, channel)
+    if entry is None:
+        return 0
+    privs = getattr(entry, 'privileges', None) or {}
+    if nick in privs:
+        return privs[nick] or 0
+    nick_l = str(nick).lower()
+    for name, val in privs.items():
+        if str(name).lower() == nick_l:
+            return val or 0
+    return 0
+
+
+def _remember_staff(bot, channel, nick):
+    """Remember that nick holds +h or higher, including across a reconnect."""
+    staff = bot.memory.setdefault('jpq_staff', {})
+    staff.setdefault(str(channel).lower(), set()).add(str(nick).lower())
+
+
+def _forget_staff(bot, channel, nick):
+    staff = bot.memory.get('jpq_staff') or {}
+    nicks = staff.get(str(channel).lower())
+    if nicks:
+        nicks.discard(str(nick).lower())
+
+
+def _is_remembered_staff(bot, channel, nick):
+    staff = bot.memory.get('jpq_staff') or {}
+    return str(nick).lower() in staff.get(str(channel).lower(), ())
+
+
+def _note_visible_staff(bot):
+    """Record everyone who currently holds +h or above.
+
+    Does not forget anyone. A halfop who just rejoined has no mode until
+    ChanServ restores it, and that rejoin must stay exempt.
+    """
+    channels = getattr(bot, 'channels', None) or {}
+    for name, chan in channels.items():
+        privs = getattr(chan, 'privileges', None) or {}
+        for nick, bits in privs.items():
+            if isinstance(bits, int) and bits & _STAFF_BITS:
+                _remember_staff(bot, name, nick)
+
+
+def _is_exempt(bot, nick, channel):
+    """True for +h and above, or for a configured mode such as +v.
+
+    +h/+o/+a/+q are always exempt, including the quit and the rejoin
+    before their mode is restored. Voice stays behind exempt_modes.
+    """
+    privs = _privs(bot, nick, channel)
+    if isinstance(privs, int) and privs & _STAFF_BITS:
+        _remember_staff(bot, channel, nick)
+        return True
+    if _is_remembered_staff(bot, channel, nick):
+        return True
+
+    exempt = bot.config.jpq.exempt_modes or ''
+    if not privs or 'v' not in exempt:
         return False
-
-    privs = bot.channels[chan].privileges.get(nick, 0)
-    if not privs:
-        return False
-
-    mode_bits = {
-        'v': plugin.VOICE,
-        'h': plugin.HALFOP,
-        'o': plugin.OP,
-        'a': plugin.ADMIN if hasattr(plugin, 'ADMIN') else 0,
-        'q': plugin.OWNER if hasattr(plugin, 'OWNER') else 0,
-    }
-
-    for char in exempt:
-        bit = mode_bits.get(char, 0)
-        if bit and (privs & bit):
-            return True
-
-    return False
+    return bool(privs & plugin.VOICE)
 
 
 # ========================= IRC HELPERS =========================
@@ -264,7 +387,7 @@ def _record_event(bot, nick, channel, hostmask, trigger):
         return
     if nick.lower() == bot.nick.lower():
         return
-    if _is_whitelisted(bot, channel, hostmask):
+    if _is_whitelisted(bot, channel, hostmask, nick):
         return
     if _is_ignored(bot, trigger):
         return
@@ -402,6 +525,7 @@ def on_join(bot, trigger):
     channel = trigger.sender
     hostmask = _get_hostmask(trigger)
 
+    _note_visible_staff(bot)
     _track_join(bot, nick, channel)
     _record_event(bot, nick, channel, hostmask, trigger)
 
@@ -419,6 +543,7 @@ def on_part(bot, trigger):
     channel = trigger.sender
     hostmask = _get_hostmask(trigger)
 
+    _note_visible_staff(bot)
     _track_part(bot, nick, channel)
     _record_event(bot, nick, channel, hostmask, trigger)
 
@@ -439,10 +564,57 @@ def on_quit(bot, trigger):
         return
 
     hostmask = _get_hostmask(trigger)
+    # Capture +h and above before membership is dropped. A ping timeout
+    # from an admin still has to be exempt.
+    _note_visible_staff(bot)
     channels = _track_quit(bot, nick)
 
     for channel in channels:
         _record_event(bot, nick, channel, hostmask, trigger)
+
+
+def _mode_privilege_nicks(trigger):
+    """Return (adding, nick) for +h/+o/+a/+q changes in this MODE."""
+    args = [str(arg) for arg in (getattr(trigger, 'args', None) or ())]
+    mode = ''
+    params = []
+    for arg in args:
+        if not mode and arg[:1] in '+-' and not arg.startswith('#'):
+            mode = arg
+        elif mode:
+            params.append(arg)
+    found = []
+    adding = True
+    index = 0
+    for char in mode:
+        if char == '+':
+            adding = True
+            continue
+        if char == '-':
+            adding = False
+            continue
+        takes_arg = char in 'vhoaqbeIkf'
+        if char == 'l' and not adding:
+            takes_arg = False
+        if takes_arg and index < len(params):
+            if char in 'hoaq':
+                found.append((adding, params[index]))
+            index += 1
+    return found
+
+
+@plugin.thread(True)
+@plugin.event('MODE')
+@plugin.rule('.*')
+def on_mode(bot, trigger):
+    """Keep the halfop+ list in step with mode changes."""
+    if not str(trigger.sender).startswith('#'):
+        return
+    for adding, nick in _mode_privilege_nicks(trigger):
+        if adding or _privs(bot, nick, trigger.sender) & _STAFF_BITS:
+            _remember_staff(bot, trigger.sender, nick)
+        else:
+            _forget_staff(bot, trigger.sender, nick)
 
 
 # ========================= PERIODIC CLEANUP =========================
@@ -451,6 +623,7 @@ def on_quit(bot, trigger):
 @plugin.interval(60)
 def cleanup(bot):
     """Prune stale event tracking entries and expired kick grace records."""
+    _note_visible_staff(bot)
     now = time.time()
     settings = _get_settings(bot)
     cutoff = now - settings['window']
@@ -544,10 +717,7 @@ def _cmd_status(bot, trigger):
         extras.append(f"🔓 Pending unbans: {B}{pending}{B}")
     if whitelist:
         extras.append(f"📋 Whitelist: {B}{len(whitelist)}{B} entries")
-    exempt = bot.config.jpq.exempt_modes or ''
-    if exempt:
-        modes = ', '.join(f"+{c}" for c in exempt)
-        extras.append(f"🔑 Exempt: {B}{modes}{B}")
+    extras.append(f"🔑 Exempt: {B}+h and up{B}")
     if extras:
         bot.say(SEP.join(extras))
 
@@ -633,7 +803,7 @@ def _cmd_set(bot, trigger, args):
 
 
 def _cmd_whitelist(bot, trigger, args):
-    """Manage whitelist. Usage: $jpq whitelist <add|del|list> [user@host]"""
+    """Manage whitelist. Usage: $jpq whitelist <add|del|list> [nick|user@host]"""
     channel = str(trigger.sender).lower()
 
     subcmd = args[0].lower() if args else 'list'
@@ -649,18 +819,32 @@ def _cmd_whitelist(bot, trigger, args):
         return
 
     if len(args) < 2:
-        return bot.reply(f"Usage: {B}$jpq whitelist{B} <add|del> <user@host>")
+        return bot.reply(f"Usage: {B}$jpq whitelist{B} <add|del> <nick or user@host>")
 
     mask = args[1].lower()
+    if not any(ch.isalnum() for ch in mask):
+        return bot.reply(f"⚠️ {B}{mask}{B} would match everyone.")
     whitelist = bot.db.get_plugin_value('jpq', wl_key) or []
 
     if subcmd == 'add':
-        if mask in [w.lower() for w in whitelist]:
+        existing = [w.lower() for w in whitelist]
+        candidates = [mask]
+        if '@' not in mask and not any(ch in mask for ch in '*?'):
+            host = _host_for_nick(bot, mask)
+            if host:
+                candidates.append(f"*!*@{host.lower()}")
+        added = []
+        for item in candidates:
+            if item not in existing:
+                whitelist.append(item)
+                existing.append(item)
+                added.append(item)
+        if not added:
             return bot.reply(f"⚠️ {B}{mask}{B} is already whitelisted.")
-        whitelist.append(mask)
         bot.db.set_plugin_value('jpq', wl_key, whitelist)
-        bot.say(f"✅ Whitelisted {B}{mask}{B} in {B}{trigger.sender}{B}")
-        LOGGER.info("JPQ: Whitelisted %s in %s by %s", mask, channel, trigger.nick)
+        shown = " and ".join(f"{B}{item}{B}" for item in added)
+        bot.say(f"✅ Whitelisted {shown} in {B}{trigger.sender}{B}")
+        LOGGER.info("JPQ: Whitelisted %s in %s by %s", ", ".join(added), channel, trigger.nick)
 
     elif subcmd in ('del', 'remove', 'rm'):
         new_wl = [w for w in whitelist if w.lower() != mask]
@@ -671,7 +855,7 @@ def _cmd_whitelist(bot, trigger, args):
         LOGGER.info("JPQ: Un-whitelisted %s in %s by %s", mask, channel, trigger.nick)
 
     else:
-        bot.reply(f"⚠️ Usage: {B}$jpq whitelist{B} <add|del|list> [user@host]")
+        bot.reply(f"⚠️ Usage: {B}$jpq whitelist{B} <add|del|list> [nick or user@host]")
 
 
 def _cmd_stats(bot, trigger):
@@ -718,15 +902,17 @@ def _cmd_help(bot, trigger):
     bot.notice(f"  {B}$jpq set threshold <n>{B}            — Event count to trigger (2–50, default 5)", nick)
     bot.notice(f"  {B}$jpq set duration <sec>{B}           — Auto-unban delay (0 = permanent, default 300)", nick)
     bot.notice(f"  {B}$jpq set banmask <style>{B}          — host (*!*@host) or ident (*!user@host)", nick)
-    bot.notice(f"  {B}$jpq whitelist list{B}               — Show whitelisted hostmasks", nick)
-    bot.notice(f"  {B}$jpq whitelist add <user@host>{B}    — Exempt a hostmask", nick)
-    bot.notice(f"  {B}$jpq whitelist del <user@host>{B}    — Remove exemption", nick)
+    bot.notice(f"  {B}$jpq whitelist list{B}               — Show whitelisted nicks and hostmasks", nick)
+    bot.notice(f"  {B}$jpq whitelist add <nick|mask>{B}    — Exempt a nick or user@host", nick)
+    bot.notice(f"  {B}$jpq whitelist del <nick|mask>{B}    — Remove exemption", nick)
     bot.notice(f"  {B}$jpq stats{B}                        — Recent ban actions in this channel", nick)
     bot.notice(" ", nick)
     bot.notice(
-        f"📝 Tracks JOIN/PART/QUIT by hostmask. If a user exceeds the threshold "
-        f"within the window, they are banned and kicked. Users with exempt modes "
-        f"(default: +v/+h/+o) and Sopel-ignored hosts are skipped.",
+        f"📝 Tracks JOIN/PART/QUIT by hostmask, including ping timeouts and "
+        f"dropped connections. If a user exceeds the threshold within the "
+        f"window, they are banned and kicked. Halfops and above are always "
+        f"skipped, including the rejoin before their mode comes back. "
+        f"Sopel-ignored hosts are skipped.",
         nick,
     )
     bot.say(f"📬 {B}{nick}{B}, check your notices for JPQ command help!")

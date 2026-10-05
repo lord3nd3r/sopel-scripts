@@ -25,6 +25,7 @@ Config (sopel.cfg):
 
 from sopel import plugin
 from sopel.config.types import StaticSection, ValidatedAttribute, BooleanAttribute
+import fnmatch
 import logging
 import re
 import threading
@@ -34,7 +35,8 @@ LOGGER = logging.getLogger(__name__)
 
 B = "\x02"
 COLOR_RESET = "\x03"
-SEP = "\x0314 · \x03"
+# \x0f resets color. A bare \x03 eats the next digits, so a count shows up blank.
+SEP = "\x0314 · \x0f"
 
 # Maximum announcements per channel within this cooldown (seconds)
 _ANNOUNCE_COOLDOWN = 5
@@ -114,10 +116,71 @@ def _is_channel_enabled(bot, channel):
     return channel.lower() in [c.lower() for c in enabled]
 
 
-def _is_whitelisted(bot, channel, hostmask):
-    """Check if a hostmask is whitelisted in a channel."""
-    whitelist = bot.db.get_plugin_value('antiflood', f'whitelist_{channel.lower()}') or []
-    return hostmask.lower() in [w.lower() for w in whitelist]
+def _whitelist_entries(bot, channel):
+    """Nick and hostmask exemptions from both flood scripts.
+
+    $jpq whitelist and $flood whitelist protect against either ban.
+    """
+    channel = str(channel).lower()
+    entries = []
+    for plugin_name in ('jpq', 'antiflood'):
+        entries.extend(bot.db.get_plugin_value(plugin_name, f'whitelist_{channel}') or [])
+    return entries
+
+
+def _entry_matches(entry, nick, hostmask):
+    """True when a whitelist entry is this nick or this user@host.
+
+    A bare nick matches the nickname. A mask matches user@host, including
+    globs such as *!*@cloak.
+    """
+    entry = str(entry).strip().lower()
+    if not entry:
+        return False
+    nick_l = str(nick or '').lower()
+    hostmask_l = str(hostmask or '').lower()
+    user, sep, host = hostmask_l.partition('@')
+    if not sep:
+        user, host = '*', hostmask_l or '*'
+    exact = {
+        nick_l,
+        hostmask_l,
+        f"{nick_l}!{user}@{host}",
+        f"*!{user}@{host}",
+        f"*!*@{host}",
+        f"*@{host}",
+    }
+    if entry in exact:
+        return True
+    if any(ch in entry for ch in '*?') or '@' in entry:
+        for candidate in (f"{nick_l}!{user}@{host}", f"*!{user}@{host}", f"*!*@{host}", hostmask_l):
+            if fnmatch.fnmatch(candidate, entry):
+                return True
+    return False
+
+
+def _is_whitelisted(bot, channel, hostmask, nick=''):
+    """Check if a nick or hostmask is whitelisted in a channel."""
+    for entry in _whitelist_entries(bot, channel):
+        if _entry_matches(entry, nick, hostmask):
+            return True
+    return False
+
+
+def _host_for_nick(bot, nick):
+    """Return the host Sopel has seen for nick, if any."""
+    users = getattr(bot, 'users', None) or {}
+    user = users.get(nick)
+    if user is None:
+        nick_l = str(nick).lower()
+        for key, obj in users.items():
+            if str(key).lower() == nick_l:
+                user = obj
+                break
+    host = getattr(user, 'host', None) if user else None
+    if host and str(host) not in ('*', ''):
+        return str(host)
+    return None
 
 
 def _is_ignored(bot, nick, host):
@@ -290,7 +353,7 @@ def _record_event(bot, nick, channel, hostmask, trigger):
         return
     if nick.lower() == bot.nick.lower():
         return
-    if _is_whitelisted(bot, channel, hostmask):
+    if _is_whitelisted(bot, channel, hostmask, nick):
         return
     if _is_ignored(bot, str(nick), trigger.host or ''):
         return
@@ -601,7 +664,7 @@ def _cmd_set(bot, trigger, args):
 
 
 def _cmd_whitelist(bot, trigger, args):
-    """Manage whitelist. Usage: $flood whitelist <add|del|list> [user@host]"""
+    """Manage whitelist. Usage: $flood whitelist <add|del|list> [nick|user@host]"""
     channel = str(trigger.sender).lower()
 
     subcmd = args[0].lower() if args else 'list'
@@ -617,18 +680,32 @@ def _cmd_whitelist(bot, trigger, args):
         return
 
     if len(args) < 2:
-        return bot.reply(f"Usage: {B}$flood whitelist{B} <add|del> <user@host>")
+        return bot.reply(f"Usage: {B}$flood whitelist{B} <add|del> <nick or user@host>")
 
     mask = args[1].lower()
+    if not any(ch.isalnum() for ch in mask):
+        return bot.reply(f"⚠️ {B}{mask}{B} would match everyone.")
     whitelist = bot.db.get_plugin_value('antiflood', wl_key) or []
 
     if subcmd == 'add':
-        if mask in [w.lower() for w in whitelist]:
+        existing = [w.lower() for w in whitelist]
+        candidates = [mask]
+        if '@' not in mask and not any(ch in mask for ch in '*?'):
+            host = _host_for_nick(bot, mask)
+            if host:
+                candidates.append(f"*!*@{host.lower()}")
+        added = []
+        for item in candidates:
+            if item not in existing:
+                whitelist.append(item)
+                existing.append(item)
+                added.append(item)
+        if not added:
             return bot.reply(f"⚠️ {B}{mask}{B} is already whitelisted.")
-        whitelist.append(mask)
         bot.db.set_plugin_value('antiflood', wl_key, whitelist)
-        bot.say(f"✅ Whitelisted {B}{mask}{B} in {B}{trigger.sender}{B}")
-        LOGGER.info("Antiflood: Whitelisted %s in %s by %s", mask, channel, trigger.nick)
+        shown = " and ".join(f"{B}{item}{B}" for item in added)
+        bot.say(f"✅ Whitelisted {shown} in {B}{trigger.sender}{B}")
+        LOGGER.info("Antiflood: Whitelisted %s in %s by %s", ", ".join(added), channel, trigger.nick)
 
     elif subcmd in ('del', 'remove', 'rm'):
         new_wl = [w for w in whitelist if w.lower() != mask]
@@ -639,7 +716,7 @@ def _cmd_whitelist(bot, trigger, args):
         LOGGER.info("Antiflood: Un-whitelisted %s in %s by %s", mask, channel, trigger.nick)
 
     else:
-        bot.reply(f"⚠️ Usage: {B}$flood whitelist{B} <add|del|list> [user@host]")
+        bot.reply(f"⚠️ Usage: {B}$flood whitelist{B} <add|del|list> [nick or user@host]")
 
 
 def _cmd_stats(bot, trigger):
@@ -709,9 +786,9 @@ def _cmd_help(bot, trigger):
     bot.notice(f"  {B}$flood set threshold <n>{B}            — Join count to trigger (2–50, default 3)", nick)
     bot.notice(f"  {B}$flood set duration <sec>{B}           — Auto-unban delay (0 = permanent, default 600)", nick)
     bot.notice(f"  {B}$flood set banmask <style>{B}          — host (*!*@host) or ident (*!user@host)", nick)
-    bot.notice(f"  {B}$flood whitelist list{B}               — Show whitelisted hostmasks", nick)
-    bot.notice(f"  {B}$flood whitelist add <user@host>{B}    — Exempt a hostmask", nick)
-    bot.notice(f"  {B}$flood whitelist del <user@host>{B}    — Remove exemption", nick)
+    bot.notice(f"  {B}$flood whitelist list{B}               — Show whitelisted nicks and hostmasks", nick)
+    bot.notice(f"  {B}$flood whitelist add <nick|mask>{B}    — Exempt a nick or user@host", nick)
+    bot.notice(f"  {B}$flood whitelist del <nick|mask>{B}    — Remove exemption", nick)
     bot.notice(f"  {B}$flood stats{B}                        — Recent ban actions in this channel", nick)
     bot.notice(f"  {B}$flood top{B}                          — Top 5 most-kicked users (all time)", nick)
     bot.notice(f"  {B}$floodtop{B}                           — Shortcut for $flood top", nick)

@@ -36,9 +36,9 @@ All commands require **bot admin** privileges.
 | `$flood` | — | Show antiflood status & parameters for the current channel | `$flood` |
 | `$flood` | `on` / `off` | Enable/disable antiflood in the current channel | `$flood on` |
 | `$flood` | `set <param> <val>` | Adjust runtime parameters (`window`, `threshold`, `duration`, `banmask`) | `$flood set threshold 5` |
-| `$flood` | `whitelist list` | Show whitelisted hostmasks | `$flood whitelist list` |
-| `$flood` | `whitelist add <user@host>` | Exempt a hostmask from flood detection | `$flood whitelist add *!*@example.com` |
-| `$flood` | `whitelist del <user@host>` | Remove a hostmask exemption | `$flood whitelist del *!*@example.com` |
+| `$flood` | `whitelist list` | Show this channel's antiflood whitelist | `$flood whitelist list` |
+| `$flood` | `whitelist add <nick\|mask>` | Exempt a nick or hostmask from join-flood and from JPQ. A nick also saves `*!*@host` when the bot can see that user. Globs such as `*!*@cloak` match | `$flood whitelist add PokemonTrainer` |
+| `$flood` | `whitelist del <nick\|mask>` | Remove one entry from this channel's antiflood list | `$flood whitelist del PokemonTrainer` |
 | `$flood` | `stats` | Show recent flood ban actions in this channel | `$flood stats` |
 | `$flood` | `top` | Show top 5 most-kicked users in this channel | `$flood top` |
 | `$floodtop` | — | Shortcut for `$flood top` | `$floodtop` |
@@ -50,6 +50,6 @@ All commands require **bot admin** privileges.
 
 * **Tracking**: Timestamps of `JOIN` events are recorded per hostmask (`user@host`).
 * **Triggering**: If a user's join count meets or exceeds the `threshold` within the `window`, they are kicked and banned.
-* **Exemptions**: Users with configured exempt channel modes (default: `+v`, `+h`, `+o`, `+a`, `+q`) or who are whitelisted are bypassed.
+* **Exemptions**: Users with configured exempt channel modes (default: `+v`, `+h`, `+o`, `+a`, `+q`) or who are whitelisted are bypassed. The antiflood list and the JPQ list are both checked, so an entry on either one skips both bans.
 * **Grace Period**: After a bot-initiated kick, a 60-second grace period applies to the hostmask to prevent event loops.
 * **Auto-Unban**: Banned users are automatically unbanned after `ban_duration` seconds (if duration > 0) via a background timer.
