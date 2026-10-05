@@ -1814,6 +1814,26 @@ def _record_api_failure(bot, channel):
     state['last'] = time.time()
 
 
+_MOO_ACTION_RE = re.compile(r'\bmoo+s?\b', re.IGNORECASE)
+_ACTION_FALLBACKS = (
+    (re.compile(r'\b(?:pets?|scratche?s?|pats?|boops?|hugs?|cuddles?)\b', re.IGNORECASE),
+     ("leans into it", "tolerates the attention", "nudges back")),
+    (re.compile(r'\b(?:slash(?:es)?|stabs?|hits?|beats?|kicks?|punche?s?|slaps?|attacks?)\b', re.IGNORECASE),
+     ("flinches", "ducks", "glares")),
+    (re.compile(r'\bmilks?\b', re.IGNORECASE),
+     ("steps out of reach", "is not a cow", "backs away")),
+)
+
+
+def _non_moo_action(source_text):
+    """A short /me that matches the action and is not a moo."""
+    text = source_text or ''
+    for pattern, options in _ACTION_FALLBACKS:
+        if pattern.search(text):
+            return random.choice(options)
+    return random.choice(("side-eyes that", "blinks", "shrugs it off"))
+
+
 def _api_worker(*, bot, trigger, messages, review_mode, is_pm, bot_nick, chan_lock, search_mode=False, wants_sources=False, is_chimein=False, is_action=False, target_channel=None, admin_pm_nick=None):
     try:
         # Circuit breaker: pause a channel after repeated failures, but let a
@@ -2059,6 +2079,14 @@ def _api_worker(*, bot, trigger, messages, review_mode, is_pm, bot_nick, chan_lo
             pass
 
         dest_channel = target_channel if target_channel else trigger.sender
+        # /me replies were copying the moo plugin out of the channel log
+        # ("moos happily", "moos in pain") even after "stop mooing".
+        if is_action and _MOO_ACTION_RE.search(reply or ''):
+            try:
+                _src = trigger.group(0) or ''
+            except Exception:
+                _src = ''
+            reply = _non_moo_action(_src)
         is_reply_action = reply.lstrip().startswith('ACTION ')
         if is_action or is_reply_action:
             if is_action and not is_reply_action:
@@ -4434,8 +4462,12 @@ def handle(bot, trigger):
         if action_bot_mentioned:
             messages.append({"role": "system", "content":
                 "The user just performed a /me IRC action directed at you. "
-                "Respond as a short third-person action yourself (e.g. 'purrs contentedly' or 'wags tail'). "
-                "Do NOT start with your nick. Do NOT use quotes. Just the action text, plain and brief."
+                "Reply with one short third-person action that reacts to THAT action. "
+                "A pet is something you lean into. A hit, slash, or beat is a flinch. "
+                "Anything else gets a short deadpan reaction. "
+                "Do NOT moo. Do NOT act like a cow. Moo lines in the channel log come from a separate moo script, not from you. "
+                "If someone told you to stop mooing, stay stopped. "
+                "Do NOT start with your nick. Do NOT use quotes. One short action, nothing else."
             })
         # Double-dispatch safety: drop the request BEFORE spending an API call,
         # not after (the worker used to discard the finished reply instead).
