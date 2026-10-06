@@ -273,6 +273,11 @@ MAX_USER_FACTS = 200
 # Conversation rows in grok_user_history older than this get pruned
 HISTORY_RETENTION_DAYS = 30
 
+# Channel scrollback kept for the AI. 300 lines per channel, same as the
+# in-memory deque. A busy line is a few hundred bytes, so this stays small.
+CHANNEL_LOG_MAX = 300
+CHANNEL_LOG_TEXT_MAX = 400
+
 _TZ_ABBR_MAP = {
     'EST': 'America/New_York', 'EDT': 'America/New_York',
     'ET': 'America/New_York', 'EASTERN': 'America/New_York',
@@ -470,14 +475,7 @@ def _log_bot_channel_line(core, target, text):
         if chan_log is None:
             return
         nick = getattr(core, 'nick', 'bot')
-        entry = (nick, str(text), time.time())
-        if lock is not None:
-            with lock:
-                dq = chan_log.setdefault(t.lower(), deque(maxlen=300))
-                dq.append(entry)
-        else:
-            dq = chan_log.setdefault(t.lower(), deque(maxlen=300))
-            dq.append(entry)
+        _append_channel_log(core, t, nick, text)
     except Exception:
         pass
 
@@ -679,6 +677,7 @@ def setup(bot):
         bot.memory['grok_channel_settings_cache'] = {}
         _init_db(bot)
         _db_prune_history(bot)
+        _load_channel_logs(bot)
         _load_admin_ignored_into_memory(bot)
     except Exception:
         _log(bot).exception('Failed to initialize Grok DB')
@@ -1081,6 +1080,19 @@ def _init_db(bot):
         'CREATE INDEX IF NOT EXISTS idx_grok_reminders_due '
         'ON grok_reminders (remind_at, status)'
     )
+    c.execute('''
+        CREATE TABLE IF NOT EXISTS grok_channel_log (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            channel TEXT NOT NULL,
+            nick TEXT NOT NULL,
+            text TEXT NOT NULL,
+            ts REAL NOT NULL
+        )
+    ''')
+    c.execute(
+        'CREATE INDEX IF NOT EXISTS idx_grok_channel_log_chan '
+        'ON grok_channel_log (channel, id)'
+    )
     conn.commit()
     # Enable WAL mode for better concurrent read/write access
     conn.execute('PRAGMA journal_mode=WAL')
@@ -1148,6 +1160,113 @@ def _db_prune_history(bot):
             conn.execute('DELETE FROM grok_user_history WHERE ts < ?', (_history_cutoff_iso(),))
     except Exception:
         _log(bot).exception('Failed to prune grok history')
+
+def _append_channel_log(bot, channel, nick, text, ts=None):
+    """Remember one channel line in memory and in the database.
+
+    The in-memory deque is what the AI reads. The database copy is what
+    survives a plugin reload or $rehash. Each channel keeps CHANNEL_LOG_MAX
+    lines, so the table cannot grow with the age of the bot.
+    """
+    channel = str(channel or '')
+    if not channel.startswith('#'):
+        return
+    text = str(text or '').replace('\r', ' ').replace('\n', ' ').strip()
+    if not text:
+        return
+    if len(text) > CHANNEL_LOG_TEXT_MAX:
+        text = text[:CHANNEL_LOG_TEXT_MAX - 1] + '…'
+    ts = time.time() if ts is None else float(ts)
+    nick = str(nick or 'user')
+    key = channel.lower()
+    memory = getattr(bot, 'memory', None)
+    if memory is None:
+        return
+    chan_log = memory.get('grok_channel_log')
+    if chan_log is None:
+        return
+    entry = (nick, text, ts)
+    lock = memory.get('grok_say_lock')
+    if lock is not None:
+        with lock:
+            dq = chan_log.setdefault(key, deque(maxlen=CHANNEL_LOG_MAX))
+            dq.append(entry)
+    else:
+        dq = chan_log.setdefault(key, deque(maxlen=CHANNEL_LOG_MAX))
+        dq.append(entry)
+    _db_append_channel_log(bot, key, nick, text, ts)
+
+
+def _db_append_channel_log(bot, channel, nick, text, ts):
+    """Persist one channel line and drop anything past the per-channel cap."""
+    try:
+        with _DBContext(bot) as conn:
+            c = conn.cursor()
+            c.execute(
+                'INSERT INTO grok_channel_log (channel, nick, text, ts) VALUES (?, ?, ?, ?)',
+                (channel, nick, text, ts),
+            )
+            c.execute(
+                '''DELETE FROM grok_channel_log
+                   WHERE channel = ? AND id NOT IN (
+                       SELECT id FROM grok_channel_log
+                       WHERE channel = ? ORDER BY id DESC LIMIT ?
+                   )''',
+                (channel, channel, CHANNEL_LOG_MAX),
+            )
+    except Exception:
+        _log(bot).debug('Failed to persist channel log line', exc_info=True)
+
+
+def _load_channel_logs(bot):
+    """Restore each channel's recent lines into grok_channel_log.
+
+    Lines that arrived while this was loading are kept and placed after
+    the restored ones.
+    """
+    try:
+        with _DBContext(bot) as conn:
+            c = conn.cursor()
+            c.execute('SELECT DISTINCT channel FROM grok_channel_log')
+            channels = [row[0] for row in c.fetchall()]
+            loaded = {}
+            for chan in channels:
+                c.execute(
+                    'SELECT nick, text, ts FROM grok_channel_log '
+                    'WHERE channel = ? ORDER BY id DESC LIMIT ?',
+                    (chan, CHANNEL_LOG_MAX),
+                )
+                rows = [(nick, text, float(ts or 0)) for nick, text, ts in reversed(c.fetchall())]
+                if rows:
+                    loaded[str(chan).lower()] = rows
+    except Exception:
+        _log(bot).exception('Failed to load channel logs')
+        return
+
+    memory = bot.memory
+    chan_log = memory.get('grok_channel_log')
+    if chan_log is None:
+        return
+    lock = memory.get('grok_say_lock')
+
+    def _merge():
+        for chan, rows in loaded.items():
+            live = list(chan_log.get(chan, ()))
+            dq = deque(rows, maxlen=CHANNEL_LOG_MAX)
+            for entry in live:
+                if not dq or dq[-1] != entry:
+                    dq.append(entry)
+            chan_log[chan] = dq
+
+    if lock is not None:
+        with lock:
+            _merge()
+    else:
+        _merge()
+    _log(bot).info(
+        'Restored channel logs for %d channel(s)', len(loaded),
+    )
+
 
 def _db_add_turn(bot, nick, role, text, source=None):
     try:
@@ -3173,10 +3292,7 @@ def handle(bot, trigger):
         if not _noise:
             try:
                 _cl_key = trigger.sender.lower()
-                _cl_dq = bot.memory['grok_channel_log'].setdefault(
-                    _cl_key, deque(maxlen=300)
-                )
-                _cl_dq.append((trigger.nick, line.strip(), time.time()))
+                _append_channel_log(bot, trigger.sender, trigger.nick, line.strip())
                 
                 # Auto-learning: periodically extract facts about active users
                 _learn_counters = bot.memory.get('grok_learn_counters', {})
@@ -3189,7 +3305,8 @@ def handle(bot, trigger):
                     
                     # Find active users (who have spoken at least 5 times in recent history)
                     nick_counts = {}
-                    for n, _, _ in list(_cl_dq)[-100:]:
+                    _cl_dq = bot.memory.get('grok_channel_log', {}).get(_cl_key)
+                    for n, _, _ in list(_cl_dq or ())[-100:]:
                         if n.lower() not in own_nicks:
                             nick_counts[n] = nick_counts.get(n, 0) + 1
                     

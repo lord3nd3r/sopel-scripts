@@ -424,7 +424,7 @@ This section documents the internal design for developers and maintainers.
 | `setup(bot)` | Reads API key from raw configparser (bypasses ibot's `***` mask), creates a `requests.Session` with connection pooling (10/20 pool), initializes all `bot.memory` structures, wraps `bot.say`, starts 3 worker threads |
 | `shutdown(bot)` | Sets `API_WORKER_SHUTDOWN`, sends poison pills to workers, drains the queue, closes the `requests.Session`, restores `bot.say` to its original function |
 
-On **plugin reload**, `setup()` automatically closes any previous session before creating a new one, and guards against `bot.say` wrapper stacking via `hasattr(bot, '_grok_original_say')`.
+On **plugin reload** or **$rehash**, `setup()` closes any previous session before creating a new one, and guards against `bot.say` wrapper stacking via `hasattr(bot, '_grok_original_say')`. The channel scrollback is loaded back from `grok_channel_log` in `grok.sqlite3` (last 300 lines per channel). `$grokreset` still clears a user's or channel's conversation history and does not wipe that scrollback.
 
 ### Memory Management
 
