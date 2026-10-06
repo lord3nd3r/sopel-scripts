@@ -6,6 +6,7 @@ Author: Kristopher Craig
 Commands:
     $jpq                    - Show status for the current channel
     $jpq on / off           - Enable/disable JPQ in the current channel
+    $jpq ban on / off       - Also ban on kick (off by default)
     $jpq set <param> <val>  - Adjust window, threshold, duration, or banmask
     $jpq whitelist ...      - Manage exempted hostmasks
     $jpq stats              - Show recent ban actions
@@ -113,6 +114,18 @@ def _is_channel_enabled(bot, channel):
         return False
     disabled = bot.db.get_plugin_value('jpq', 'disabled_channels') or []
     return channel.lower() not in [c.lower() for c in disabled]
+
+
+def _bans_enabled(bot, channel):
+    """Per-channel host bans. Off until someone runs $jpq ban on."""
+    flags = bot.db.get_plugin_value('jpq', 'bans') or {}
+    return bool(flags.get(str(channel).lower(), False))
+
+
+def _set_bans(bot, channel, enabled):
+    flags = bot.db.get_plugin_value('jpq', 'bans') or {}
+    flags[str(channel).lower()] = bool(enabled)
+    bot.db.set_plugin_value('jpq', 'bans', flags)
 
 
 def _whitelist_entries(bot, channel):
@@ -431,8 +444,9 @@ def _record_event(bot, nick, channel, hostmask, trigger):
 
 
 def _take_action(bot, nick, channel, hostmask, trigger, settings, count):
-    """Ban and kick a user who triggered flood protection."""
-    banmask = _get_banmask(trigger, style=settings.get('banmask_style', 'host'))
+    """Kick a user who triggered flood protection, and ban when enabled."""
+    do_ban = _bans_enabled(bot, channel)
+    banmask = _get_banmask(trigger, style=settings.get('banmask_style', 'host')) if do_ban else None
 
     if not _bot_has_op(bot, channel):
         LOGGER.warning(
@@ -445,33 +459,41 @@ def _take_action(bot, nick, channel, hostmask, trigger, settings, count):
     # during the grace period (prevents feedback loops)
     bot.memory['jpq_recent_kicks'][(channel, hostmask)] = time.time()
 
-    # Ban first, then kick
-    bot.write(['MODE', channel, '+b', banmask])
+    # Ban first, then kick, so they cannot rejoin ahead of the mode.
+    if do_ban:
+        bot.write(['MODE', channel, '+b', banmask])
     reason = f"JPQ flood protection ({count} events in {settings['window']}s)"
     bot.write(['KICK', channel, nick, f':{reason}'])
 
-    LOGGER.info(
-        "JPQ: Banned %s (nick: %s) in %s — %d events in %ds",
-        banmask, nick, channel, count, settings['window'],
-    )
+    if do_ban:
+        LOGGER.info(
+            "JPQ: Banned %s (nick: %s) in %s — %d events in %ds",
+            banmask, nick, channel, count, settings['window'],
+        )
+    else:
+        LOGGER.info(
+            "JPQ: Kicked %s (%s) in %s — %d events in %ds (bans off)",
+            nick, hostmask, channel, count, settings['window'],
+        )
 
     # Record for stats
-    _log_action(bot, nick, channel, banmask, count, settings['window'])
+    _log_action(bot, nick, channel, banmask or 'kick only', count, settings['window'])
 
     # Announce in channel (rate-limited)
     if _can_announce(bot, channel):
         dur = settings['ban_duration']
-        dur_str = f" — auto-unban in {B}{dur}s{B}" if dur > 0 else ""
+        dur_str = f" — auto-unban in {B}{dur}s{B}" if do_ban and dur > 0 else ""
+        action = f"Banned {B}{banmask}{B}" if do_ban else f"Kicked {B}{nick}{B}"
         bot.say(
             f"🛡️ {B}JPQ Flood Detected{B}{SEP}"
-            f"Banned {B}{banmask}{B}{SEP}"
+            f"{action}{SEP}"
             f"{count} events in {settings['window']}s{dur_str}",
             channel,
         )
 
     # Schedule auto-unban
     dur = settings['ban_duration']
-    if dur > 0:
+    if do_ban and dur > 0:
         _schedule_unban(bot, channel, banmask, dur)
 
 
@@ -667,6 +689,7 @@ def cmd_jpq(bot, trigger):
         'on':        lambda: _cmd_toggle(bot, trigger, enable=True),
         'off':       lambda: _cmd_toggle(bot, trigger, enable=False),
         'set':       lambda: _cmd_set(bot, trigger, args[1:]),
+        'ban':       lambda: _cmd_ban(bot, trigger, args[1:]),
         'whitelist': lambda: _cmd_whitelist(bot, trigger, args[1:]),
         'wl':        lambda: _cmd_whitelist(bot, trigger, args[1:]),
         'stats':     lambda: _cmd_stats(bot, trigger),
@@ -700,13 +723,15 @@ def _cmd_status(bot, trigger):
     whitelist = bot.db.get_plugin_value('jpq', f'whitelist_{channel}') or []
     dur_str = f"{settings['ban_duration']}s" if settings['ban_duration'] > 0 else "permanent"
     style_label = "ident (*!user@host)" if settings.get('banmask_style') == 'ident' else "host (*!*@host)"
+    bans_on = _bans_enabled(bot, channel)
 
     bot.say(
         f"🛡️ {B}JPQ Status{B}{SEP}"
         f"{icon} {'Enabled' if enabled else 'Disabled'}{SEP}"
         f"⏱️ Window: {B}{settings['window']}s{B}{SEP}"
         f"🎯 Threshold: {B}{settings['threshold']}{B} events{SEP}"
-        f"⏳ Ban: {B}{dur_str}{B}{SEP}"
+        f"🔨 Bans: {B}{'on' if bans_on else 'off'}{B}{SEP}"
+        f"⏳ Duration: {B}{dur_str}{B}{SEP}"
         f"🎭 Mask: {B}{style_label}{B}"
     )
 
@@ -739,6 +764,40 @@ def _cmd_toggle(bot, trigger, enable):
         bot.say(f"❌ JPQ flood protection {B}disabled{B} for {B}{trigger.sender}{B}")
 
     LOGGER.info("JPQ: %s in %s by %s", 'Enabled' if enable else 'Disabled', channel, trigger.nick)
+
+
+def _cmd_ban(bot, trigger, args):
+    """Enable or disable host bans on kick. Off until turned on."""
+    channel = str(trigger.sender).lower()
+    sub = args[0].lower() if args else 'status'
+
+    if sub in ('status', 'show'):
+        state = "enabled" if _bans_enabled(bot, channel) else "disabled"
+        bot.say(
+            f"🔨 JPQ bans are {B}{state}{B} for {B}{trigger.sender}{B}. "
+            f"Use {B}$jpq ban on{B} or {B}$jpq ban off{B}."
+        )
+        return
+
+    if sub in ('on', 'enable', 'yes'):
+        _set_bans(bot, channel, True)
+        bot.say(
+            f"🔨 JPQ bans {B}enabled{B} for {B}{trigger.sender}{B}. "
+            f"Flood kicks will also set a ban."
+        )
+        LOGGER.info("JPQ: Bans enabled in %s by %s", channel, trigger.nick)
+        return
+
+    if sub in ('off', 'disable', 'no'):
+        _set_bans(bot, channel, False)
+        bot.say(
+            f"🔨 JPQ bans {B}disabled{B} for {B}{trigger.sender}{B}. "
+            f"Existing bans stay until someone removes them."
+        )
+        LOGGER.info("JPQ: Bans disabled in %s by %s", channel, trigger.nick)
+        return
+
+    bot.reply(f"⚠️ Usage: {B}$jpq ban{B} <on|off>")
 
 
 def _cmd_set(bot, trigger, args):
@@ -898,6 +957,8 @@ def _cmd_help(bot, trigger):
     bot.notice(" ", nick)
     bot.notice(f"  {B}$jpq{B}                            — Status for current channel", nick)
     bot.notice(f"  {B}$jpq on{B} / {B}off{B}                    — Enable / disable in this channel", nick)
+    bot.notice(f"  {B}$jpq ban{B}                         — Show whether kicks also set a ban", nick)
+    bot.notice(f"  {B}$jpq ban on{B} / {B}off{B}                — Ban on kick (off by default)", nick)
     bot.notice(f"  {B}$jpq set window <sec>{B}            — Detection window (5–300s, default 30)", nick)
     bot.notice(f"  {B}$jpq set threshold <n>{B}            — Event count to trigger (2–50, default 5)", nick)
     bot.notice(f"  {B}$jpq set duration <sec>{B}           — Auto-unban delay (0 = permanent, default 300)", nick)
@@ -910,7 +971,8 @@ def _cmd_help(bot, trigger):
     bot.notice(
         f"📝 Tracks JOIN/PART/QUIT by hostmask, including ping timeouts and "
         f"dropped connections. If a user exceeds the threshold within the "
-        f"window, they are banned and kicked. Halfops and above are always "
+        f"window, they are kicked. Bans are off unless $jpq ban on is set. "
+        f"Halfops and above are always "
         f"skipped, including the rejoin before their mode comes back. "
         f"Sopel-ignored hosts are skipped.",
         nick,

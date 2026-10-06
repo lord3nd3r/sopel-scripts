@@ -37,6 +37,8 @@ All commands require **bot admin** privileges and must be used in a channel. `$j
 |---------|-------------------|-------------|---------|
 | `$jpq` | — | Show JPQ status and parameters for the current channel | `$jpq` |
 | `$jpq` | `on` / `off` | Enable or disable JPQ in the current channel | `$jpq off` |
+| `$jpq` | `ban` | Show whether flood kicks also set a ban | `$jpq ban` |
+| `$jpq` | `ban on` / `ban off` | Ban along with each kick. Off by default. Turning it off leaves bans already set | `$jpq ban on` |
 | `$jpq` | `set window <sec>` | Detection window, 5–300 seconds (default 30) | `$jpq set window 300` |
 | `$jpq` | `set threshold <n>` | Events inside the window that trigger a ban, 2–50 (default 5) | `$jpq set threshold 4` |
 | `$jpq` | `set duration <sec>` | Auto-unban delay, 0–86400 seconds. 0 keeps the ban (default 300) | `$jpq set duration 600` |
@@ -52,10 +54,11 @@ All commands require **bot admin** privileges and must be used in a channel. `$j
 ## Behavior
 
 * **Tracking**: The plugin tracks `JOIN`, `PART`, and `QUIT` events, including ping timeouts and dropped connections. Since `QUIT` is server-wide, the plugin keeps an in-memory channel membership map so it knows which channels the quitting user was in.
-* **Triggering**: If a user's combined event count meets or exceeds the `threshold` within the `window`, the bot sets a ban and then kicks. The kick reason is `JPQ flood protection (N events in Ws)`. The bot has to be opped. If it is not, the flood is logged and nobody is kicked.
+* **Triggering**: If a user's combined event count meets or exceeds the `threshold` within the `window`, the bot kicks them. The kick reason is `JPQ flood protection (N events in Ws)`. The bot has to be opped. If it is not, the flood is logged and nobody is kicked.
+* **Bans**: Off until `$jpq ban on` in that channel. When on, the bot sets the ban before the kick. `$jpq ban off` stops new bans and leaves ones already set. Auto-unban applies only when bans are on and `ban_duration` is greater than 0.
 * **Announcement**: The channel notice is limited to one every 5 seconds. The event count is printed in normal text so IRC color codes do not swallow the digits.
 * **Exemptions**: Halfops and above (`+h`, `+o`, `+a`, `+q`) are always skipped. That includes the quit and the rejoin before ChanServ restores the mode. A mode change that leaves them below halfop removes that exemption. Voice is skipped only when `exempt_modes` contains `v`.
 * **Whitelist**: A nick matches that nickname. A hostmask matches `user@host`, including `*` and `?` globs. The JPQ list and the antiflood list are both checked, so `$jpq whitelist add` and `$flood whitelist add` each protect against both bans. Removing an entry only deletes it from the list it was added to.
 * **Other skips**: Sopel's `nick_blocks` and `host_blocks` are ignored.
 * **Grace Period**: After a bot kick, that hostmask is ignored for 60 seconds so the kick and ban do not count as more flood events.
-* **Auto-Unban**: When `ban_duration` is greater than 0, a timer removes the ban. Pending timers are cancelled when the bot shuts down.
+* **Auto-Unban**: When bans are on and `ban_duration` is greater than 0, a timer removes the ban. Pending timers are cancelled when the bot shuts down.
